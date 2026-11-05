@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "name": "muse-web-config",
+  "baseUrl": "https://muse.ai/",
+  "newChatUrl": "https://muse.ai/thread/new",
+  "chatUrlPattern": "/thread/[0-9a-fA-F-]{36}",
+  "promptTemplate": {
+    "video": "Create a video. Aspect ratio {ratio}. Make exactly one video, without asking follow-up questions.\n\n{prompt}\n\n[{code}]",
+    "image": "Create an image. Aspect ratio {ratio}. Make exactly one image, without asking follow-up questions.\n\n{prompt}\n\n[{code}]"
+  },
+  "selectors": {
+    "composer": "textarea[aria-label=\"Message\"]",
+    "sendButton": "button[aria-label=\"Send\"]",
+    "fileInput": "input[type=\"file\"]",
+    "attachmentReady": "[data-testid*=\"attachment\" i] img[src^=\"blob:\"]",
+    "loggedInMarker": "textarea[aria-label=\"Message\"]",
+    "loginMarker": "input[placeholder=\"Mobile number or email\"], input[type=\"email\"]",
+    "captcha": "iframe[src*=\"captcha\"], iframe[title*=\"challenge\" i]",
+    "messages": "[data-message-item=\"true\"]",
+    "userMessage": "[data-message-item=\"true\"][data-message-role=\"user\"]",
+    "pending": "[aria-busy=\"true\"]",
+    "image": "[data-testid=\"hatch-chat-attachment-presentation-image\"] img",
+    "video": "[data-hatch-video-wrapper=\"true\"] video",
+    "rateLimit": "[role=\"alert\"]:has-text(\"limit\")",
+    "outOfCredit": "[role=\"alert\"]:has-text(\"credit\")",
+    "sendFailed": "text=Delivery not confirmed"
+  },
+  "timing": {
+    "pollMs": 1500,
+    "stableMs": 3000,
+    "attachTimeoutMs": 60000,
+    "pageTimeoutMs": 60000,
+    "sendGapMs": 6000
+  }
+}
+
