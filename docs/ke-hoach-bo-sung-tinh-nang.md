@@ -1,248 +1,283 @@
-# Kế Hoạch Bổ Sung Tính Năng — Xitrum AI Studio
+# Kế Hoạch Nâng Cấp Xitrum AI Studio — Phân Tích Từ Kahi AI
 
-> Phiên bản hiện tại: **0.1.0** | Ngày lập kế hoạch: 2026-11-05
-
----
-
-## Tổng Quan
-
-Kế hoạch này liệt kê các tính năng cần bổ sung cho **Xitrum AI Studio** dựa trên phân tích so sánh với **Kahi AI** và nhu cầu thực tế của người dùng. Các tính năng được sắp xếp theo mức độ ưu tiên (giá trị / rủi ro thực thi).
+> Phiên bản hiện tại: **0.1.0** | Cập nhật: 2026-11-05  
+> Nguồn phân tích: Reverse engineering `preload.js` + `main.js` từ Kahi AI v2.1.4
 
 ---
 
-## Phân Tích Khoảng Trống Hiện Tại
+## Kahi AI Làm Gì? (Hiểu Đúng Trước Khi Làm)
 
-| Tính năng | Kahi AI | Xitrum hiện tại | Khoảng trống |
-|---|---|---|---|
-| Mở thư mục kết quả | `results.open/reveal/openFolder` | Chỉ hiển thị path | Nhỏ |
-| Thư viện template / prompt | `prompts.list`, `saveCustom` | Chưa có | Lớn |
-| Retry task thất bại | `queue.rerun` | Chưa có | Nhỏ |
-| Multi-lane execution | `runner.lanes` | Actor đơn | Vừa |
-| Chọn model Whisper | Không (bundled) | Fixed `ggml-tiny` | Vừa |
-| Tích hợp Muse.ai runner | `runner.*` IPC | Chưa nối thật | Lớn |
-| Nhạc nền tự động | `music.pickDir` | Chưa có | Vừa |
-| Thông báo in-app | `notices.*` | Chưa có | Nhỏ |
-| Audio segment editor | `audio.editSegment` | Chưa có | Lớn |
-| Duplicate/Edit prompt | — | Chưa có | Nhỏ |
+Kahi AI là ứng dụng **Audio → Video AI** theo pipeline hoàn chỉnh:
 
----
+```
+[1] Import file audio (giọng đọc sẵn)
+      ↓ Whisper STT
+[2] Timeline segments: câu 1 (0s-3s), câu 2 (3s-7s), ...
+      ↓ Timeline Editor (người dùng gắn prompt + ảnh mẫu cho từng câu)
+[3] Queue → Muse.ai sinh ảnh/video cho từng segment
+      ↓ FFmpeg
+[4] Ghép toàn bộ thành 1 video hoàn chỉnh có audio + hình + nhạc nền
+```
 
-## Ưu Tiên 1 — Giá Trị Cao, Rủi Ro Thấp
-
-### P1-1: Nút "Mở Thư Mục Kết Quả"
-
-**Vấn đề:** Sau khi task hoàn thành, người dùng không thể mở ngay folder output.
-
-**Giải pháp:**
-- Thêm nút 📂 vào cột Actions trong bảng Queue
-- Gọi Tauri command `open_output_folder(task_id)` → dùng `opener::open()` hoặc `tauri::api::shell::open()` trên `output_path.parent()`
-- Nếu `output_path` chưa tồn tại → hiển thị toast lỗi
-
-**Files cần sửa:**
-- `src-tauri/src/commands.rs` — thêm `#[tauri::command] fn open_output_folder`
-- `src/App.tsx` — thêm nút trong cột Actions
-- `src/api.ts` — export `openOutputFolder(taskId)`
-
-**Effort:** ~2h | **Phiên bản mục tiêu:** 0.2.0
+**Whisper trong Kahi** = chỉ là bước phụ trợ để tách timestamp — không phải mục tiêu chính.  
+**Giá trị cốt lõi của Kahi** = Timeline Editor (bước 2) + Auto-render ghép video (bước 4).
 
 ---
 
-### P1-2: Thư Viện Template / Prompt
+## Phân Tích Khoảng Trống Dựa Trên IPC Thực Tế
 
-**Vấn đề:** Mỗi lần tạo task đều phải nhập lại prompt, không có tái sử dụng.
-
-**Giải pháp:**
-- Thêm bảng SQLite: `templates(id TEXT PRIMARY KEY, name TEXT, prompt TEXT, ratio TEXT, created_at INTEGER)`
-- Rust commands: `save_template`, `list_templates`, `delete_template`, `apply_template`
-- UI: Tab mới **"Templates"** bên sidebar, danh sách card với nút Apply / Delete
-- Khi Apply: điền sẵn form tạo task tương ứng
-
-**Files cần tạo/sửa:**
-- `src-tauri/src/db.rs` — thêm migration bảng `templates`
-- `src-tauri/src/commands.rs` — thêm 4 commands mới
-- `src/components/TemplateLibrary.tsx` — component mới
-- `src/App.tsx` — thêm tab Templates
-- `src/api.ts` — export wrapper functions
-
-**Effort:** ~6h | **Phiên bản mục tiêu:** 0.2.0
+### Namespace `queue` — Kahi IPC đầy đủ:
+```
+queue.add, queue.addCombo, queue.approve, queue.reject,
+queue.list, queue.get, queue.remove, queue.recover,
+queue.rerun, queue.editPrompt, queue.duplicate,
+queue.newSession, queue.batches
+```
+**Xitrum có:** `enqueue_task`, `cancel_task`, `list_tasks`  
+**Thiếu:** approve/reject, editPrompt, duplicate, recover, newSession
 
 ---
 
-### P1-3: Retry Task Thất Bại
-
-**Vấn đề:** Khi task fail (do lỗi path, model crash…), người dùng phải xóa rồi tạo lại từ đầu.
-
-**Giải pháp:**
-- Thêm Rust command `retry_task(task_id)`:
-  - Reset `status = 'queued'`, `error = NULL`, `progress = 0` trong DB
-  - Gửi task vào queue channel lại
-- Hiển thị nút 🔄 Retry trong cột Actions khi `status == 'failed'`
-
-**Files cần sửa:**
-- `src-tauri/src/commands.rs`
-- `src-tauri/src/queue.rs` — expose method `re_enqueue`
-- `src/App.tsx` — nút Retry
-
-**Effort:** ~3h | **Phiên bản mục tiêu:** 0.2.0
+### Namespace `runner` — Kahi IPC:
+```
+runner.start, runner.stop, runner.state, runner.lanes
+```
+**Xitrum có:** Actor queue đơn luồng + CancellationToken  
+**Thiếu:** multi-lane (chạy song song), state expose ra UI
 
 ---
 
-## Ưu Tiên 2 — Giá Trị Vừa, Effort Vừa
-
-### P2-1: Chọn Model Whisper từ Settings
-
-**Vấn đề:** Model `ggml-tiny` nhanh nhưng độ chính xác thấp; người dùng muốn chọn `base` hoặc `medium` cho nội dung phức tạp.
-
-**Giải pháp:**
-- Thêm field `whisper_model` vào `AppConfig` (mặc định: `ggml-tiny`)
-- Settings tab: dropdown chọn model, hiển thị kích thước file và tốc độ ước tính
-- Executor audio đọc `config.whisper_model` để build path `--model <path>`
-- Hỗ trợ 3 model đi kèm: `ggml-tiny.bin` (75MB), `ggml-base.bin` (142MB), `ggml-medium.bin` (1.5GB)
-
-> [!NOTE] Model `ggml-medium` cần download riêng (~1.5GB); không bundle vào installer. Thêm nút "Download" trong Settings kích hoạt download qua `tauri-plugin-http`.
-
-**Files cần sửa:**
-- `src-tauri/src/models.rs` — thêm field `whisper_model: String`
-- `src-tauri/src/executors/audio.rs` — đọc config
-- `src/App.tsx` — dropdown trong Settings tab
-
-**Effort:** ~4h | **Phiên bản mục tiêu:** 0.3.0
+### Namespace `audio` — Kahi IPC đầy đủ (27 methods):
+```
+audio.pick, audio.open, audio.close, audio.start, audio.stop,
+audio.view, audio.queue, audio.clips, audio.jobs, audio.busy,
+audio.editSegment, audio.editBible, audio.setRefs,
+audio.addToQueue, audio.exportScript, audio.exportAudio,
+audio.setRender, audio.shuffle, audio.setEffect, audio.pickClip,
+audio.render, audio.stopRender, audio.openRender, audio.stopAuto,
+audio.refill, audio.regenerate,
+audio.batchPick, audio.batchInspect, audio.batchStart,
+audio.batches, audio.batch, audio.running, audio.batchPause, audio.batchStop
+```
+**Xitrum có:** `audio.start` (FFmpeg→WAV→Whisper→JSON)  
+**Thiếu:** Toàn bộ phần editor, render, export, batch
 
 ---
 
-### P2-2: Multi-Lane Execution (Xử Lý Song Song)
-
-**Vấn đề:** Hiện tại chỉ chạy 1 task tại một thời điểm, lãng phí tài nguyên khi task nhẹ.
-
-**Giải pháp:**
-- Thêm config: `max_parallel_local: u8` (mặc định 2), `max_parallel_muse: u8` (mặc định 1)
-- Dùng `tokio::sync::Semaphore` trong `queue.rs` để giới hạn concurrent tasks theo loại
-- Hiển thị lane indicator trong UI (ví dụ: "🟢 Slot 1/2 đang dùng")
-
-**Files cần sửa:**
-- `src-tauri/src/queue.rs` — thêm Semaphore logic
-- `src-tauri/src/models.rs` — thêm config fields
-- `src/App.tsx` — hiển thị slot status
-
-**Effort:** ~5h | **Phiên bản mục tiêu:** 0.3.0
+### Namespace `results` — Kahi IPC:
+```
+results.open, results.reveal, results.openFolder
+```
+**Xitrum có:** Hiển thị path text  
+**Thiếu:** Nút mở file / mở thư mục
 
 ---
 
-### P2-3: Tích Hợp Muse.ai Runner Thật
-
-**Vấn đề:** Tab Video hiện tại chưa thực sự gửi video lên Muse.ai; cần nối sidecar Node.js runner.
-
-**Giải pháp:**
-- Tích hợp `sidecar-muse/runner.mjs` (Playwright + Chrome CDP)
-- Rust executor mới `executors/muse_runner.rs`:
-  - Spawn sidecar `node runner.mjs --task <json>`
-  - Đọc stdout JSON-lines: `{"type":"progress","value":50}`, `{"type":"done","url":"..."}`
-  - Emit Tauri events `task_progress`, `task_done`
-- Xử lý auth expired: emit event `muse_session_expired` → hiển thị dialog hướng dẫn re-login
-
-> [!IMPORTANT] Chrome profile phải tồn tại tại `%APPDATA%\xitrum-ai-studio\chrome-profile\`. Thêm hướng dẫn setup lần đầu.
-
-**Files cần tạo/sửa:**
-- `src-tauri/src/executors/muse_runner.rs` — executor mới
-- `sidecar-muse/runner.mjs` — JSON-lines protocol
-- `src-tauri/src/commands.rs` — `check_muse_session`
-- `src/App.tsx` — dialog session expired
-
-**Effort:** ~12h | **Phiên bản mục tiêu:** 0.4.0
+### Namespace `music` — Kahi IPC:
+```
+music.status, music.set, music.pickDir, music.openDir
+```
+**Xitrum có:** Chưa có gì  
+**Thiếu:** Toàn bộ
 
 ---
 
-## Ưu Tiên 3 — Tiện Ích, Effort Thấp–Vừa
-
-### P3-1: Thông Báo In-App (Toast/Banner)
-
-**Vấn đề:** Không có phản hồi trực quan khi task hoàn thành hoặc lỗi.
-
-**Giải pháp:**
-- Thêm toast notification system bằng `react-hot-toast` hoặc tự build
-- Subscribe sự kiện Tauri: `task_completed`, `task_failed`, `task_progress`
-- Toast tự biến mất sau 5 giây; lỗi yêu cầu click để đóng
-
-**Effort:** ~2h | **Phiên bản mục tiêu:** 0.2.0
+### Namespace `templates` / `prompts` — Kahi IPC:
+```
+prompts.list, prompts.saveCustom, prompts.importFiles,
+templates.list, templates.get
+```
+**Xitrum có:** Nhập prompt trực tiếp trong form  
+**Thiếu:** Thư viện lưu sẵn
 
 ---
 
-### P3-2: Nhạc Nền Tự Động
-
-**Vấn đề:** Video render xong không có nhạc nền, kém hấp dẫn.
-
-**Giải pháp:**
-- Thêm Settings field `music_folder` (pick folder dialog)
-- Rust command `mix_music(video_path, music_folder)`:
-  - Random pick 1 file `.mp3`/`.wav` từ folder
-  - FFmpeg: `ffmpeg -i video.mp4 -i music.mp3 -shortest -filter_complex amix output.mp4`
-- Có thể thêm vào queue như một post-process step tùy chọn
-
-**Effort:** ~4h | **Phiên bản mục tiêu:** 0.3.0
-
----
-
-### P3-3: Audio Segment Editor
-
-**Vấn đề:** Whisper đôi khi nhận dạng sai; không có cách sửa text trước khi render.
-
-**Giải pháp:**
-- Sau khi STT hoàn thành, hiển thị danh sách segments: `[00:01.3 → 00:04.7] "text here"`
-- Cho phép sửa text trong từng ô
-- Nút "Re-render" dùng segments đã sửa + FFmpeg subtitle overlay
-
-**Effort:** ~8h | **Phiên bản mục tiêu:** 0.4.0
-
----
-
-### P3-4: Duplicate / Edit Task Đang Chờ
-
-**Vấn đề:** Muốn tạo task tương tự với thay đổi nhỏ phải nhập lại từ đầu.
-
-**Giải pháp:**
-- Nút ✏️ Edit trên task `queued` → mở form pre-filled
-- Nút 📋 Duplicate → tạo bản sao với status `queued`
-
-**Effort:** ~3h | **Phiên bản mục tiêu:** 0.2.0
-
----
-
-## Lộ Trình Phiên Bản
+## Lộ Trình Nâng Cấp
 
 ```mermaid
 flowchart LR
-    V010["v0.1.0\n✅ Released\nCore queue\nFFmpeg+Whisper\nRembg ONNX"]
-    V020["v0.2.0\n🎯 Mục tiêu\nMở thư mục kết quả\nTemplate library\nRetry task\nToast notifications\nDuplicate/Edit task"]
-    V030["v0.3.0\n📋 Kế hoạch\nChọn model Whisper\nMulti-lane execution\nNhạc nền tự động"]
-    V040["v0.4.0\n🔮 Tương lai\nMuse.ai runner thật\nAudio segment editor"]
+    V010["v0.1.0 ✅\nCore queue\nFFmpeg+Whisper STT\nRembg ONNX"]
+    V020["v0.2.0 🎯\nMở folder kết quả\nRetry/Duplicate task\nToast notifications\nTemplate library"]
+    V030["v0.3.0 📋\nTimeline Editor\nAudio→Queue pipeline\nExport SRT/TXT\nChọn Whisper model"]
+    V040["v0.4.0 🔮\nMuse.ai runner thật\nAuto-render ghép video\nNhạc nền tự động\nMulti-lane runner"]
 
     V010 --> V020 --> V030 --> V040
 ```
 
 ---
 
-## Ước Tính Effort Tổng
+## Chi Tiết Từng Phiên Bản
 
-| Phiên bản | Tính năng | Effort ước tính |
-|---|---|---|
-| v0.2.0 | P1-1, P1-2, P1-3, P3-1, P3-4 | ~16h |
-| v0.3.0 | P2-1, P2-2, P3-2 | ~13h |
-| v0.4.0 | P2-3, P3-3 | ~20h |
-| **Tổng** | | **~49h** |
+---
+
+### v0.2.0 — Hoàn Thiện UX Cơ Bản
+*Mục tiêu: Lấp các lỗ hổng nhỏ, dễ dùng hơn. Effort: ~16h*
+
+#### F1: Nút Mở Thư Mục Kết Quả (`results.reveal` / `results.openFolder`)
+- Thêm nút 📂 trong cột Actions của bảng Queue, chỉ hiện khi `status = completed`
+- Rust command `open_output_folder(task_id)` → dùng `opener::open(path.parent())`
+- **Files:** `commands.rs`, `App.tsx`, `api.ts`
+- **Effort:** ~2h
+
+#### F2: Retry Task Thất Bại (`queue.rerun`)
+- Nút 🔄 Retry hiện khi `status = failed`
+- Reset DB: `status='queued', error=NULL, progress=0` → re-enqueue
+- **Files:** `commands.rs`, `queue.rs`, `App.tsx`
+- **Effort:** ~3h
+
+#### F3: Duplicate Task (`queue.duplicate`)
+- Nút 📋 Duplicate trên task bất kỳ → tạo bản sao với `status='queued'`
+- **Files:** `commands.rs`, `App.tsx`
+- **Effort:** ~2h
+
+#### F4: Edit Prompt Task Đang Chờ (`queue.editPrompt`)
+- Task ở trạng thái `queued` có thể sửa prompt trước khi chạy
+- **Files:** `commands.rs`, `db.rs`, `App.tsx`
+- **Effort:** ~3h
+
+#### F5: Toast Notifications
+- Subscribe sự kiện Tauri: `task_completed`, `task_failed`
+- Toast tự biến mất sau 5s, lỗi yêu cầu click đóng
+- Dùng `react-hot-toast` hoặc tự build
+- **Files:** `App.tsx`, thêm package
+- **Effort:** ~2h
+
+#### F6: Template / Prompt Library (`prompts.saveCustom`, `prompts.list`)
+- Bảng SQLite mới: `templates(id, name, prompt, ratio, created_at)`
+- Rust commands: `save_template`, `list_templates`, `delete_template`
+- UI: Tab **"Templates"** trong sidebar, danh sách card với nút Apply / Delete
+- Khi Apply → điền sẵn form tạo task
+- **Files:** `db.rs`, `commands.rs`, `components/TemplateLibrary.tsx`, `App.tsx`
+- **Effort:** ~6h
+
+---
+
+### v0.3.0 — Audio Pipeline Hoàn Chỉnh
+*Mục tiêu: Tái hiện workflow Audio→Queue của Kahi. Effort: ~20h*
+
+#### F7: Timeline Segment Editor (`audio.editSegment`, `audio.view`)
+Đây là **tính năng cốt lõi** của Kahi — hiện Xitrum hoàn toàn chưa có.
+
+**Workflow:**
+1. Import file audio → chạy Whisper → lưu JSON timeline vào DB
+2. Hiển thị danh sách segments dạng bảng:
+   ```
+   #  | Thời gian       | Text (editable)           | Prompt | Ảnh mẫu
+   1  | 00:00 → 00:03   | "Xin chào mọi người"      | [...]  | [pick]
+   2  | 00:03 → 00:07   | "Hôm nay chúng ta sẽ..."  | [...]  | [pick]
+   ```
+3. Người dùng sửa text, gán prompt AI và ảnh người mẫu cho từng segment
+4. Nút "Add to Queue" → đẩy từng segment vào queue Muse.ai
+
+**Cấu trúc DB mới:**
+```sql
+CREATE TABLE audio_jobs (
+  id TEXT PRIMARY KEY,
+  audio_path TEXT,
+  status TEXT,
+  created_at INTEGER
+);
+
+CREATE TABLE audio_segments (
+  id TEXT PRIMARY KEY,
+  job_id TEXT REFERENCES audio_jobs(id),
+  seq INTEGER,
+  start_ms INTEGER,
+  end_ms INTEGER,
+  text TEXT,
+  prompt TEXT,
+  ref_image_path TEXT,
+  queue_task_id TEXT  -- liên kết với bảng tasks sau khi add to queue
+);
+```
+
+**Files:** `db.rs`, `commands.rs`, `executors/audio.rs`, `components/AudioTimeline.tsx`, `App.tsx`  
+**Effort:** ~12h
+
+#### F8: Export Script (`audio.exportScript`)
+- Xuất timeline đã sửa ra file `.srt`, `.txt`, `.csv`
+- Rust command `export_script(job_id, format)`
+- **Files:** `commands.rs`, `App.tsx`
+- **Effort:** ~3h
+
+#### F9: Chọn Model Whisper
+- Dropdown trong Settings: `ggml-tiny` / `ggml-base` / `ggml-medium`
+- Hiển thị kích thước file và tốc độ ước tính
+- `ggml-medium` cần download thêm (~1.5GB) → nút Download
+- **Files:** `models.rs`, `executors/audio.rs`, `App.tsx`
+- **Effort:** ~4h
+
+#### F10: Approve / Reject Kết Quả (`queue.approve`, `queue.reject`)
+- Trước khi render ghép video: xem preview từng segment, duyệt hoặc bỏ
+- **Files:** `commands.rs`, `db.rs`, `App.tsx`
+- **Effort:** ~5h (phụ thuộc F7)
+
+---
+
+### v0.4.0 — Render Video Hoàn Chỉnh + Runner Thật
+*Mục tiêu: Tái hiện toàn bộ pipeline Kahi. Effort: ~30h*
+
+#### F11: Muse.ai Runner Thật (`runner.start`, `runner.stop`, `runner.lanes`)
+- Nối sidecar `runner.mjs` (Playwright + Chrome CDP) vào Rust executor
+- JSON-lines stdio protocol: `{"type":"progress","value":50}`, `{"type":"done","url":"..."}`
+- Xử lý session expired: dialog hướng dẫn re-login
+- Rate limiting: nghỉ khi Muse giới hạn gửi (đọc từ Kahi: `pausedUntil`)
+- **Files:** `executors/muse_runner.rs`, `sidecar-muse/runner.mjs`, `App.tsx`
+- **Effort:** ~12h
+
+#### F12: Auto-Render Ghép Video (`audio.render`)
+- Sau khi tất cả segment có video từ Muse.ai:
+  - FFmpeg concat: `ffmpeg -f concat -i list.txt -i audio.m4a output.mp4`
+  - Option: burn subtitle từ segments đã sửa
+- Rust command `render_audio_job(job_id, options)`
+- **Files:** `executors/audio.rs`, `commands.rs`, `App.tsx`
+- **Effort:** ~8h
+
+#### F13: Nhạc Nền Tự Động (`music.pickDir`, `music.set`)
+- Settings: chọn thư mục nhạc
+- Khi render: random pick 1 file `.mp3`/`.wav`, FFmpeg auto-mix
+- `ffmpeg -i video.mp4 -i music.mp3 -shortest -filter_complex amix output.mp4`
+- **Files:** `commands.rs`, `App.tsx`
+- **Effort:** ~4h
+
+#### F14: Multi-Lane Runner (`runner.lanes`)
+- Config `max_parallel_muse: u8` (default 1) và `max_parallel_local: u8` (default 2)
+- `tokio::sync::Semaphore` giới hạn concurrent tasks theo loại
+- UI hiển thị lane status
+- **Files:** `queue.rs`, `models.rs`, `App.tsx`
+- **Effort:** ~5h
+
+#### F15: Regenerate Segment (`audio.regenerate`)
+- Chạy lại Muse.ai cho 1 segment cụ thể nếu kết quả không ưng
+- **Files:** `commands.rs`, `App.tsx`
+- **Effort:** ~2h
+
+---
+
+## Tóm Tắt Effort Và Ưu Tiên
+
+| Phiên bản | Tính năng | Effort | Độ ưu tiên |
+|---|---|---|---|
+| **v0.2.0** | F1–F6 (UX cơ bản) | ~16h | 🔴 Cao |
+| **v0.3.0** | F7–F10 (Audio pipeline) | ~24h | 🟠 Vừa |
+| **v0.4.0** | F11–F15 (Render + Runner) | ~31h | 🟡 Thấp |
+| **Tổng** | 15 tính năng | **~71h** | |
+
+> [!IMPORTANT] F7 (Timeline Segment Editor) là tính năng quan trọng nhất và khó nhất — đây mới là lý do Kahi trông "chuyên nghiệp hơn". Các tính năng v0.4.0 đều phụ thuộc vào F7 và F11.
+
+> [!TIP] Nên làm v0.2.0 trước để app dùng được tốt hơn ngay, trong khi thiết kế F7 một cách cẩn thận vì nó ảnh hưởng đến toàn bộ kiến trúc DB phần audio.
 
 ---
 
 ## Checklist Trước Mỗi Release
 
-- [ ] `cargo check` không có lỗi
-- [ ] `npm run build` thành công
+- [ ] `cargo check` không có lỗi, `npm run build` thành công
 - [ ] `npm run tauri build` → tạo được `.exe` installer
-- [ ] Test thủ công: thêm task → chạy → xem kết quả
+- [ ] Test thủ công flow chính
 - [ ] Cập nhật `nhat-ky-loi-va-sua-loi.md` nếu có lỗi mới
-- [ ] Cập nhật `huong-dan-van-hanh-poc.md` nếu có tính năng mới
-- [ ] Commit + push lên `github.com/phongsun01/xitrum-AI-studio`
-- [ ] Tag version: `git tag v0.x.0 && git push --tags`
+- [ ] Cập nhật `huong-dan-van-hanh-poc.md` cho tính năng mới
+- [ ] `git commit -m "feat: ..."` + `git push` + `git tag vX.Y.Z`
 
 ---
 
-*Tài liệu này được tạo ngày 2026-11-05. Cập nhật khi hoàn thành từng milestone.*
+*Tài liệu này cập nhật ngày 2026-11-05 dựa trên phân tích IPC thực tế từ Kahi AI v2.1.4.*
