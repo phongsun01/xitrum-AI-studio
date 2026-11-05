@@ -1,5 +1,5 @@
 use crate::errors::AppError;
-use crate::models::{AppConfig, TaskItem, TaskKind, TaskStatus};
+use crate::models::{AppConfig, TaskItem, TaskKind, TaskStatus, TemplateItem};
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
@@ -44,6 +44,18 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // 3. Bảng Templates (v0.2.0 F6)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS templates (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                ratio TEXT,
+                created_at INTEGER NOT NULL
             )",
             [],
         )?;
@@ -142,6 +154,93 @@ impl Database {
             list.push(task?);
         }
         Ok(list)
+    }
+
+    pub fn get_task(&self, id: &str) -> Result<TaskItem, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at 
+             FROM tasks WHERE id = ?1",
+        )?;
+
+        let mut rows = stmt.query(params![id])?;
+        if let Some(row) = rows.next()? {
+            let kind_raw: String = row.get(1)?;
+            let status_raw: String = row.get(2)?;
+            let kind = serde_json::from_str(&format!("\"{}\"", kind_raw)).unwrap_or(TaskKind::MuseVideo);
+            let status = serde_json::from_str(&format!("\"{}\"", status_raw)).unwrap_or(TaskStatus::Queued);
+
+            Ok(TaskItem {
+                id: row.get(0)?,
+                kind,
+                status,
+                prompt: row.get(3)?,
+                ratio: row.get(4)?,
+                input_path: row.get(5)?,
+                output_path: row.get(6)?,
+                progress: row.get(7)?,
+                error_msg: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        } else {
+            Err(AppError::NotFound(format!("Không tìm thấy task {}", id)))
+        }
+    }
+
+    pub fn update_task_prompt(&self, id: &str, prompt: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono_now();
+        let rows_affected = conn.execute(
+            "UPDATE tasks SET prompt = ?1, updated_at = ?2 WHERE id = ?3 AND status = 'queued'",
+            params![prompt, now, id],
+        )?;
+
+        if rows_affected == 0 {
+            Err(AppError::Other("Chỉ có thể sửa prompt khi task đang ở trạng thái chờ (queued)".into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    // --- Templates CRUD (v0.2.0 F6) ---
+    pub fn save_template(&self, tpl: &TemplateItem) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO templates (id, name, prompt, ratio, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![tpl.id, tpl.name, tpl.prompt, tpl.ratio, tpl.created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_templates(&self) -> Result<Vec<TemplateItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, prompt, ratio, created_at FROM templates ORDER BY created_at DESC",
+        )?;
+
+        let iter = stmt.query_map([], |row| {
+            Ok(TemplateItem {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                prompt: row.get(2)?,
+                ratio: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?;
+
+        let mut list = Vec::new();
+        for item in iter {
+            list.push(item?);
+        }
+        Ok(list)
+    }
+
+    pub fn delete_template(&self, id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM templates WHERE id = ?1", params![id])?;
+        Ok(())
     }
 
     pub fn get_config(&self) -> Result<AppConfig, AppError> {

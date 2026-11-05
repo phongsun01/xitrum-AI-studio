@@ -73,6 +73,13 @@ pub fn run() {
             test_ffmpeg_sidecar,
             enqueue_task,
             cancel_task,
+            retry_task,
+            duplicate_task,
+            edit_task_prompt,
+            open_output_folder,
+            save_template,
+            list_templates,
+            delete_template,
             list_tasks,
             get_settings,
             save_settings

@@ -36,6 +36,15 @@ pub struct TaskItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateItem {
+    pub id: String,
+    pub name: String,
+    pub prompt: String,
+    pub ratio: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub output_dir: String,
     pub default_ratio: String,

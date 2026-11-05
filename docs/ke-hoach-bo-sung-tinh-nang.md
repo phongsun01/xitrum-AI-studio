@@ -113,144 +113,144 @@ flowchart LR
 ### v0.2.0 — Hoàn Thiện UX Cơ Bản
 *Mục tiêu: Lấp các lỗ hổng nhỏ, dễ dùng hơn. Effort: ~16h*
 
-#### F1: Nút Mở Thư Mục Kết Quả (`results.reveal` / `results.openFolder`)
-- Thêm nút 📂 trong cột Actions của bảng Queue, chỉ hiện khi `status = completed`
-- Rust command `open_output_folder(task_id)` → dùng `opener::open(path.parent())`
-- **Files:** `commands.rs`, `App.tsx`, `api.ts`
-- **Effort:** ~2h
+- [x] **F1: Nút Mở Thư Mục Kết Quả (`results.reveal` / `results.openFolder`)**
+  - Thêm nút 📂 trong cột Actions của bảng Queue, chỉ hiện khi `status = completed`
+  - Rust command `open_output_folder(task_id)` → dùng `opener::open(path.parent())`
+  - **Files:** `commands.rs`, `App.tsx`, `api.ts`
+  - **Effort:** ~2h
 
-#### F2: Retry Task Thất Bại (`queue.rerun`)
-- Nút 🔄 Retry hiện khi `status = failed`
-- Reset DB: `status='queued', error=NULL, progress=0` → re-enqueue
-- **Files:** `commands.rs`, `queue.rs`, `App.tsx`
-- **Effort:** ~3h
+- [x] **F2: Retry Task Thất Bại (`queue.rerun`)**
+  - Nút 🔄 Retry hiện khi `status = failed`
+  - Reset DB: `status='queued', error=NULL, progress=0` → re-enqueue
+  - **Files:** `commands.rs`, `queue.rs`, `App.tsx`
+  - **Effort:** ~3h
 
-#### F3: Duplicate Task (`queue.duplicate`)
-- Nút 📋 Duplicate trên task bất kỳ → tạo bản sao với `status='queued'`
-- **Files:** `commands.rs`, `App.tsx`
-- **Effort:** ~2h
+- [x] **F3: Duplicate Task (`queue.duplicate`)**
+  - Nút 📋 Duplicate trên task bất kỳ → tạo bản sao với `status='queued'`
+  - **Files:** `commands.rs`, `App.tsx`
+  - **Effort:** ~2h
 
-#### F4: Edit Prompt Task Đang Chờ (`queue.editPrompt`)
-- Task ở trạng thái `queued` có thể sửa prompt trước khi chạy
-- **Files:** `commands.rs`, `db.rs`, `App.tsx`
-- **Effort:** ~3h
+- [x] **F4: Edit Prompt Task Đang Chờ (`queue.editPrompt`)**
+  - Task ở trạng thái `queued` có thể sửa prompt trước khi chạy
+  - **Files:** `commands.rs`, `db.rs`, `App.tsx`
+  - **Effort:** ~3h
 
-#### F5: Toast Notifications
-- Subscribe sự kiện Tauri: `task_completed`, `task_failed`
-- Toast tự biến mất sau 5s, lỗi yêu cầu click đóng
-- Dùng `react-hot-toast` hoặc tự build
-- **Files:** `App.tsx`, thêm package
-- **Effort:** ~2h
+- [x] **F5: Toast Notifications**
+  - Subscribe sự kiện Tauri: `task_completed`, `task_failed`
+  - Toast tự biến mất sau 5s, lỗi yêu cầu click đóng
+  - Tích hợp ToastContainer inline với animations mượt mà
+  - **Files:** `App.tsx`, `components/Toast.tsx`
+  - **Effort:** ~2h
 
-#### F6: Template / Prompt Library (`prompts.saveCustom`, `prompts.list`)
-- Bảng SQLite mới: `templates(id, name, prompt, ratio, created_at)`
-- Rust commands: `save_template`, `list_templates`, `delete_template`
-- UI: Tab **"Templates"** trong sidebar, danh sách card với nút Apply / Delete
-- Khi Apply → điền sẵn form tạo task
-- **Files:** `db.rs`, `commands.rs`, `components/TemplateLibrary.tsx`, `App.tsx`
-- **Effort:** ~6h
+- [x] **F6: Template / Prompt Library (`prompts.saveCustom`, `prompts.list`)**
+  - Bảng SQLite mới: `templates(id, name, prompt, ratio, created_at)`
+  - Rust commands: `save_template`, `list_templates`, `delete_template`
+  - UI: Tab **"Thư Viện Templates"** trong sidebar, danh sách card với nút Apply / Delete
+  - Khi Apply → điền sẵn form tạo task Video
+  - **Files:** `db.rs`, `commands.rs`, `components/TemplateLibrary.tsx`, `App.tsx`
+  - **Effort:** ~6h
 
 ---
 
 ### v0.3.0 — Audio Pipeline Hoàn Chỉnh
 *Mục tiêu: Tái hiện workflow Audio→Queue của Kahi. Effort: ~20h*
 
-#### F7: Timeline Segment Editor (`audio.editSegment`, `audio.view`)
-Đây là **tính năng cốt lõi** của Kahi — hiện Xitrum hoàn toàn chưa có.
+- [ ] **F7: Timeline Segment Editor (`audio.editSegment`, `audio.view`)**
+  Đây là **tính năng cốt lõi** của Kahi — hiện Xitrum hoàn toàn chưa có.
 
-**Workflow:**
-1. Import file audio → chạy Whisper → lưu JSON timeline vào DB
-2. Hiển thị danh sách segments dạng bảng:
-   ```
-   #  | Thời gian       | Text (editable)           | Prompt | Ảnh mẫu
-   1  | 00:00 → 00:03   | "Xin chào mọi người"      | [...]  | [pick]
-   2  | 00:03 → 00:07   | "Hôm nay chúng ta sẽ..."  | [...]  | [pick]
-   ```
-3. Người dùng sửa text, gán prompt AI và ảnh người mẫu cho từng segment
-4. Nút "Add to Queue" → đẩy từng segment vào queue Muse.ai
+  **Workflow:**
+  1. Import file audio → chạy Whisper → lưu JSON timeline vào DB
+  2. Hiển thị danh sách segments dạng bảng:
+     ```
+     #  | Thời gian       | Text (editable)           | Prompt | Ảnh mẫu
+     1  | 00:00 → 00:03   | "Xin chào mọi người"      | [...]  | [pick]
+     2  | 00:03 → 00:07   | "Hôm nay chúng ta sẽ..."  | [...]  | [pick]
+     ```
+  3. Người dùng sửa text, gán prompt AI và ảnh người mẫu cho từng segment
+  4. Nút "Add to Queue" → đẩy từng segment vào queue Muse.ai
 
-**Cấu trúc DB mới:**
-```sql
-CREATE TABLE audio_jobs (
-  id TEXT PRIMARY KEY,
-  audio_path TEXT,
-  status TEXT,
-  created_at INTEGER
-);
+  **Cấu trúc DB mới:**
+  ```sql
+  CREATE TABLE audio_jobs (
+    id TEXT PRIMARY KEY,
+    audio_path TEXT,
+    status TEXT,
+    created_at INTEGER
+  );
 
-CREATE TABLE audio_segments (
-  id TEXT PRIMARY KEY,
-  job_id TEXT REFERENCES audio_jobs(id),
-  seq INTEGER,
-  start_ms INTEGER,
-  end_ms INTEGER,
-  text TEXT,
-  prompt TEXT,
-  ref_image_path TEXT,
-  queue_task_id TEXT  -- liên kết với bảng tasks sau khi add to queue
-);
-```
+  CREATE TABLE audio_segments (
+    id TEXT PRIMARY KEY,
+    job_id TEXT REFERENCES audio_jobs(id),
+    seq INTEGER,
+    start_ms INTEGER,
+    end_ms INTEGER,
+    text TEXT,
+    prompt TEXT,
+    ref_image_path TEXT,
+    queue_task_id TEXT  -- liên kết với bảng tasks sau khi add to queue
+  );
+  ```
 
-**Files:** `db.rs`, `commands.rs`, `executors/audio.rs`, `components/AudioTimeline.tsx`, `App.tsx`  
-**Effort:** ~12h
+  **Files:** `db.rs`, `commands.rs`, `executors/audio.rs`, `components/AudioTimeline.tsx`, `App.tsx`  
+  **Effort:** ~12h
 
-#### F8: Export Script (`audio.exportScript`)
-- Xuất timeline đã sửa ra file `.srt`, `.txt`, `.csv`
-- Rust command `export_script(job_id, format)`
-- **Files:** `commands.rs`, `App.tsx`
-- **Effort:** ~3h
+- [ ] **F8: Export Script (`audio.exportScript`)**
+  - Xuất timeline đã sửa ra file `.srt`, `.txt`, `.csv`
+  - Rust command `export_script(job_id, format)`
+  - **Files:** `commands.rs`, `App.tsx`
+  - **Effort:** ~3h
 
-#### F9: Chọn Model Whisper
-- Dropdown trong Settings: `ggml-tiny` / `ggml-base` / `ggml-medium`
-- Hiển thị kích thước file và tốc độ ước tính
-- `ggml-medium` cần download thêm (~1.5GB) → nút Download
-- **Files:** `models.rs`, `executors/audio.rs`, `App.tsx`
-- **Effort:** ~4h
+- [ ] **F9: Chọn Model Whisper**
+  - Dropdown trong Settings: `ggml-tiny` / `ggml-base` / `ggml-medium`
+  - Hiển thị kích thước file và tốc độ ước tính
+  - `ggml-medium` cần download thêm (~1.5GB) → nút Download
+  - **Files:** `models.rs`, `executors/audio.rs`, `App.tsx`
+  - **Effort:** ~4h
 
-#### F10: Approve / Reject Kết Quả (`queue.approve`, `queue.reject`)
-- Trước khi render ghép video: xem preview từng segment, duyệt hoặc bỏ
-- **Files:** `commands.rs`, `db.rs`, `App.tsx`
-- **Effort:** ~5h (phụ thuộc F7)
+- [ ] **F10: Approve / Reject Kết Quả (`queue.approve`, `queue.reject`)**
+  - Trước khi render ghép video: xem preview từng segment, duyệt hoặc bỏ
+  - **Files:** `commands.rs`, `db.rs`, `App.tsx`
+  - **Effort:** ~5h (phụ thuộc F7)
 
 ---
 
 ### v0.4.0 — Render Video Hoàn Chỉnh + Runner Thật
 *Mục tiêu: Tái hiện toàn bộ pipeline Kahi. Effort: ~30h*
 
-#### F11: Muse.ai Runner Thật (`runner.start`, `runner.stop`, `runner.lanes`)
-- Nối sidecar `runner.mjs` (Playwright + Chrome CDP) vào Rust executor
-- JSON-lines stdio protocol: `{"type":"progress","value":50}`, `{"type":"done","url":"..."}`
-- Xử lý session expired: dialog hướng dẫn re-login
-- Rate limiting: nghỉ khi Muse giới hạn gửi (đọc từ Kahi: `pausedUntil`)
-- **Files:** `executors/muse_runner.rs`, `sidecar-muse/runner.mjs`, `App.tsx`
-- **Effort:** ~12h
+- [ ] **F11: Muse.ai Runner Thật (`runner.start`, `runner.stop`, `runner.lanes`)**
+  - Nối sidecar `runner.mjs` (Playwright + Chrome CDP) vào Rust executor
+  - JSON-lines stdio protocol: `{"type":"progress","value":50}`, `{"type":"done","url":"..."}`
+  - Xử lý session expired: dialog hướng dẫn re-login
+  - Rate limiting: nghỉ khi Muse giới hạn gửi (đọc từ Kahi: `pausedUntil`)
+  - **Files:** `executors/muse_runner.rs`, `sidecar-muse/runner.mjs`, `App.tsx`
+  - **Effort:** ~12h
 
-#### F12: Auto-Render Ghép Video (`audio.render`)
-- Sau khi tất cả segment có video từ Muse.ai:
-  - FFmpeg concat: `ffmpeg -f concat -i list.txt -i audio.m4a output.mp4`
-  - Option: burn subtitle từ segments đã sửa
-- Rust command `render_audio_job(job_id, options)`
-- **Files:** `executors/audio.rs`, `commands.rs`, `App.tsx`
-- **Effort:** ~8h
+- [ ] **F12: Auto-Render Ghép Video (`audio.render`)**
+  - Sau khi tất cả segment có video từ Muse.ai:
+    - FFmpeg concat: `ffmpeg -f concat -i list.txt -i audio.m4a output.mp4`
+    - Option: burn subtitle từ segments đã sửa
+  - Rust command `render_audio_job(job_id, options)`
+  - **Files:** `executors/audio.rs`, `commands.rs`, `App.tsx`
+  - **Effort:** ~8h
 
-#### F13: Nhạc Nền Tự Động (`music.pickDir`, `music.set`)
-- Settings: chọn thư mục nhạc
-- Khi render: random pick 1 file `.mp3`/`.wav`, FFmpeg auto-mix
-- `ffmpeg -i video.mp4 -i music.mp3 -shortest -filter_complex amix output.mp4`
-- **Files:** `commands.rs`, `App.tsx`
-- **Effort:** ~4h
+- [ ] **F13: Nhạc Nền Tự Động (`music.pickDir`, `music.set`)**
+  - Settings: chọn thư mục nhạc
+  - Khi render: random pick 1 file `.mp3`/`.wav`, FFmpeg auto-mix
+  - `ffmpeg -i video.mp4 -i music.mp3 -shortest -filter_complex amix output.mp4`
+  - **Files:** `commands.rs`, `App.tsx`
+  - **Effort:** ~4h
 
-#### F14: Multi-Lane Runner (`runner.lanes`)
-- Config `max_parallel_muse: u8` (default 1) và `max_parallel_local: u8` (default 2)
-- `tokio::sync::Semaphore` giới hạn concurrent tasks theo loại
-- UI hiển thị lane status
-- **Files:** `queue.rs`, `models.rs`, `App.tsx`
-- **Effort:** ~5h
+- [ ] **F14: Multi-Lane Runner (`runner.lanes`)**
+  - Config `max_parallel_muse: u8` (default 1) và `max_parallel_local: u8` (default 2)
+  - `tokio::sync::Semaphore` giới hạn concurrent tasks theo loại
+  - UI hiển thị lane status
+  - **Files:** `queue.rs`, `models.rs`, `App.tsx`
+  - **Effort:** ~5h
 
-#### F15: Regenerate Segment (`audio.regenerate`)
-- Chạy lại Muse.ai cho 1 segment cụ thể nếu kết quả không ưng
-- **Files:** `commands.rs`, `App.tsx`
-- **Effort:** ~2h
+- [ ] **F15: Regenerate Segment (`audio.regenerate`)**
+  - Chạy lại Muse.ai cho 1 segment cụ thể nếu kết quả không ưng
+  - **Files:** `commands.rs`, `App.tsx`
+  - **Effort:** ~2h
 
 ---
 

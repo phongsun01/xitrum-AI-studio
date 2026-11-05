@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { api, TaskItem, AppConfig } from "./api";
+import { api, TaskItem, AppConfig, TemplateItem } from "./api";
+import { TemplateLibrary } from "./components/TemplateLibrary";
+import { ToastContainer, ToastItem } from "./components/Toast";
 import {
   Video,
   Mic,
@@ -14,19 +16,30 @@ import {
   AlertCircle,
   FileAudio,
   Image as ImageIcon,
+  RotateCw,
+  Copy,
+  Edit2,
+  Bookmark,
+  Check,
+  X,
 } from "lucide-react";
 import "./App.css";
 
 function App() {
-  const [activeTab, setActiveTab] = useState<"video" | "audio" | "rembg" | "settings">("video");
+  const [activeTab, setActiveTab] = useState<"video" | "audio" | "rembg" | "templates" | "settings">("video");
   const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [statusMsg, setStatusMsg] = useState("");
+  const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   // Form states
   const [videoPrompt, setVideoPrompt] = useState("");
   const [videoRatio, setVideoRatio] = useState("16:9");
   const [audioPath, setAudioPath] = useState("d:\\Antigravity\\REA\\project-docs\\poc-phase0\\jfk.wav");
-  const [imagePath, setImagePath] = useState("d:\\Antigravity\\REA\project-docs\\poc-phase0\\poc_rembg\\input.png");
+  const [imagePath, setImagePath] = useState("d:\\Antigravity\\REA\\project-docs\\poc-phase0\\poc_rembg\\input.png");
+
+  // Inline edit prompt modal/state (F4)
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingPromptText, setEditingPromptText] = useState("");
 
   // Settings
   const [config, setConfig] = useState<AppConfig>({
@@ -36,11 +49,31 @@ function App() {
     max_parallel_local: 2,
   });
 
+  // Helper toast notification
+  const addToast = (type: "success" | "error" | "info", message: string) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts((prev) => [...prev, { id, type, message }]);
+    if (type !== "error") {
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 4000);
+    }
+  };
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
   const loadData = async () => {
     try {
-      const [taskList, cfg] = await Promise.all([api.listTasks(), api.getSettings()]);
+      const [taskList, cfg, tplList] = await Promise.all([
+        api.listTasks(),
+        api.getSettings(),
+        api.listTemplates(),
+      ]);
       setTasks(taskList);
       if (cfg) setConfig(cfg);
+      if (tplList) setTemplates(tplList);
     } catch (e) {
       console.error(e);
     }
@@ -59,16 +92,97 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // F1: Mở thư mục chứa kết quả
+  const handleOpenFolder = async (taskId: string) => {
+    try {
+      await api.openOutputFolder(taskId);
+      addToast("success", "Đã mở thư mục kết quả thành công!");
+    } catch (err) {
+      addToast("error", `Không thể mở thư mục: ${err}`);
+    }
+  };
+
+  // F2: Retry task thất bại
+  const handleRetryTask = async (taskId: string) => {
+    try {
+      await api.retryTask(taskId);
+      addToast("info", "Đã đưa tác vụ trở lại hàng đợi!");
+      loadData();
+    } catch (err) {
+      addToast("error", `Lỗi retry: ${err}`);
+    }
+  };
+
+  // F3: Duplicate task
+  const handleDuplicateTask = async (taskId: string) => {
+    try {
+      await api.duplicateTask(taskId);
+      addToast("success", "Đã nhân bản tác vụ vào hàng đợi!");
+      loadData();
+    } catch (err) {
+      addToast("error", `Lỗi nhân bản: ${err}`);
+    }
+  };
+
+  // F4: Bắt đầu sửa prompt
+  const startEditPrompt = (task: TaskItem) => {
+    setEditingTaskId(task.id);
+    setEditingPromptText(task.prompt || "");
+  };
+
+  // F4: Lưu sửa prompt
+  const saveEditPrompt = async () => {
+    if (!editingTaskId) return;
+    try {
+      await api.editTaskPrompt(editingTaskId, editingPromptText);
+      addToast("success", "Đã cập nhật prompt thành công!");
+      setEditingTaskId(null);
+      loadData();
+    } catch (err) {
+      addToast("error", `Lỗi cập nhật prompt: ${err}`);
+    }
+  };
+
+  // F6: Apply template
+  const handleApplyTemplate = (tpl: TemplateItem) => {
+    setVideoPrompt(tpl.prompt);
+    if (tpl.ratio) setVideoRatio(tpl.ratio);
+    setActiveTab("video");
+    addToast("info", `Đã điền mẫu "${tpl.name}" vào form Video!`);
+  };
+
+  // F6: Save template
+  const handleSaveTemplate = async (name: string, prompt: string, ratio?: string) => {
+    try {
+      await api.saveTemplate(name, prompt, ratio);
+      addToast("success", `Đã lưu mẫu "${name}" vào thư viện!`);
+      const tpls = await api.listTemplates();
+      setTemplates(tpls);
+    } catch (err) {
+      addToast("error", `Lỗi lưu mẫu: ${err}`);
+    }
+  };
+
+  // F6: Delete template
+  const handleDeleteTemplate = async (id: string) => {
+    try {
+      await api.deleteTemplate(id);
+      addToast("info", "Đã xóa mẫu khỏi thư viện!");
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
+    } catch (err) {
+      addToast("error", `Lỗi xóa mẫu: ${err}`);
+    }
+  };
+
   const handleCreateVideo = async () => {
     if (!videoPrompt.trim()) return;
     try {
-      setStatusMsg("Đang thêm tác vụ tạo Video vào hàng đợi...");
       await api.enqueueTask("muse_video", videoPrompt, videoRatio, null);
       setVideoPrompt("");
-      setStatusMsg("✅ Đã thêm tác vụ tạo video thành công!");
+      addToast("success", "Đã thêm tác vụ tạo video vào hàng đợi!");
       loadData();
     } catch (err) {
-      setStatusMsg(`❌ Lỗi: ${err}`);
+      addToast("error", `Lỗi tạo video: ${err}`);
     }
   };
 
@@ -82,12 +196,11 @@ function App() {
   const handleStartStt = async () => {
     if (!audioPath.trim()) return;
     try {
-      setStatusMsg("Đang thêm tác vụ bóc tách audio vào hàng đợi Whisper...");
       await api.enqueueTask("whisper_stt", null, null, audioPath);
-      setStatusMsg("✅ Đã bắt đầu bóc tách giọng nói!");
+      addToast("success", "Đã thêm tác vụ bóc tách giọng nói!");
       loadData();
     } catch (err) {
-      setStatusMsg(`❌ Lỗi: ${err}`);
+      addToast("error", `Lỗi bóc tách audio: ${err}`);
     }
   };
 
@@ -101,12 +214,11 @@ function App() {
   const handleStartRembg = async () => {
     if (!imagePath.trim()) return;
     try {
-      setStatusMsg("Đang thêm tác vụ tách nền ảnh...");
       await api.enqueueTask("rembg", null, null, imagePath);
-      setStatusMsg("✅ Đã bắt đầu tách nền ảnh!");
+      addToast("success", "Đã thêm tác vụ tách nền ảnh!");
       loadData();
     } catch (err) {
-      setStatusMsg(`❌ Lỗi: ${err}`);
+      addToast("error", `Lỗi tách nền: ${err}`);
     }
   };
 
@@ -116,12 +228,15 @@ function App() {
       const newCfg = { ...config, output_dir: dir };
       setConfig(newCfg);
       await api.saveSettings(newCfg);
-      setStatusMsg("✅ Đã cập nhật thư mục xuất file!");
+      addToast("success", "Đã cập nhật thư mục lưu kết quả!");
     }
   };
 
   return (
     <div className="app-container">
+      {/* Toast Notification Container (F5) */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
       {/* Sidebar Navigation */}
       <aside className="sidebar">
         <div className="logo-box">
@@ -149,6 +264,12 @@ function App() {
             <Scissors size={18} /> Tách Nền Ảnh (Rembg)
           </button>
           <button
+            className={`nav-item ${activeTab === "templates" ? "active" : ""}`}
+            onClick={() => setActiveTab("templates")}
+          >
+            <Bookmark size={18} /> Thư Viện Templates
+          </button>
+          <button
             className={`nav-item ${activeTab === "settings" ? "active" : ""}`}
             onClick={() => setActiveTab("settings")}
           >
@@ -162,18 +283,16 @@ function App() {
         <header className="top-bar">
           <div className="title-section">
             <h1>Xitrum AI Studio</h1>
-            <span className="version-badge">Tauri v2 • Rust Core • Offline Engine</span>
+            <span className="version-badge">v0.2.0 • Rust Core • Offline Engine</span>
           </div>
         </header>
-
-        {statusMsg && <div className="status-banner">{statusMsg}</div>}
 
         {/* Tab 1: Video */}
         {activeTab === "video" && (
           <div className="panel-card">
             <h3>🎬 Hàng Đợi Sinh Video Tự Động (Muse.ai)</h3>
             <p className="panel-desc">
-              Nhập nội dung kịch bản, hệ thống sẽ tự động điều khiển session Muse.ai và tải video hoàn chỉnh về máy.
+              Nhập nội dung kịch bản hoặc chọn từ Thư viện Templates để tự động hóa tạo video.
             </p>
             <div className="form-group">
               <label>Kịch bản / Prompt:</label>
@@ -254,7 +373,17 @@ function App() {
           </div>
         )}
 
-        {/* Tab 4: Settings */}
+        {/* Tab 4: Templates (F6) */}
+        {activeTab === "templates" && (
+          <TemplateLibrary
+            templates={templates}
+            onApply={handleApplyTemplate}
+            onSave={handleSaveTemplate}
+            onDelete={handleDeleteTemplate}
+          />
+        )}
+
+        {/* Tab 5: Settings */}
         {activeTab === "settings" && (
           <div className="panel-card">
             <h3>⚙️ Cài Đặt Hệ Thống & Thư Mục Đầu Ra</h3>
@@ -304,7 +433,7 @@ function App() {
                   <tr>
                     <th>ID</th>
                     <th>Loại</th>
-                    <th>Chi Tiết</th>
+                    <th>Chi Tiết / Prompt</th>
                     <th>Trạng Thái</th>
                     <th>Tiến Độ</th>
                     <th>Kết Quả / Lỗi</th>
@@ -318,8 +447,35 @@ function App() {
                       <td>
                         <span className="kind-tag">{t.kind}</span>
                       </td>
-                      <td className="task-detail" title={t.prompt || t.input_path || ""}>
-                        {t.prompt || t.input_path || "-"}
+                      <td className="task-detail">
+                        {editingTaskId === t.id ? (
+                          <div className="inline-edit-box">
+                            <input
+                              type="text"
+                              value={editingPromptText}
+                              onChange={(e) => setEditingPromptText(e.target.value)}
+                              className="inline-edit-input"
+                            />
+                            <button
+                              className="icon-action-btn success-btn"
+                              onClick={saveEditPrompt}
+                              title="Lưu prompt"
+                            >
+                              <Check size={14} />
+                            </button>
+                            <button
+                              className="icon-action-btn"
+                              onClick={() => setEditingTaskId(null)}
+                              title="Hủy sửa"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <span title={t.prompt || t.input_path || ""}>
+                            {t.prompt || t.input_path || "-"}
+                          </span>
+                        )}
                       </td>
                       <td>
                         <span className={`status-badge status-${t.status}`}>
@@ -343,14 +499,59 @@ function App() {
                         {t.output_path || t.error_msg || "-"}
                       </td>
                       <td>
-                        {t.status === "running" && (
+                        <div className="actions-cell">
+                          {/* F1: Mở thư mục kết quả khi success */}
+                          {t.status === "success" && (
+                            <button
+                              className="icon-action-btn primary-btn-light"
+                              onClick={() => handleOpenFolder(t.id)}
+                              title="Mở thư mục chứa kết quả"
+                            >
+                              <FolderOpen size={14} />
+                            </button>
+                          )}
+
+                          {/* F4: Sửa prompt khi còn trong hàng đợi queued */}
+                          {t.status === "queued" && editingTaskId !== t.id && (
+                            <button
+                              className="icon-action-btn"
+                              onClick={() => startEditPrompt(t)}
+                              title="Chỉnh sửa prompt"
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                          )}
+
+                          {/* F2: Retry khi task failed */}
+                          {t.status === "failed" && (
+                            <button
+                              className="icon-action-btn warning-btn"
+                              onClick={() => handleRetryTask(t.id)}
+                              title="Thử lại tác vụ này"
+                            >
+                              <RotateCw size={14} />
+                            </button>
+                          )}
+
+                          {/* F3: Nhân bản duplicate task */}
                           <button
-                            className="cancel-btn"
-                            onClick={() => api.cancelTask(t.id)}
+                            className="icon-action-btn"
+                            onClick={() => handleDuplicateTask(t.id)}
+                            title="Nhân bản (Duplicate) tác vụ"
                           >
-                            Hủy
+                            <Copy size={14} />
                           </button>
-                        )}
+
+                          {/* Cancel khi running */}
+                          {t.status === "running" && (
+                            <button
+                              className="cancel-btn"
+                              onClick={() => api.cancelTask(t.id)}
+                            >
+                              Hủy
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

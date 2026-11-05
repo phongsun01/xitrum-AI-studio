@@ -22,6 +22,14 @@ export interface AppConfig {
   max_parallel_local: number;
 }
 
+export interface TemplateItem {
+  id: string;
+  name: string;
+  prompt: string;
+  ratio: string | null;
+  created_at: number;
+}
+
 export const api = {
   // Lấy danh sách tasks
   listTasks: () => invoke<TaskItem[]>("list_tasks"),
@@ -42,6 +50,31 @@ export const api = {
 
   // Hủy task
   cancelTask: (taskId: string) => invoke<void>("cancel_task", { taskId }),
+
+  // Retry task (F2)
+  retryTask: (taskId: string) => invoke<TaskItem>("retry_task", { taskId }),
+
+  // Duplicate task (F3)
+  duplicateTask: (taskId: string) => invoke<TaskItem>("duplicate_task", { taskId }),
+
+  // Edit task prompt khi đang queued (F4)
+  editTaskPrompt: (taskId: string, prompt: string) =>
+    invoke<void>("edit_task_prompt", { taskId, prompt }),
+
+  // Mở thư mục kết quả (F1)
+  openOutputFolder: (taskId: string) =>
+    invoke<void>("open_output_folder", { taskId }),
+
+  // Templates CRUD (F6)
+  listTemplates: () => invoke<TemplateItem[]>("list_templates"),
+  saveTemplate: (name: string, prompt: string, ratio?: string | null, id?: string) =>
+    invoke<TemplateItem>("save_template", {
+      id: id ?? null,
+      name,
+      prompt,
+      ratio: ratio ?? null,
+    }),
+  deleteTemplate: (id: string) => invoke<void>("delete_template", { id }),
 
   // Cấu hình settings
   getSettings: () => invoke<AppConfig>("get_settings"),

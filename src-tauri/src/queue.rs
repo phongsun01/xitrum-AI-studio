@@ -127,6 +127,23 @@ impl QueueManager {
 
         Ok(())
     }
+
+    pub async fn re_enqueue(&self, mut task: TaskItem) -> Result<TaskItem, AppError> {
+        let now = chrono_now();
+        task.status = TaskStatus::Queued;
+        task.progress = 0;
+        task.error_msg = None;
+        task.updated_at = now;
+
+        self.db.update_task_status(&task.id, TaskStatus::Queued, 0, None, None)?;
+
+        self.tx
+            .send(QueueAction::Enqueue(task.clone()))
+            .await
+            .map_err(|e| AppError::Queue(e.to_string()))?;
+
+        Ok(task)
+    }
 }
 
 async fn run_task(
