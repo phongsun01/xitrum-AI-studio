@@ -20,6 +20,7 @@ impl AudioPipeline {
         &self,
         input_audio: &str,
         output_dir: &str,
+        model_name: Option<&str>,
         progress_cb: F,
         token: &CancellationToken,
     ) -> Result<PathBuf>
@@ -90,8 +91,22 @@ impl AudioPipeline {
         progress_cb(50);
         tracing::info!("FFmpeg done. Starting Whisper on {}", temp_wav_str);
 
-        // Bước 2: Gọi Whisper Sidecar
-        let model_path = "D:\\Antigravity\\REA\\project-docs\\poc-phase0\\tools\\whisper\\models\\ggml-tiny.bin";
+        // Bước 2: Xác định model Whisper (F9)
+        let model_file = match model_name.unwrap_or("ggml-tiny") {
+            "ggml-base" => "ggml-base.bin",
+            "ggml-medium" => "ggml-medium.bin",
+            _ => "ggml-tiny.bin",
+        };
+        let model_dir = "D:\\Antigravity\\REA\\REA-project\\poc-phase0\\tools\\whisper\\models";
+        let target_model_path = Path::new(model_dir).join(model_file);
+        let final_model_path = if target_model_path.exists() {
+            target_model_path
+        } else {
+            tracing::warn!("Model {:?} không tồn tại, fallback về ggml-tiny.bin", target_model_path);
+            Path::new(model_dir).join("ggml-tiny.bin")
+        };
+        let final_model_str = final_model_path.to_string_lossy().to_string();
+
         let out_json_base_str = out_json_base.to_string_lossy().to_string();
 
         let (mut rx_w, child_w) = self
@@ -101,7 +116,7 @@ impl AudioPipeline {
             .map_err(|e| anyhow::anyhow!("Whisper sidecar error: {e}"))?
             .args([
                 "-m",
-                model_path,
+                &final_model_str,
                 "-f",
                 &temp_wav_str,
                 "-oj",

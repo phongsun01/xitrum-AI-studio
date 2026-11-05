@@ -155,62 +155,30 @@ flowchart LR
 ### v0.3.0 — Audio Pipeline Hoàn Chỉnh
 *Mục tiêu: Tái hiện workflow Audio→Queue của Kahi. Effort: ~20h*
 
-- [ ] **F7: Timeline Segment Editor (`audio.editSegment`, `audio.view`)**
-  Đây là **tính năng cốt lõi** của Kahi — hiện Xitrum hoàn toàn chưa có.
+- [x] **F7: Timeline Segment Editor (`audio.editSegment`, `audio.view`)**
+  Đây là **tính năng cốt lõi** của Kahi — đã được tái hiện hoàn chỉnh:
+  - Bóc tách STT Whisper tự động phân rã vào bảng `audio_jobs` & `audio_segments`.
+  - Hiển thị danh sách timeline: thời gian, lời thoại gốc (sửa được inline), prompt AI tùy biến, ảnh mẫu tham chiếu.
+  - Nút "Tạo Video" đẩy từng segment trực tiếp sang hàng đợi Queue Muse.ai.
+  - **Files:** `db.rs`, `commands.rs`, `executors/audio.rs`, `components/AudioTimeline.tsx`, `App.tsx`
+  - **Effort:** ~12h
 
-  **Workflow:**
-  1. Import file audio → chạy Whisper → lưu JSON timeline vào DB
-  2. Hiển thị danh sách segments dạng bảng:
-     ```
-     #  | Thời gian       | Text (editable)           | Prompt | Ảnh mẫu
-     1  | 00:00 → 00:03   | "Xin chào mọi người"      | [...]  | [pick]
-     2  | 00:03 → 00:07   | "Hôm nay chúng ta sẽ..."  | [...]  | [pick]
-     ```
-  3. Người dùng sửa text, gán prompt AI và ảnh người mẫu cho từng segment
-  4. Nút "Add to Queue" → đẩy từng segment vào queue Muse.ai
-
-  **Cấu trúc DB mới:**
-  ```sql
-  CREATE TABLE audio_jobs (
-    id TEXT PRIMARY KEY,
-    audio_path TEXT,
-    status TEXT,
-    created_at INTEGER
-  );
-
-  CREATE TABLE audio_segments (
-    id TEXT PRIMARY KEY,
-    job_id TEXT REFERENCES audio_jobs(id),
-    seq INTEGER,
-    start_ms INTEGER,
-    end_ms INTEGER,
-    text TEXT,
-    prompt TEXT,
-    ref_image_path TEXT,
-    queue_task_id TEXT  -- liên kết với bảng tasks sau khi add to queue
-  );
-  ```
-
-  **Files:** `db.rs`, `commands.rs`, `executors/audio.rs`, `components/AudioTimeline.tsx`, `App.tsx`  
-  **Effort:** ~12h
-
-- [ ] **F8: Export Script (`audio.exportScript`)**
-  - Xuất timeline đã sửa ra file `.srt`, `.txt`, `.csv`
-  - Rust command `export_script(job_id, format)`
-  - **Files:** `commands.rs`, `App.tsx`
+- [x] **F8: Export Script (`audio.exportScript`)**
+  - Xuất timeline phụ đề chuẩn `.srt` (có căn chuẩn timestamp giờ:phút:giây,mili-giây) hoặc kịch bản `.txt`.
+  - Rust command `export_script(job_id, format)`.
+  - **Files:** `commands.rs`, `components/AudioTimeline.tsx`
   - **Effort:** ~3h
 
-- [ ] **F9: Chọn Model Whisper**
-  - Dropdown trong Settings: `ggml-tiny` / `ggml-base` / `ggml-medium`
-  - Hiển thị kích thước file và tốc độ ước tính
-  - `ggml-medium` cần download thêm (~1.5GB) → nút Download
+- [x] **F9: Chọn Model Whisper**
+  - Dropdown trong Settings: `ggml-tiny` / `ggml-base` / `ggml-medium`.
+  - Lưu cấu hình vào SQLite và tự động truyền model tương ứng vào Whisper executor.
   - **Files:** `models.rs`, `executors/audio.rs`, `App.tsx`
   - **Effort:** ~4h
 
-- [ ] **F10: Approve / Reject Kết Quả (`queue.approve`, `queue.reject`)**
-  - Trước khi render ghép video: xem preview từng segment, duyệt hoặc bỏ
-  - **Files:** `commands.rs`, `db.rs`, `App.tsx`
-  - **Effort:** ~5h (phụ thuộc F7)
+- [x] **F10: Approve / Reject Kết Quả (`queue.approve`, `queue.reject`)**
+  - Nút ThumbsUp / ThumbsDown duyệt hoặc loại bỏ từng segment ngay trên bảng timeline editor.
+  - **Files:** `commands.rs`, `db.rs`, `components/AudioTimeline.tsx`
+  - **Effort:** ~5h
 
 ---
 

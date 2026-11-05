@@ -1,5 +1,7 @@
 use crate::errors::AppError;
-use crate::models::{AppConfig, TaskItem, TaskKind, TaskStatus, TemplateItem};
+use crate::models::{
+    AppConfig, AudioJobItem, AudioSegmentItem, TaskItem, TaskKind, TaskStatus, TemplateItem,
+};
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
@@ -56,6 +58,35 @@ impl Database {
                 prompt TEXT NOT NULL,
                 ratio TEXT,
                 created_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // 4. Bảng Audio Jobs (v0.3.0 F7)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS audio_jobs (
+                id TEXT PRIMARY KEY,
+                audio_path TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // 5. Bảng Audio Segments (v0.3.0 F7 & F10)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS audio_segments (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                seq INTEGER NOT NULL,
+                start_ms INTEGER NOT NULL,
+                end_ms INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                prompt TEXT,
+                ref_image_path TEXT,
+                queue_task_id TEXT,
+                approval TEXT,
+                FOREIGN KEY (job_id) REFERENCES audio_jobs(id) ON DELETE CASCADE
             )",
             [],
         )?;
@@ -240,6 +271,117 @@ impl Database {
     pub fn delete_template(&self, id: &str) -> Result<(), AppError> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM templates WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    // --- Audio Jobs & Segments CRUD (v0.3.0 F7, F8, F10) ---
+    pub fn create_audio_job(&self, job: &AudioJobItem) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO audio_jobs (id, audio_path, status, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![job.id, job.audio_path, job.status, job.created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_audio_job_status(&self, job_id: &str, status: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE audio_jobs SET status = ?1 WHERE id = ?2",
+            params![status, job_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_audio_jobs(&self) -> Result<Vec<AudioJobItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id, audio_path, status, created_at FROM audio_jobs ORDER BY created_at DESC")?;
+        let iter = stmt.query_map([], |row| {
+            Ok(AudioJobItem {
+                id: row.get(0)?,
+                audio_path: row.get(1)?,
+                status: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })?;
+        let mut list = Vec::new();
+        for item in iter {
+            list.push(item?);
+        }
+        Ok(list)
+    }
+
+    pub fn insert_audio_segments(&self, segments: &[AudioSegmentItem]) -> Result<(), AppError> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        for s in segments {
+            tx.execute(
+                "INSERT OR REPLACE INTO audio_segments (id, job_id, seq, start_ms, end_ms, text, prompt, ref_image_path, queue_task_id, approval)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    s.id,
+                    s.job_id,
+                    s.seq,
+                    s.start_ms,
+                    s.end_ms,
+                    s.text,
+                    s.prompt,
+                    s.ref_image_path,
+                    s.queue_task_id,
+                    s.approval,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn list_audio_segments(&self, job_id: &str) -> Result<Vec<AudioSegmentItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, job_id, seq, start_ms, end_ms, text, prompt, ref_image_path, queue_task_id, approval
+             FROM audio_segments WHERE job_id = ?1 ORDER BY seq ASC",
+        )?;
+        let iter = stmt.query_map(params![job_id], |row| {
+            Ok(AudioSegmentItem {
+                id: row.get(0)?,
+                job_id: row.get(1)?,
+                seq: row.get(2)?,
+                start_ms: row.get(3)?,
+                end_ms: row.get(4)?,
+                text: row.get(5)?,
+                prompt: row.get(6)?,
+                ref_image_path: row.get(7)?,
+                queue_task_id: row.get(8)?,
+                approval: row.get(9)?,
+            })
+        })?;
+        let mut list = Vec::new();
+        for item in iter {
+            list.push(item?);
+        }
+        Ok(list)
+    }
+
+    pub fn update_audio_segment(
+        &self,
+        segment_id: &str,
+        text: Option<&str>,
+        prompt: Option<&str>,
+        ref_image_path: Option<&str>,
+        approval: Option<&str>,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE audio_segments 
+             SET text = COALESCE(?1, text),
+                 prompt = COALESCE(?2, prompt),
+                 ref_image_path = COALESCE(?3, ref_image_path),
+                 approval = COALESCE(?4, approval)
+             WHERE id = ?5",
+            params![text, prompt, ref_image_path, approval, segment_id],
+        )?;
         Ok(())
     }
 

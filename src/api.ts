@@ -18,6 +18,7 @@ export interface TaskItem {
 export interface AppConfig {
   output_dir: string;
   default_ratio: string;
+  whisper_model: string;
   max_parallel_muse: number;
   max_parallel_local: number;
 }
@@ -28,6 +29,26 @@ export interface TemplateItem {
   prompt: string;
   ratio: string | null;
   created_at: number;
+}
+
+export interface AudioJobItem {
+  id: string;
+  audio_path: string;
+  status: string;
+  created_at: number;
+}
+
+export interface AudioSegmentItem {
+  id: string;
+  job_id: string;
+  seq: number;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  prompt: string | null;
+  ref_image_path: string | null;
+  queue_task_id: string | null;
+  approval: "approved" | "rejected" | null;
 }
 
 export const api = {
@@ -75,6 +96,31 @@ export const api = {
       ratio: ratio ?? null,
     }),
   deleteTemplate: (id: string) => invoke<void>("delete_template", { id }),
+
+  // Audio Timeline & Segments (v0.3.0 F7, F8, F10)
+  listAudioJobs: () => invoke<AudioJobItem[]>("list_audio_jobs"),
+  listAudioSegments: (jobId: string) =>
+    invoke<AudioSegmentItem[]>("list_audio_segments", { jobId }),
+  updateAudioSegment: (
+    segmentId: string,
+    updates: {
+      text?: string;
+      prompt?: string;
+      refImagePath?: string;
+      approval?: "approved" | "rejected" | null;
+    }
+  ) =>
+    invoke<void>("update_audio_segment", {
+      segmentId,
+      text: updates.text ?? null,
+      prompt: updates.prompt ?? null,
+      refImagePath: updates.refImagePath ?? null,
+      approval: updates.approval ?? null,
+    }),
+  addSegmentToQueue: (jobId: string, segmentId: string) =>
+    invoke<TaskItem>("add_segment_to_queue", { jobId, segmentId }),
+  exportScript: (jobId: string, format: "srt" | "txt") =>
+    invoke<string>("export_script", { jobId, format }),
 
   // Cấu hình settings
   getSettings: () => invoke<AppConfig>("get_settings"),

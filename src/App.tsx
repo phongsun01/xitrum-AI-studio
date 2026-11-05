@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api, TaskItem, AppConfig, TemplateItem } from "./api";
 import { TemplateLibrary } from "./components/TemplateLibrary";
 import { ToastContainer, ToastItem } from "./components/Toast";
+import { AudioTimeline } from "./components/AudioTimeline";
 import {
   Video,
   Mic,
@@ -22,11 +23,14 @@ import {
   Bookmark,
   Check,
   X,
+  ListVideo,
 } from "lucide-react";
 import "./App.css";
 
 function App() {
-  const [activeTab, setActiveTab] = useState<"video" | "audio" | "rembg" | "templates" | "settings">("video");
+  const [activeTab, setActiveTab] = useState<
+    "video" | "audio" | "timeline" | "rembg" | "templates" | "settings"
+  >("video");
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -45,6 +49,7 @@ function App() {
   const [config, setConfig] = useState<AppConfig>({
     output_dir: "D:\\XitrumAI_Outputs",
     default_ratio: "16:9",
+    whisper_model: "ggml-tiny",
     max_parallel_muse: 1,
     max_parallel_local: 2,
   });
@@ -258,6 +263,12 @@ function App() {
             <Mic size={18} /> Bóc Tách Audio (Whisper)
           </button>
           <button
+            className={`nav-item ${activeTab === "timeline" ? "active" : ""}`}
+            onClick={() => setActiveTab("timeline")}
+          >
+            <ListVideo size={18} /> Audio Timeline Editor
+          </button>
+          <button
             className={`nav-item ${activeTab === "rembg" ? "active" : ""}`}
             onClick={() => setActiveTab("rembg")}
           >
@@ -346,6 +357,14 @@ function App() {
           </div>
         )}
 
+        {/* Tab: Timeline Editor (F7, F8, F10) */}
+        {activeTab === "timeline" && (
+          <AudioTimeline
+            onAddToast={addToast}
+            onRefreshTasks={loadData}
+          />
+        )}
+
         {/* Tab 3: Rembg */}
         {activeTab === "rembg" && (
           <div className="panel-card">
@@ -409,6 +428,23 @@ function App() {
                 >
                   <option value="16:9">16:9</option>
                   <option value="9:16">9:16</option>
+                </select>
+              </div>
+
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Mô Hình Nhận Dạng Whisper (F9):</label>
+                <select
+                  value={config.whisper_model}
+                  onChange={async (e) => {
+                    const newCfg = { ...config, whisper_model: e.target.value };
+                    setConfig(newCfg);
+                    await api.saveSettings(newCfg);
+                    addToast("info", `Đã chọn mô hình Whisper: ${e.target.value}`);
+                  }}
+                >
+                  <option value="ggml-tiny">ggml-tiny (~75MB, Siêu nhanh, Tiết kiệm RAM)</option>
+                  <option value="ggml-base">ggml-base (~142MB, Cân bằng tốc độ & độ chuẩn)</option>
+                  <option value="ggml-medium">ggml-medium (~1.5GB, Độ chuẩn xác cao nhất)</option>
                 </select>
               </div>
             </div>

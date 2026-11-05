@@ -2,7 +2,7 @@ use crate::db::{chrono_now, Database};
 use crate::errors::AppError;
 use crate::executors::audio::AudioPipeline;
 use crate::executors::rembg::RembgEngine;
-use crate::models::{TaskItem, TaskKind, TaskStatus};
+use crate::models::{AudioJobItem, AudioSegmentItem, TaskItem, TaskKind, TaskStatus};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
@@ -161,7 +161,8 @@ async fn run_task(
         TaskKind::WhisperStt => {
             if let Some(input_audio) = task.input_path {
                 let pipeline = AudioPipeline::new(app);
-                let output_dir = "D:\\XitrumAI_Outputs";
+                let config = db.get_config().unwrap_or_default();
+                let output_dir = &config.output_dir;
                 let _ = std::fs::create_dir_all(output_dir);
 
                 let db_prog = Arc::clone(&db);
@@ -171,6 +172,7 @@ async fn run_task(
                     .process_stt(
                         &input_audio,
                         output_dir,
+                        Some(&config.whisper_model),
                         move |p| {
                             let _ = db_prog.update_task_status(&tid_prog, TaskStatus::Running, p, None, None);
                         },
@@ -182,6 +184,45 @@ async fn run_task(
                     Ok(out_json) => {
                         let out_str = out_json.to_string_lossy().to_string();
                         let _ = db.update_task_status(&task_id, TaskStatus::Success, 100, Some(&out_str), None);
+
+                        // Tự động phân rã vào bảng audio_jobs & audio_segments (F7)
+                        let job_id = task_id.clone();
+                        let job = AudioJobItem {
+                            id: job_id.clone(),
+                            audio_path: input_audio.clone(),
+                            status: "ready".into(),
+                            created_at: chrono_now(),
+                        };
+                        let _ = db.create_audio_job(&job);
+
+                        if let Ok(content) = std::fs::read_to_string(&out_json) {
+                            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&content) {
+                                if let Some(trans_arr) = json_val.get("transcription").and_then(|t| t.as_array()) {
+                                    let mut segments = Vec::new();
+                                    for (idx, item) in trans_arr.iter().enumerate() {
+                                        let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("").trim().to_string();
+                                        let from_ms = item.get("offsets").and_then(|o| o.get("from")).and_then(|f| f.as_i64()).unwrap_or(0);
+                                        let to_ms = item.get("offsets").and_then(|o| o.get("to")).and_then(|t| t.as_i64()).unwrap_or(0);
+
+                                        if !text.is_empty() {
+                                            segments.push(AudioSegmentItem {
+                                                id: format!("{}_{}", job_id, idx),
+                                                job_id: job_id.clone(),
+                                                seq: idx as i32,
+                                                start_ms: from_ms,
+                                                end_ms: to_ms,
+                                                text,
+                                                prompt: None,
+                                                ref_image_path: None,
+                                                queue_task_id: None,
+                                                approval: None,
+                                            });
+                                        }
+                                    }
+                                    let _ = db.insert_audio_segments(&segments);
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
                         let err_str = e.to_string();

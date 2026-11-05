@@ -5,36 +5,31 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.2.0
+## 📦 Phiên Bản Hiện Tại: v0.3.0
 
-### Tính năng mới v0.2.0:
-- 📂 **Mở Thư Mục Kết Quả (F1)**: Nút 1-click mở trực tiếp folder chứa sản phẩm xuất ra trên Windows Explorer.
-- 🔄 **Retry Task Thất Bại (F2)**: Đưa lại task lỗi vào hàng đợi ngay lập tức mà không cần tạo lại.
-- 📋 **Nhân Bản Task (F3)**: Sao chép nhanh prompt và thông số từ task có sẵn.
-- ✏️ **Sửa Prompt Tại Chỗ (F4)**: Chỉnh sửa trực tiếp prompt của các task đang chờ (`queued`) trên bảng.
-- 🔔 **Toast Notification System (F5)**: Hệ thống thông báo nổi góc màn hình mượt mà, phản hồi lập tức các thao tác.
-- 📚 **Thư Viện Templates & Presets (F6)**: Tab quản lý và lưu trữ các prompt kèm tỉ lệ khung hình để tái sử dụng chỉ với 1 click "Áp Dụng".
+### Tính năng mới v0.3.0 (Audio Pipeline & Timeline Editor):
+- 🎙️ **Audio Timeline Segment Editor (F7)**: Bóc tách giọng nói tự động phân rã thành từng câu, cho phép nghe, chỉnh sửa câu chữ, gán prompt AI và ảnh người mẫu tham chiếu trực tiếp trên giao diện Timeline.
+- 📤 **Đẩy Trực Tiếp Sang Hàng Đợi Queue (F7)**: Nút "Tạo Video" cho từng segment giúp tạo task sinh video Muse.ai tức thì theo đúng timestamp và hình ảnh đã chọn.
+- 💾 **Xuất Phụ Đề & Kịch Bản (F8)**: Xuất kịch bản ra định dạng `.srt` chuẩn mili-giây hoặc file `.txt`.
+- ⚙️ **Bộ Chọn Mô Hình Whisper (F9)**: Tùy chọn chuyển đổi linh hoạt giữa các model `ggml-tiny` (nhanh), `ggml-base` (cân bằng), `ggml-medium` (chuẩn xác cao).
+- 👍 **Duyệt Kết Quả Segment (F10)**: Tính năng duyệt/bỏ qua (Approve / Reject) từng câu thoại trước khi render.
 
 ---
 
 ## ✨ Điểm Nổi Bật
 
+- **Tái hiện trọn vẹn Workflow Audio → Video AI của Kahi**:
+  - Nhập file âm thanh thu âm bất kỳ.
+  - Phân tích và biên tập câu chữ trên Audio Timeline.
+  - Ghép hình người mẫu đã xóa phông nền (Rembg ONNX).
+  - Tự động sinh video qua Muse.ai.
 - **Siêu Nhẹ & Tiết Kiệm Tài Nguyên**:
   - Dung lượng cài đặt chỉ **~41 MB** (thay vì >250 MB như Electron).
   - Tiêu tốn chỉ **~40 - 60 MB RAM** khi chạy ngầm.
-- **Tự Động Hóa Muse.ai**:
-  - Kết nối trực tiếp vào Google Chrome profile thật qua CDP.
-  - Lưu phiên đăng nhập vĩnh viễn, tránh bot detection.
-- **Xử Lý Âm Thanh Nhanh Chóng**:
-  - Tích hợp pipeline `FFmpeg` chuẩn hóa audio sang WAV 16kHz.
-  - Tích hợp `whisper-cli.exe` bóc tách giọng nói sang timeline JSON chính xác từng câu chữ.
-- **Tách Nền Ảnh Siêu Tốc (Rembg)**:
-  - Tích hợp **ONNX Runtime Rust** (`ort`) cùng mô hình `u2netp.onnx`.
-  - Xóa phông ảnh chân dung chỉ mất **~0.2 giây / ảnh**, không leak memory.
 - **Hàng Đợi Bền Vững (Task Queue)**:
   - Lưu trạng thái tác vụ vào **SQLite**.
   - Tự động khôi phục hàng đợi khi app khởi động lại.
-  - Hỗ trợ nút **Hủy (Cancel)** lập tức qua `CancellationToken`.
+  - Hỗ trợ hủy tác vụ tức thì qua `CancellationToken`.
 
 ---
 
@@ -77,7 +72,7 @@ File cài đặt sẽ được tạo tại `src-tauri/target/release/bundle/nsis
 ## 🗺️ Lộ Trình Phát Triển (Roadmap)
 - [x] **v0.1.0**: Lõi hàng đợi SQLite, Rembg ONNX native, FFmpeg & Whisper STT.
 - [x] **v0.2.0**: Mở folder kết quả, Retry, Duplicate, Edit prompt, Toast notification, Thư viện Templates.
-- [ ] **v0.3.0**: Audio Timeline Segment Editor, Xuất phụ đề (SRT/TXT), Bộ chọn mô hình Whisper (Tiny/Base/Medium), Duyệt ảnh/video (Approve/Reject).
+- [x] **v0.3.0**: Audio Timeline Segment Editor, Xuất phụ đề (.SRT/.TXT), Chọn mô hình Whisper, Duyệt câu thoại (Approve/Reject).
 - [ ] **v0.4.0**: Runner Muse.ai tự động hoàn chỉnh, Tự động ghép video + nhạc nền, Multi-lane runner đa luồng.
 
 ---

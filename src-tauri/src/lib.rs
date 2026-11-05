@@ -80,6 +80,11 @@ pub fn run() {
             save_template,
             list_templates,
             delete_template,
+            list_audio_jobs,
+            list_audio_segments,
+            update_audio_segment,
+            add_segment_to_queue,
+            export_script,
             list_tasks,
             get_settings,
             save_settings
