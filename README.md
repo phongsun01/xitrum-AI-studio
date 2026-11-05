@@ -1,7 +1,19 @@
 # 🚀 Xitrum AI Studio
 
-> **Hệ thống tạo video & audio hàng loạt siêu nhẹ dành cho máy tính để bàn (Windows)**  
+> **Hệ thống tạo video & audio tự động hóa đa luồng siêu nhẹ dành cho Windows**  
 > Được xây dựng trên nền tảng **Tauri v2 + Rust + React/TypeScript**.
+
+---
+
+## 📦 Phiên Bản Hiện Tại: v0.2.0
+
+### Tính năng mới v0.2.0:
+- 📂 **Mở Thư Mục Kết Quả (F1)**: Nút 1-click mở trực tiếp folder chứa sản phẩm xuất ra trên Windows Explorer.
+- 🔄 **Retry Task Thất Bại (F2)**: Đưa lại task lỗi vào hàng đợi ngay lập tức mà không cần tạo lại.
+- 📋 **Nhân Bản Task (F3)**: Sao chép nhanh prompt và thông số từ task có sẵn.
+- ✏️ **Sửa Prompt Tại Chỗ (F4)**: Chỉnh sửa trực tiếp prompt của các task đang chờ (`queued`) trên bảng.
+- 🔔 **Toast Notification System (F5)**: Hệ thống thông báo nổi góc màn hình mượt mà, phản hồi lập tức các thao tác.
+- 📚 **Thư Viện Templates & Presets (F6)**: Tab quản lý và lưu trữ các prompt kèm tỉ lệ khung hình để tái sử dụng chỉ với 1 click "Áp Dụng".
 
 ---
 
@@ -28,7 +40,7 @@
 
 ## 🛠️ Công Nghệ Sử Dụng
 
-- **Backend**: Rust, Tauri v2, Tokio, Rusqlite, ONNX Runtime (`ort`), `image` crate.
+- **Backend**: Rust, Tauri v2, Tokio, Rusqlite, ONNX Runtime (`ort`), `opener`, `image` crate.
 - **Frontend**: React 19, TypeScript, Vite, `lucide-react`.
 - **RPA Engine**: Playwright Core kết nối Chrome CDP.
 - **Media Engine**: FFmpeg & Whisper.cpp portable sidecars.
@@ -44,19 +56,29 @@
 - Microsoft C++ Build Tools 2022
 
 ### Chạy chế độ phát triển:
-```bash
+```powershell
 # Cài đặt frontend dependencies
 npm install
 
 # Khởi động ứng dụng Tauri Dev
+$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 npm run tauri dev
 ```
 
 ### Đóng gói bản cài đặt Release:
-```bash
+```powershell
+$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 npm run tauri build
 ```
 File cài đặt sẽ được tạo tại `src-tauri/target/release/bundle/nsis/`.
+
+---
+
+## 🗺️ Lộ Trình Phát Triển (Roadmap)
+- [x] **v0.1.0**: Lõi hàng đợi SQLite, Rembg ONNX native, FFmpeg & Whisper STT.
+- [x] **v0.2.0**: Mở folder kết quả, Retry, Duplicate, Edit prompt, Toast notification, Thư viện Templates.
+- [ ] **v0.3.0**: Audio Timeline Segment Editor, Xuất phụ đề (SRT/TXT), Bộ chọn mô hình Whisper (Tiny/Base/Medium), Duyệt ảnh/video (Approve/Reject).
+- [ ] **v0.4.0**: Runner Muse.ai tự động hoàn chỉnh, Tự động ghép video + nhạc nền, Multi-lane runner đa luồng.
 
 ---
 
