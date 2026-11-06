@@ -114,7 +114,11 @@ pub fn run() {
             delete_proxy,
             delete_dead_proxies,
             dispatch_script_to_queue,
-            render_script_postproduction
+            render_script_postproduction,
+            parse_whiteboard_srt,
+            generate_whiteboard_annotation,
+            render_whiteboard_scene,
+            merge_whiteboard_scenes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

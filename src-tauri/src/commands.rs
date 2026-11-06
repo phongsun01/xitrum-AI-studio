@@ -1503,3 +1503,63 @@ pub async fn render_script_postproduction(
     }))
 }
 
+
+
+// ==========================================
+// WHITEBOARD ANIMATION COMMANDS (F16)
+// ==========================================
+
+#[tauri::command]
+pub async fn parse_whiteboard_srt(
+    srt_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    state.whiteboard.parse_srt(srt_path).map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub async fn generate_whiteboard_annotation(
+    image_path: String,
+    scene_id: Option<String>,
+    story_basis: Option<String>,
+    duration_ms: Option<i64>,
+    cues: Option<Vec<serde_json::Value>>,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    state.whiteboard.generate_annotation(
+        image_path,
+        scene_id.unwrap_or_else(|| "scene-01".to_string()),
+        story_basis.unwrap_or_default(),
+        duration_ms.unwrap_or(10000),
+        cues.unwrap_or_default(),
+    ).map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub async fn render_whiteboard_scene(
+    image_path: String,
+    annotation_path: String,
+    output_path: String,
+    fps: Option<i32>,
+    paper_color: Option<String>,
+    hand_path: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    state.whiteboard.render_scene(
+        image_path,
+        annotation_path,
+        output_path,
+        fps.unwrap_or(30),
+        paper_color.unwrap_or_else(|| "#F5EBD7".to_string()),
+        hand_path,
+    ).map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub async fn merge_whiteboard_scenes(
+    video_paths: Vec<String>,
+    output_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    state.whiteboard.merge_scenes(video_paths, output_path).map_err(|e| AppError::Other(e.to_string()))
+}

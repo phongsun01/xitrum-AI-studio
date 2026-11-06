@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hoạt hình bảng trắng từ SRT"
+  short_description: "Biến phụ đề SRT thành hoạt hình bảng trắng nét bút chảy liên tục, có thể xem trước và chỉnh sửa"
+  default_prompt: "Dùng $srt-whiteboard-animation để tạo hoạt hình bảng trắng vẽ tay từ phụ đề SRT này."

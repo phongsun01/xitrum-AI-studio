@@ -5,7 +5,7 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.6.1 (Kỷ Nguyên "Ý Tưởng → Video" & Hậu Kỳ Tự Động)
+## 📦 Phiên Bản Hiện Tại: v0.6.3 (Whiteboard Explainer Animation & 100% Offline Engine) (Kỷ Nguyên "Ý Tưởng → Video" & Hậu Kỳ Tự Động)
 
 Nâng cấp mang tính đột phá dựa trên nghiên cứu kiến trúc Muse AI Studio và tích hợp công nghệ AI giọng nói tiếng Việt VieNeu-TTS:
 
@@ -28,6 +28,13 @@ Nâng cấp mang tính đột phá dựa trên nghiên cứu kiến trúc Muse A
 ### 🚀 4. Điều Phối Hàng Đợi Sinh Video Tự Động (Mốc 4)
 - **Mapping Kịch Bản → Task Queue**: Tự động kết hợp mô tả nhân vật + prompt cảnh + đính kèm ảnh tham chiếu khuôn mặt + gán proxy bảo mật vào Task Queue.
 - **Giám sát đa luồng độc lập (Multi-lane Semaphores)**: Phân tách luồng tác vụ Cloud và tác vụ Local mượt mà.
+
+
+### 🎨 6. Phân Hệ Hoạt Hình Bảng Trắng Vẽ Tay (Whiteboard Explainer - F16)
+- **100% Offline Local Engine**: Tích hợp module Python Sidecar sidecar-whiteboard độc lập chạy qua JSON-RPC, không tốn credit Cloud hay API bên ngoài.
+- **Dàn Dựng Mask Partition**: Phân chia các phân vùng xuất hiện theo timeline kịch bản phụ đề SRT.
+- **Nét Vẽ Dòng Chảy Liên Tục (Stream Ink → Color)**: Đầu bút vẽ trượt mượt mà dọc theo khung xương/lưới đối tượng (ink nét phác trước, color tô màu sau).
+- **Tab Biên Tập Trực Quan**: Phân tích SRT, tạo cấu hình mẫu nnotation.json và xuất video MP4 hoàn chỉnh với tốc độ cao.
 
 ### 🎬 5. Hậu Kỳ Hoàn Chỉnh & Trình Phát Video Xem Trước (Mốc 5)
 - **Ghép Video Clips Thông Minh**: Tự động ghép nối các cảnh theo đúng thứ tự (hỗ trợ cả video thật lẫn slide màu dự phòng thông minh).

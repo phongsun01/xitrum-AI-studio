@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { api, TaskItem, AppConfig, TemplateItem } from "./api";
 import { TemplateLibrary } from "./components/TemplateLibrary";
 import { ToastContainer, ToastItem } from "./components/Toast";
 import { AudioTimeline } from "./components/AudioTimeline";
 import { IdeaScriptEditor } from "./components/IdeaScriptEditor";
 import { ProxyManager } from "./components/ProxyManager";
+import { WhiteboardEditor } from "./components/WhiteboardEditor";
 import {
   Video,
   Mic,
@@ -31,12 +32,13 @@ import {
   Cpu,
   Globe,
   Sparkles,
+  PenTool,
 } from "lucide-react";
 import "./App.css";
 
 function App() {
   const [activeTab, setActiveTab] = useState<
-    "idea_script" | "video" | "proxies" | "audio" | "timeline" | "rembg" | "templates" | "settings"
+    "idea_script" | "whiteboard" | "video" | "proxies" | "audio" | "timeline" | "rembg" | "templates" | "settings"
   >("idea_script");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -302,6 +304,13 @@ function App() {
             <Sparkles size={18} color="#00e5ff" /> {!sidebarCollapsed && <span>Ý Tưởng → Video</span>}
           </button>
           <button
+            className={`nav-item ${activeTab === "whiteboard" ? "active" : ""}`}
+            onClick={() => setActiveTab("whiteboard")}
+            title="Hoạt Hình Bảng Trắng Vẽ Tay (F16)"
+          >
+            <PenTool size={18} color="#e06c75" /> {!sidebarCollapsed && <span>Bảng Trắng Vẽ Tay</span>}
+          </button>
+          <button
             className={`nav-item ${activeTab === "video" ? "active" : ""}`}
             onClick={() => setActiveTab("video")}
             title="Tạo Video Muse.ai"
@@ -381,6 +390,11 @@ function App() {
             onRefreshTasks={loadData}
             onNavigateToQueue={() => setActiveTab("video")}
           />
+        )}
+
+        {/* Tab F16: Whiteboard Animation */}
+        {activeTab === "whiteboard" && (
+          <WhiteboardEditor />
         )}
 
         {/* Tab 1: Video */}

@@ -316,5 +316,57 @@ export const api = {
     });
     return selected as string | null;
   },
+
+  // Whiteboard Animation API (F16)
+  parseWhiteboardSrt: (srtPath: string) =>
+    invoke<{
+      cues: { index: number; startMs: number; endMs: number; durMs: number; text: string }[];
+      scenes: {
+        sceneIndex: number;
+        startMs: number;
+        endMs: number;
+        sceneDurationMs: number;
+        cueRange: [number, number];
+        text: string;
+      }[];
+    }>("parse_whiteboard_srt", { srtPath }),
+
+  generateWhiteboardAnnotation: (
+    imagePath: string,
+    sceneId?: string,
+    storyBasis?: string,
+    durationMs?: number,
+    cues?: any[]
+  ) =>
+    invoke<any>("generate_whiteboard_annotation", {
+      imagePath,
+      sceneId,
+      storyBasis,
+      durationMs,
+      cues,
+    }),
+
+  renderWhiteboardScene: (
+    imagePath: string,
+    annotationPath: string,
+    outputPath: string,
+    fps?: number,
+    paperColor?: string,
+    handPath?: string
+  ) =>
+    invoke<{ output_path: string; file_size: number }>("render_whiteboard_scene", {
+      imagePath,
+      annotationPath,
+      outputPath,
+      fps,
+      paperColor,
+      handPath,
+    }),
+
+  mergeWhiteboardScenes: (videoPaths: string[], outputPath: string) =>
+    invoke<{ output_path: string; file_size: number }>("merge_whiteboard_scenes", {
+      videoPaths,
+      outputPath,
+    }),
 };
 
