@@ -68,6 +68,20 @@ function App() {
   });
   const [sessionChecking, setSessionChecking] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // Phase 1: Cookie check states (In-memory ONLY)
+  const [museSessionTab, setMuseSessionTab] = useState<'browser' | 'cookie'>('browser');
+  const [cookieHatchSess, setCookieHatchSess] = useState('');
+  const [cookieHatchNative, setCookieHatchNative] = useState('');
+  const [cookieHatchGw, setCookieHatchGw] = useState('');
+  const [cookieHatchVml, setCookieHatchVml] = useState('');
+  const [showCookies, setShowCookies] = useState(false);
+  const [cookieChecking, setCookieChecking] = useState(false);
+  const [cookieStatus, setCookieStatus] = useState<{ ok: boolean; message: string; checked_at?: number } | null>(null);
+
+  // Phase 3: Gemini API Key state (In-memory)
+  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('xitrum_gemini_api_key') || '');
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [laneStatus, setLaneStatus] = useState<{ muse_available_slots: number; local_available_slots: number }>({
     muse_available_slots: 1,
     local_available_slots: 2,
@@ -569,67 +583,242 @@ function App() {
               </div>
             </div>
 
-            {/* F11: Muse.ai Chrome Profile & Session Management */}
-            <div className="form-group" style={{ marginTop: "18px" }}>
-              <label>Thư Mục Lưu Chrome Profile Muse.ai (F11 Runner Thật):</label>
+            {/* F11 & Phase 1: Muse.ai Session Management (Browser vs Cookie Check) */}
+            <div style={{ marginTop: '24px', padding: '16px', background: 'var(--bg-secondary, rgba(255,255,255,0.03))', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                <label style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>🔑 Quản Lý Phiên Đăng Nhập Muse.ai:</label>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className={museSessionTab === 'browser' ? 'primary-btn sm-btn' : 'secondary-btn sm-btn'}
+                    onClick={() => setMuseSessionTab('browser')}
+                  >
+                    Trình Duyệt (Mặc định)
+                  </button>
+                  <button
+                    type="button"
+                    className={museSessionTab === 'cookie' ? 'primary-btn sm-btn' : 'secondary-btn sm-btn'}
+                    onClick={() => setMuseSessionTab('cookie')}
+                  >
+                    ⚡ Cookie (Kiểm tra nhanh)
+                  </button>
+                </div>
+              </div>
+
+              {museSessionTab === 'browser' ? (
+                <div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Thư Mục Lưu Chrome Profile Muse.ai (F11 Runner Thật):</label>
+                    <div className="input-with-button">
+                      <input
+                        type="text"
+                        value={config.chrome_profile_dir}
+                        onChange={async (e) => {
+                          const newCfg = { ...config, chrome_profile_dir: e.target.value };
+                          setConfig(newCfg);
+                          await api.saveSettings(newCfg);
+                        }}
+                      />
+                      <button
+                        className="secondary-btn"
+                        onClick={async () => {
+                          const dir = await api.pickDirectory();
+                          if (dir) {
+                            const newCfg = { ...config, chrome_profile_dir: dir };
+                            setConfig(newCfg);
+                            await api.saveSettings(newCfg);
+                            addToast('success', 'Đã cập nhật thư mục Chrome profile!');
+                          }
+                        }}
+                      >
+                        <FolderOpen size={16} /> Chọn Folder...
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="session-status-box" style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <button
+                      className="primary-btn sm-btn"
+                      disabled={sessionChecking}
+                      onClick={async () => {
+                        setSessionChecking(true);
+                        try {
+                          addToast('info', 'Đang mở Chrome kiểm tra phiên đăng nhập Muse.ai...');
+                          const res = await api.checkMuseSession();
+                          setSessionStatus(res);
+                          if (res.ok) {
+                            addToast('success', res.message);
+                          } else {
+                            addToast('error', res.message);
+                          }
+                        } catch (e) {
+                          addToast('error', 'Lỗi kiểm tra session: ' + e);
+                        } finally {
+                          setSessionChecking(false);
+                        }
+                      }}
+                    >
+                      <RotateCw size={14} className={sessionChecking ? 'spin-icon' : ''} />
+                      {sessionChecking ? 'Đang Kiểm Tra...' : 'Kiểm Tra Bằng Trình Duyệt'}
+                    </button>
+
+                    {sessionStatus && (
+                      <span className={'status-badge status-' + (sessionStatus.ok ? 'success' : 'failed')}>
+                        {sessionStatus.message}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Chỉ 1 tài khoản của bạn. Cookie chỉ giữ trong bộ nhớ (In-memory), không lưu vào file text hay database.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>hatch_sess (Bắt buộc):</label>
+                      <input
+                        type={showCookies ? 'text' : 'password'}
+                        value={cookieHatchSess}
+                        placeholder="Giá trị hatch_sess..."
+                        onChange={(e) => setCookieHatchSess(e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>hatch_native_auth_device (Bắt buộc):</label>
+                      <input
+                        type={showCookies ? 'text' : 'password'}
+                        value={cookieHatchNative}
+                        placeholder="Giá trị hatch_native_auth_device..."
+                        onChange={(e) => setCookieHatchNative(e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px' }}>hatch_gw (Tùy chọn):</label>
+                      <input
+                        type={showCookies ? 'text' : 'password'}
+                        value={cookieHatchGw}
+                        placeholder="Giá trị hatch_gw..."
+                        onChange={(e) => setCookieHatchGw(e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px' }}>hatch_vml (Tùy chọn):</label>
+                      <input
+                        type={showCookies ? 'text' : 'password'}
+                        value={cookieHatchVml}
+                        placeholder="Giá trị hatch_vml..."
+                        onChange={(e) => setCookieHatchVml(e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      className="primary-btn sm-btn"
+                      disabled={cookieChecking}
+                      onClick={async () => {
+                        setCookieChecking(true);
+                        try {
+                          const res = await api.checkMuseSessionByCookie(
+                            cookieHatchSess,
+                            cookieHatchNative,
+                            cookieHatchGw || null,
+                            cookieHatchVml || null
+                          );
+                          setCookieStatus(res);
+                          if (res.ok) {
+                            addToast('success', res.message);
+                          } else {
+                            addToast('error', res.message);
+                          }
+                        } catch (e) {
+                          addToast('error', 'Lỗi kiểm tra: ' + e);
+                        } finally {
+                          setCookieChecking(false);
+                        }
+                      }}
+                    >
+                      <RotateCw size={14} className={cookieChecking ? 'spin-icon' : ''} />
+                      {cookieChecking ? 'Đang Kiểm Tra...' : 'Kiểm Tra Nhanh (15s)'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="secondary-btn sm-btn"
+                      onClick={() => {
+                        setCookieHatchSess('');
+                        setCookieHatchNative('');
+                        setCookieHatchGw('');
+                        setCookieHatchVml('');
+                        setCookieStatus(null);
+                        addToast('info', 'Đã xóa sạch cookie khỏi bộ nhớ!');
+                      }}
+                    >
+                      Xóa Cookie
+                    </button>
+
+                    <button
+                      type="button"
+                      className="secondary-btn sm-btn"
+                      onClick={() => setShowCookies(!showCookies)}
+                    >
+                      {showCookies ? 'Ẩn Giá Trị' : 'Hiện Giá Trị'}
+                    </button>
+                  </div>
+
+                  {cookieStatus && (
+                    <div style={{ marginTop: '8px' }}>
+                      <span className={'status-badge status-' + (cookieStatus.ok ? 'success' : 'failed')}>
+                        {cookieStatus.message}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Phase 3: Gemini Vision API Key */}
+            <div className="form-group" style={{ marginTop: '24px', padding: '16px', background: 'var(--bg-secondary, rgba(255,255,255,0.03))', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600 }}>✨ Cấu Hình Gemini Vision API (Khóa Nhân Vật & Sản Phẩm):</label>
+              <p style={{ margin: '4px 0 10px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                Dùng để tự động phân tích ảnh nhân vật & sản phẩm, sinh ra câu khóa (Lock Descriptor) tiếng Anh chuẩn giúp video đồng nhất 100%.
+              </p>
               <div className="input-with-button">
                 <input
-                  type="text"
-                  value={config.chrome_profile_dir}
-                  onChange={async (e) => {
-                    const newCfg = { ...config, chrome_profile_dir: e.target.value };
-                    setConfig(newCfg);
-                    await api.saveSettings(newCfg);
+                  type={showGeminiKey ? 'text' : 'password'}
+                  placeholder="AIzaSy... (Gemini API Key của bạn)"
+                  value={geminiApiKey}
+                  onChange={(e) => {
+                    const val = e.target.value.trim();
+                    setGeminiApiKey(val);
+                    localStorage.setItem('xitrum_gemini_api_key', val);
                   }}
                 />
                 <button
+                  type="button"
                   className="secondary-btn"
-                  onClick={async () => {
-                    const dir = await api.pickDirectory();
-                    if (dir) {
-                      const newCfg = { ...config, chrome_profile_dir: dir };
-                      setConfig(newCfg);
-                      await api.saveSettings(newCfg);
-                      addToast("success", "Đã cập nhật thư mục Chrome profile!");
-                    }
+                  onClick={() => setShowGeminiKey(!showGeminiKey)}
+                >
+                  {showGeminiKey ? 'Ẩn Key' : 'Hiện Key'}
+                </button>
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={() => {
+                    setGeminiApiKey('');
+                    localStorage.removeItem('xitrum_gemini_api_key');
+                    addToast('info', 'Đã xóa Gemini API key!');
                   }}
                 >
-                  <FolderOpen size={16} /> Chọn Folder...
+                  Xóa Key
                 </button>
               </div>
-            </div>
-
-            <div className="session-status-box" style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "10px" }}>
-              <button
-                className="primary-btn sm-btn"
-                disabled={sessionChecking}
-                onClick={async () => {
-                  setSessionChecking(true);
-                  try {
-                    addToast("info", "Đang mở Chrome kiểm tra phiên đăng nhập Muse.ai...");
-                    const res = await api.checkMuseSession();
-                    setSessionStatus(res);
-                    if (res.ok) {
-                      addToast("success", res.message);
-                    } else {
-                      addToast("error", res.message);
-                    }
-                  } catch (e) {
-                    addToast("error", `Lỗi kiểm tra session: ${e}`);
-                  } finally {
-                    setSessionChecking(false);
-                  }
-                }}
-              >
-                <RotateCw size={14} className={sessionChecking ? "spin-icon" : ""} />
-                {sessionChecking ? "Đang Kiểm Tra..." : "Kiểm Tra Phiên Đăng Nhập Muse.ai"}
-              </button>
-
-              {sessionStatus && (
-                <span className={`status-badge status-${sessionStatus.ok ? "success" : "failed"}`}>
-                  {sessionStatus.message}
-                </span>
-              )}
             </div>
 
             {/* F13: Thư viện Nhạc Nền Tự Động */}

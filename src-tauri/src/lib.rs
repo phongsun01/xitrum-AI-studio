@@ -77,6 +77,8 @@ pub fn run() {
             greet,
             test_ffmpeg_sidecar,
             check_muse_session,
+            check_muse_session_by_cookie,
+            analyze_image,
             get_lane_status,
             enqueue_task,
             cancel_task,

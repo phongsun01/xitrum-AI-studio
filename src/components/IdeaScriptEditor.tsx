@@ -19,8 +19,11 @@ import {
   Video,
   FileText,
   Music,
+  Lock,
+  Unlock,
+  Package,
 } from "lucide-react";
-import { api, ScriptProjectItem, CharacterItem, ScriptSceneItem } from "../api";
+import { api, ScriptProjectItem, CharacterItem, ProductItem, ScriptSceneItem } from "../api";
 
 interface Props {
   onAddToast: (type: "success" | "error" | "info" | "warn", message: string) => void;
@@ -65,6 +68,91 @@ export const IdeaScriptEditor: React.FC<Props> = ({ onAddToast, onRefreshTasks, 
   const [voices, setVoices] = useState<VoiceItem[]>([]);
   const [ttsGeneratingSceneId, setTtsGeneratingSceneId] = useState<string | null>(null);
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
+
+  // Phase 3: Analyzing state
+  const [analyzingTarget, setAnalyzingTarget] = useState<string | null>(null);
+
+  const CAMERA_MOVES = [
+    { id: "drone", label: "Flycam / Drone", en: "aerial drone shot" },
+    { id: "slow_motion", label: "Slow motion", en: "slow motion" },
+    { id: "dolly_in", label: "Dolly in", en: "dolly in" },
+    { id: "pan", label: "Lia máy ngang", en: "panning shot" },
+    { id: "orbit", label: "Quay vòng", en: "orbit shot" },
+    { id: "tracking", label: "Bám theo", en: "tracking shot" },
+    { id: "handheld", label: "Cầm tay", en: "handheld" },
+    { id: "timelapse", label: "Time-lapse", en: "time-lapse" },
+    { id: "static", label: "Cố định", en: "static shot" },
+    { id: "crane", label: "Cần cẩu lên", en: "crane shot" },
+  ];
+
+  const STYLES = [
+    { id: "default", label: "Mặc định", en: "" },
+    { id: "cinematic", label: "Điện ảnh", en: "cinematic, film grain" },
+    { id: "documentary", label: "Tài liệu", en: "documentary, realistic" },
+    { id: "commercial", label: "Quảng cáo", en: "high-end commercial" },
+    { id: "anime", label: "Anime", en: "2D anime style" },
+    { id: "vintage", label: "Phim cổ", en: "vintage film" },
+    { id: "dreamy", label: "Mộng mơ", en: "dreamy, soft light" },
+    { id: "noir", label: "Noir", en: "black and white noir" },
+  ];
+
+  const getFinalPreviewPrompt = (scene: ScriptSceneItem): string => {
+    let base = (scene.video_prompt || scene.visual_prompt || "").trim();
+    if (!currentScript) return base;
+
+    // Character description
+    if (scene.character) {
+      const char = currentScript.characters.find(
+        (c) => c.name.trim().toLowerCase() === scene.character?.trim().toLowerCase()
+      );
+      if (char && char.description && !base.includes(char.description)) {
+        base += `, Character: ${char.description}`;
+      }
+    }
+
+    // Camera & Style
+    const parts: string[] = [];
+    if (scene.camera_moves) {
+      for (const m of scene.camera_moves) {
+        const item = CAMERA_MOVES.find((cm) => cm.id === m);
+        if (item && item.en && !base.toLowerCase().includes(item.en.toLowerCase())) {
+          parts.push(item.en);
+        }
+      }
+    }
+    if (scene.style && scene.style !== "default") {
+      const sItem = STYLES.find((st) => st.id === scene.style);
+      if (sItem && sItem.en && !base.toLowerCase().includes(sItem.en.toLowerCase())) {
+        parts.push(sItem.en);
+      }
+    }
+    if (parts.length > 0) {
+      base += `, ${parts.join(", ")}`;
+    }
+
+    // Lock descriptors
+    if (scene.character) {
+      const char = currentScript.characters.find(
+        (c) => c.name.trim().toLowerCase() === scene.character?.trim().toLowerCase()
+      );
+      if (char?.identity_lock_en && !base.includes(char.identity_lock_en)) {
+        base += `\n\nCharacter — keep exactly the same in every scene:\n${char.identity_lock_en}`;
+      }
+    }
+
+    if (scene.product_id && currentScript.products) {
+      const prod = currentScript.products.find((p) => p.id === scene.product_id);
+      if (prod?.product_lock_en && !base.includes(prod.product_lock_en)) {
+        base += `\n\nProduct — keep exactly the same in every scene:\n${prod.product_lock_en}`;
+      }
+    }
+
+    if (currentScript.environment_lock_en && !base.includes(currentScript.environment_lock_en)) {
+      base += `\n\nSetting — keep exactly the same in every scene:\n${currentScript.environment_lock_en}`;
+    }
+
+    return base;
+  };
 
   // Load danh sách kịch bản & danh sách giọng đọc
   const loadScripts = async () => {
@@ -788,19 +876,309 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
                       {char.description || "Chưa có mô tả ngoại hình"}
                     </p>
 
-                    <div>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                       <button
                         className="secondary-btn"
                         style={{ padding: "4px 8px", fontSize: "12px" }}
                         onClick={() => handleSelectRefImage(char.id)}
                       >
-                        {char.ref_image_path ? "Đổi ảnh tham chiếu" : "+ Chọn ảnh tham chiếu"}
+                        {char.ref_image_path ? "Đổi ảnh" : "+ Chọn ảnh"}
                       </button>
+
+                      {char.ref_image_path && (
+                        <button
+                          className="secondary-btn"
+                          style={{ padding: "4px 8px", fontSize: "12px", color: "var(--primary)" }}
+                          disabled={analyzingTarget === char.id}
+                          onClick={async () => {
+                            setAnalyzingTarget(char.id);
+                            try {
+                              const key = localStorage.getItem("xitrum_gemini_api_key");
+                              const res = await api.analyzeImage(char.ref_image_path!, "character", key);
+                              if (res.ok && res.descriptor) {
+                                const updated = currentScript.characters.map((ch) =>
+                                  ch.id === char.id ? { ...ch, identity_lock_en: res.descriptor, locked: true } : ch
+                                );
+                                const newScript = { ...currentScript, characters: updated };
+                                setCurrentScript(newScript);
+                                await api.saveScriptProject(newScript);
+                                onAddToast("success", "Đã phân tích và khóa đặc điểm nhân vật!");
+                              } else {
+                                onAddToast("error", res.message);
+                              }
+                            } catch (e: any) {
+                              onAddToast("error", "Lỗi phân tích: " + e);
+                            } finally {
+                              setAnalyzingTarget(null);
+                            }
+                          }}
+                        >
+                          <Sparkles size={12} className={analyzingTarget === char.id ? "spin" : ""} />
+                          {analyzingTarget === char.id ? "Đang phân tích..." : "Phân tích ảnh"}
+                        </button>
+                      )}
+
+                      {char.identity_lock_en && (
+                        <button
+                          className="secondary-btn"
+                          style={{ padding: "4px 8px", fontSize: "12px", color: char.locked ? "#16a34a" : "#ca8a04" }}
+                          onClick={async () => {
+                            const updated = currentScript.characters.map((ch) =>
+                              ch.id === char.id ? { ...ch, locked: !ch.locked } : ch
+                            );
+                            const newScript = { ...currentScript, characters: updated };
+                            setCurrentScript(newScript);
+                            await api.saveScriptProject(newScript);
+                            onAddToast("info", char.locked ? "Đã mở khóa nhân vật" : "Đã khóa nhân vật!");
+                          }}
+                        >
+                          {char.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                          {char.locked ? "Đã khóa" : "Mở khóa"}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Câu khóa mặt (Lock Descriptor) */}
+                    <div style={{ marginTop: "6px" }}>
+                      <label style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>
+                        🔒 Khóa Ngoại Hình (Identity Lock - Tiếng Anh):
+                      </label>
+                      <textarea
+                        rows={2}
+                        readOnly={char.locked}
+                        style={{
+                          width: "100%",
+                          fontSize: "11px",
+                          fontFamily: "monospace",
+                          background: char.locked ? "#f1f5f9" : "white",
+                          border: "1px solid #cbd5e1",
+                          borderRadius: "4px",
+                          padding: "4px",
+                        }}
+                        placeholder="Câu mô tả tiếng Anh cố định (ví dụ: A 25-year-old Vietnamese woman, long black hair...)"
+                        value={char.identity_lock_en || ""}
+                        onChange={(e) => {
+                          const updated = currentScript.characters.map((ch) =>
+                            ch.id === char.id ? { ...ch, identity_lock_en: e.target.value } : ch
+                          );
+                          setCurrentScript({ ...currentScript, characters: updated });
+                        }}
+                      />
                     </div>
                   </div>
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* PRODUCTS SECTION (PHASE 3) */}
+          <div style={{ background: "#f8fafc", padding: "16px", borderRadius: "10px", border: "1px solid var(--border-color)", marginBottom: "20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <h4 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0, fontSize: "14px", color: "#0f172a" }}>
+                <Package size={16} style={{ color: "var(--primary)" }} /> Danh Sách Sản Phẩm & Khóa Chi Tiết Bao Bì
+              </h4>
+              <button
+                className="secondary-btn"
+                style={{ padding: "4px 10px", fontSize: "12px" }}
+                onClick={async () => {
+                  const newProd: ProductItem = {
+                    id: "prod_" + Math.random().toString(36).substring(2, 9),
+                    script_id: currentScript.id,
+                    name: "Sản phẩm mới",
+                    description: "",
+                    image_path: null,
+                    product_lock_en: "",
+                    locked: false,
+                    created_at: Date.now(),
+                  };
+                  const updatedProds = [...(currentScript.products || []), newProd];
+                  const newScript = { ...currentScript, products: updatedProds };
+                  setCurrentScript(newScript);
+                  await api.saveScriptProject(newScript);
+                  onAddToast("success", "Đã thêm sản phẩm mới!");
+                }}
+              >
+                + Thêm Sản Phẩm
+              </button>
+            </div>
+
+            {(!currentScript.products || currentScript.products.length === 0) ? (
+              <p style={{ margin: 0, fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic" }}>
+                Chưa có sản phẩm nào. Bạn có thể thêm sản phẩm để khóa đặc điểm bao bì/nhãn hiệu xuyên suốt các cảnh.
+              </p>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px" }}>
+                {currentScript.products.map((prod) => (
+                  <div
+                    key={prod.id}
+                    style={{
+                      background: "white",
+                      border: "1px solid var(--border-color)",
+                      borderRadius: "8px",
+                      padding: "12px",
+                      display: "flex",
+                      gap: "12px",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "64px",
+                        height: "64px",
+                        borderRadius: "8px",
+                        background: "#f1f5f9",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        overflow: "hidden",
+                        border: "1px dashed #cbd5e1",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {prod.image_path ? (
+                        <img
+                          src={`https://asset.localhost/${prod.image_path.replace(/\\/g, "/")}`}
+                          alt={prod.name}
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        />
+                      ) : (
+                        <Package size={22} style={{ color: "#94a3b8" }} />
+                      )}
+                    </div>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <input
+                          type="text"
+                          style={{ fontSize: "13px", fontWeight: 600, border: "1px solid transparent", borderBottom: "1px dashed #cbd5e1", padding: "2px 4px", width: "70%" }}
+                          value={prod.name}
+                          onChange={(e) => {
+                            const updated = currentScript.products!.map((p) =>
+                              p.id === prod.id ? { ...p, name: e.target.value } : p
+                            );
+                            setCurrentScript({ ...currentScript, products: updated });
+                          }}
+                        />
+                        <button
+                          className="secondary-btn"
+                          style={{ padding: "2px 6px", color: "#ef4444" }}
+                          onClick={async () => {
+                            const updated = currentScript.products!.filter((p) => p.id !== prod.id);
+                            const newScript = { ...currentScript, products: updated };
+                            setCurrentScript(newScript);
+                            await api.saveScriptProject(newScript);
+                            onAddToast("info", "Đã xóa sản phẩm!");
+                          }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                        <button
+                          className="secondary-btn"
+                          style={{ padding: "4px 8px", fontSize: "12px" }}
+                          onClick={async () => {
+                            const file = await api.pickFile([
+                              { name: "Images", extensions: ["jpg", "jpeg", "png", "webp"] },
+                            ]);
+                            if (file) {
+                              const updated = currentScript.products!.map((p) =>
+                                p.id === prod.id ? { ...p, image_path: file } : p
+                              );
+                              const newScript = { ...currentScript, products: updated };
+                              setCurrentScript(newScript);
+                              await api.saveScriptProject(newScript);
+                              onAddToast("success", "Đã cập nhật ảnh sản phẩm!");
+                            }
+                          }}
+                        >
+                          {prod.image_path ? "Đổi ảnh SP" : "+ Chọn ảnh SP"}
+                        </button>
+
+                        {prod.image_path && (
+                          <button
+                            className="secondary-btn"
+                            style={{ padding: "4px 8px", fontSize: "12px", color: "var(--primary)" }}
+                            disabled={analyzingTarget === prod.id}
+                            onClick={async () => {
+                              setAnalyzingTarget(prod.id);
+                              try {
+                                const key = localStorage.getItem("xitrum_gemini_api_key");
+                                const res = await api.analyzeImage(prod.image_path!, "product", key);
+                                if (res.ok && res.descriptor) {
+                                  const updated = currentScript.products!.map((p) =>
+                                    p.id === prod.id ? { ...p, product_lock_en: res.descriptor, locked: true } : p
+                                  );
+                                  const newScript = { ...currentScript, products: updated };
+                                  setCurrentScript(newScript);
+                                  await api.saveScriptProject(newScript);
+                                  onAddToast("success", "Đã phân tích và khóa đặc điểm sản phẩm!");
+                                } else {
+                                  onAddToast("error", res.message);
+                                }
+                              } catch (e: any) {
+                                onAddToast("error", "Lỗi: " + e);
+                              } finally {
+                                setAnalyzingTarget(null);
+                              }
+                            }}
+                          >
+                            <Sparkles size={12} className={analyzingTarget === prod.id ? "spin" : ""} />
+                            {analyzingTarget === prod.id ? "Đang phân tích..." : "Phân tích ảnh"}
+                          </button>
+                        )}
+
+                        {prod.product_lock_en && (
+                          <button
+                            className="secondary-btn"
+                            style={{ padding: "4px 8px", fontSize: "12px", color: prod.locked ? "#16a34a" : "#ca8a04" }}
+                            onClick={async () => {
+                              const updated = currentScript.products!.map((p) =>
+                                p.id === prod.id ? { ...p, locked: !p.locked } : p
+                              );
+                              const newScript = { ...currentScript, products: updated };
+                              setCurrentScript(newScript);
+                              await api.saveScriptProject(newScript);
+                              onAddToast("info", prod.locked ? "Đã mở khóa sản phẩm" : "Đã khóa sản phẩm!");
+                            }}
+                          >
+                            {prod.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                            {prod.locked ? "Đã khóa" : "Mở khóa"}
+                          </button>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: "4px" }}>
+                        <label style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>
+                          🔒 Khóa Sản Phẩm (Product Lock - Tiếng Anh):
+                        </label>
+                        <textarea
+                          rows={2}
+                          readOnly={prod.locked}
+                          style={{
+                            width: "100%",
+                            fontSize: "11px",
+                            fontFamily: "monospace",
+                            background: prod.locked ? "#f1f5f9" : "white",
+                            border: "1px solid #cbd5e1",
+                            borderRadius: "4px",
+                            padding: "4px",
+                          }}
+                          placeholder="Câu mô tả tiếng Anh cố định bao bì, nhãn, màu sắc..."
+                          value={prod.product_lock_en || ""}
+                          onChange={(e) => {
+                            const updated = currentScript.products!.map((p) =>
+                              p.id === prod.id ? { ...p, product_lock_en: e.target.value } : p
+                            );
+                            setCurrentScript({ ...currentScript, products: updated });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* SCENE LIST */}
@@ -821,6 +1199,100 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
                     boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
                   }}
                 >
+                  {/* Phase 2: CAMERA MOVES & VISUAL STYLES */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "#f8fafc", padding: "10px 12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                    {/* Nhóm 1: Chuyển động camera (chọn tối đa 2) */}
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: 600, color: "#334155" }}>
+                          🎥 Chuyển Động Camera (Chọn tối đa 2):
+                        </span>
+                        <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                          {(scene.camera_moves || []).length}/2 đã chọn
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                        {CAMERA_MOVES.map((cm) => {
+                          const isSelected = (scene.camera_moves || []).includes(cm.id);
+                          return (
+                            <button
+                              key={cm.id}
+                              type="button"
+                              className={isSelected ? "primary-btn" : "secondary-btn"}
+                              style={{
+                                padding: "2px 8px",
+                                fontSize: "11px",
+                                borderRadius: "12px",
+                                background: isSelected ? "var(--primary)" : "white",
+                              }}
+                              onClick={() => {
+                                const currentMoves = scene.camera_moves || [];
+                                if (isSelected) {
+                                  handleUpdateSceneField(scene.id, "camera_moves", currentMoves.filter((m) => m !== cm.id));
+                                } else {
+                                  if (currentMoves.length >= 2) {
+                                    onAddToast("warn", "Chỉ chọn tối đa 2 chuyển động cho 1 cảnh!");
+                                    return;
+                                  }
+                                  handleUpdateSceneField(scene.id, "camera_moves", [...currentMoves, cm.id]);
+                                }
+                              }}
+                            >
+                              {cm.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Nhóm 2: Phong cách quay (chỉ chọn 1) */}
+                    <div>
+                      <span style={{ fontSize: "12px", fontWeight: 600, color: "#334155", display: "block", marginBottom: "4px" }}>
+                        🎨 Phong Cách Quay (Chọn 1):
+                      </span>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                        {STYLES.map((st) => {
+                          const isSelected = (scene.style || "default") === st.id;
+                          return (
+                            <button
+                              key={st.id}
+                              type="button"
+                              className={isSelected ? "primary-btn" : "secondary-btn"}
+                              style={{
+                                padding: "2px 8px",
+                                fontSize: "11px",
+                                borderRadius: "12px",
+                                background: isSelected ? "var(--primary)" : "white",
+                              }}
+                              onClick={() => handleUpdateSceneField(scene.id, "style", st.id)}
+                            >
+                              {st.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Chọn Sản phẩm cho cảnh nếu kịch bản có sản phẩm */}
+                    {currentScript.products && currentScript.products.length > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: 600, color: "#334155" }}>📦 Sản Phẩm Xuất Hiện:</span>
+                        <select
+                          style={{ fontSize: "12px", padding: "2px 8px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                          value={scene.product_id || ""}
+                          onChange={(e) => handleUpdateSceneField(scene.id, "product_id", e.target.value || null)}
+                        >
+                          <option value="">-- Không có sản phẩm trong cảnh này --</option>
+                          {currentScript.products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} {p.locked ? "🔒" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                       <span style={{ fontWeight: 600, color: "var(--primary)", fontSize: "14px" }}>
@@ -913,6 +1385,29 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
                         value={scene.video_prompt}
                         onChange={(e) => handleUpdateSceneField(scene.id, "video_prompt", e.target.value)}
                       />
+                    </div>
+                  </div>
+
+                  {/* Prompt cuối sẽ gửi (Read-only preview) */}
+                  <div style={{ background: "#f1f5f9", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>
+                        👁️ Prompt cuối sẽ gửi sang Muse (Đã ráp Camera, Style & Lock):
+                      </span>
+                      <button
+                        type="button"
+                        className="secondary-btn"
+                        style={{ padding: "2px 6px", fontSize: "10px" }}
+                        onClick={() => {
+                          navigator.clipboard.writeText(getFinalPreviewPrompt(scene));
+                          onAddToast("info", "Đã copy prompt cuối!");
+                        }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#1e293b", whiteSpace: "pre-wrap", lineHeight: 1.4, maxHeight: "100px", overflowY: "auto" }}>
+                      {getFinalPreviewPrompt(scene)}
                     </div>
                   </div>
                 </div>

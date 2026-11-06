@@ -109,14 +109,11 @@ impl MuseRunner {
         let current_dir = std::env::current_dir().unwrap_or_default();
         let candidate_1 = current_dir.join("sidecar-muse").join("runner.mjs");
         let candidate_2 = current_dir.join("..").join("sidecar-muse").join("runner.mjs");
-        let candidate_3 = PathBuf::from("D:\\Antigravity\\REA\\REA-project\\xitrum-AI-studio\\sidecar-muse\\runner.mjs");
 
         let script_path = if candidate_1.exists() {
             candidate_1
         } else if candidate_2.exists() {
             candidate_2
-        } else if candidate_3.exists() {
-            candidate_3
         } else {
             PathBuf::from("sidecar-muse/runner.mjs")
         };

@@ -5838,7 +5838,7 @@ dependencies = [
 
 [[package]]
 name = "xitrum-ai-studio"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "base64 0.23.1",

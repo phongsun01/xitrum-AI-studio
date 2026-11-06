@@ -1,6 +1,6 @@
 use crate::errors::AppError;
 use crate::models::{
-    AppConfig, AudioJobItem, AudioSegmentItem, CharacterItem, ProxyItem, ScriptProjectItem,
+    AppConfig, AudioJobItem, AudioSegmentItem, CharacterItem, ProductItem, ProxyItem, ScriptProjectItem,
     ScriptSceneItem, TaskItem, TaskKind, TaskStatus, TemplateItem,
 };
 use rusqlite::{params, Connection};
@@ -165,6 +165,7 @@ impl Database {
                 target_duration_sec INTEGER,
                 ratio TEXT NOT NULL DEFAULT '16:9',
                 status TEXT NOT NULL DEFAULT 'draft',
+                environment_lock_en TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
             )",
@@ -180,6 +181,24 @@ impl Database {
                 description TEXT NOT NULL,
                 voice TEXT,
                 ref_image_path TEXT,
+                identity_lock_en TEXT,
+                locked INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Bảng Products (Phase 3)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS products (
+                id TEXT PRIMARY KEY,
+                script_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                image_path TEXT,
+                product_lock_en TEXT,
+                locked INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
             )",
@@ -201,10 +220,21 @@ impl Database {
                 audio_path TEXT,
                 video_path TEXT,
                 queue_task_id TEXT,
+                product_id TEXT,
+                camera_moves TEXT NOT NULL DEFAULT '[]',
+                style TEXT NOT NULL DEFAULT 'default',
                 FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
             )",
             [],
         )?;
+
+        // Migration nhẹ cho các database đã tồn tại
+        let _ = conn.execute("ALTER TABLE scripts ADD COLUMN environment_lock_en TEXT", []);
+        let _ = conn.execute("ALTER TABLE characters ADD COLUMN identity_lock_en TEXT", []);
+        let _ = conn.execute("ALTER TABLE characters ADD COLUMN locked INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE script_scenes ADD COLUMN product_id TEXT", []);
+        let _ = conn.execute("ALTER TABLE script_scenes ADD COLUMN camera_moves TEXT NOT NULL DEFAULT '[]'", []);
+        let _ = conn.execute("ALTER TABLE script_scenes ADD COLUMN style TEXT NOT NULL DEFAULT 'default'", []);
 
         // 9. Bảng Proxies (Mốc 3 - Quản lý Proxy Bảo Mật)
         conn.execute(
@@ -582,8 +612,8 @@ impl Database {
         let tx = conn.transaction()?;
 
         tx.execute(
-            "INSERT OR REPLACE INTO scripts (id, title, idea, genre, target_duration_sec, ratio, status, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT OR REPLACE INTO scripts (id, title, idea, genre, target_duration_sec, ratio, status, environment_lock_en, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 script.id,
                 script.title,
@@ -592,27 +622,39 @@ impl Database {
                 script.target_duration_sec,
                 script.ratio,
                 script.status,
+                script.environment_lock_en,
                 script.created_at,
                 script.updated_at,
             ],
         )?;
 
-        // Xóa characters và scenes cũ nếu update
+        // Xóa characters, products và scenes cũ nếu update
         tx.execute("DELETE FROM characters WHERE script_id = ?1", params![script.id])?;
+        tx.execute("DELETE FROM products WHERE script_id = ?1", params![script.id])?;
         tx.execute("DELETE FROM script_scenes WHERE script_id = ?1", params![script.id])?;
 
         for c in &script.characters {
             tx.execute(
-                "INSERT INTO characters (id, script_id, name, description, voice, ref_image_path, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![c.id, script.id, c.name, c.description, c.voice, c.ref_image_path, c.created_at],
+                "INSERT INTO characters (id, script_id, name, description, voice, ref_image_path, identity_lock_en, locked, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![c.id, script.id, c.name, c.description, c.voice, c.ref_image_path, c.identity_lock_en, c.locked as i32, c.created_at],
+            )?;
+        }
+
+        for p in &script.products {
+            tx.execute(
+                "INSERT INTO products (id, script_id, name, description, image_path, product_lock_en, locked, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![p.id, script.id, p.name, p.description, p.image_path, p.product_lock_en, p.locked as i32, p.created_at],
             )?;
         }
 
         for s in &script.scenes {
+            let camera_moves_json = serde_json::to_string(&s.camera_moves).unwrap_or_else(|_| "[]".to_string());
+            let style_str = s.style.clone().unwrap_or_else(|| "default".to_string());
             tx.execute(
-                "INSERT INTO script_scenes (id, script_id, scene_no, narration, visual_prompt, video_prompt, character, duration_sec, ref_image_path, audio_path, video_path, queue_task_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT INTO script_scenes (id, script_id, scene_no, narration, visual_prompt, video_prompt, character, duration_sec, ref_image_path, audio_path, video_path, queue_task_id, product_id, camera_moves, style)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     s.id,
                     script.id,
@@ -626,6 +668,9 @@ impl Database {
                     s.audio_path,
                     s.video_path,
                     s.queue_task_id,
+                    s.product_id,
+                    camera_moves_json,
+                    style_str,
                 ],
             )?;
         }
@@ -637,7 +682,7 @@ impl Database {
     pub fn get_script_project(&self, script_id: &str) -> Result<Option<ScriptProjectItem>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, title, idea, genre, target_duration_sec, ratio, status, created_at, updated_at
+            "SELECT id, title, idea, genre, target_duration_sec, ratio, status, environment_lock_en, created_at, updated_at
              FROM scripts WHERE id = ?1",
         )?;
 
@@ -650,21 +695,25 @@ impl Database {
             let target_duration_sec: Option<i32> = row.get(4)?;
             let ratio: String = row.get(5)?;
             let status: String = row.get(6)?;
-            let created_at: i64 = row.get(7)?;
-            let updated_at: i64 = row.get(8)?;
+            let environment_lock_en: Option<String> = row.get(7)?;
+            let created_at: i64 = row.get(8)?;
+            let updated_at: i64 = row.get(9)?;
 
             let mut char_stmt = conn.prepare(
-                "SELECT id, name, description, voice, ref_image_path, created_at
+                "SELECT id, name, description, voice, ref_image_path, identity_lock_en, locked, created_at
                  FROM characters WHERE script_id = ?1 ORDER BY created_at ASC",
             )?;
             let char_rows = char_stmt.query_map(params![script_id], |r| {
+                let locked_int: i32 = r.get(6).unwrap_or(0);
                 Ok(CharacterItem {
                     id: r.get(0)?,
                     name: r.get(1)?,
                     description: r.get(2)?,
                     voice: r.get(3)?,
                     ref_image_path: r.get(4)?,
-                    created_at: r.get(5)?,
+                    identity_lock_en: r.get(5)?,
+                    locked: locked_int != 0,
+                    created_at: r.get(7)?,
                 })
             })?;
             let mut characters = Vec::new();
@@ -672,11 +721,36 @@ impl Database {
                 characters.push(c?);
             }
 
+            let mut prod_stmt = conn.prepare(
+                "SELECT id, script_id, name, description, image_path, product_lock_en, locked, created_at
+                 FROM products WHERE script_id = ?1 ORDER BY created_at ASC",
+            )?;
+            let prod_rows = prod_stmt.query_map(params![script_id], |r| {
+                let locked_int: i32 = r.get(6).unwrap_or(0);
+                Ok(ProductItem {
+                    id: r.get(0)?,
+                    script_id: r.get(1)?,
+                    name: r.get(2)?,
+                    description: r.get(3)?,
+                    image_path: r.get(4)?,
+                    product_lock_en: r.get(5)?,
+                    locked: locked_int != 0,
+                    created_at: r.get(7)?,
+                })
+            })?;
+            let mut products = Vec::new();
+            for p in prod_rows {
+                products.push(p?);
+            }
+
             let mut scene_stmt = conn.prepare(
-                "SELECT id, script_id, scene_no, narration, visual_prompt, video_prompt, character, duration_sec, ref_image_path, audio_path, video_path, queue_task_id
+                "SELECT id, script_id, scene_no, narration, visual_prompt, video_prompt, character, duration_sec, ref_image_path, audio_path, video_path, queue_task_id, product_id, camera_moves, style
                  FROM script_scenes WHERE script_id = ?1 ORDER BY scene_no ASC",
             )?;
             let scene_rows = scene_stmt.query_map(params![script_id], |r| {
+                let moves_str: String = r.get(13).unwrap_or_else(|_| "[]".to_string());
+                let camera_moves: Vec<String> = serde_json::from_str(&moves_str).unwrap_or_default();
+                let style: Option<String> = r.get(14).ok();
                 Ok(ScriptSceneItem {
                     id: r.get(0)?,
                     script_id: r.get(1)?,
@@ -690,6 +764,9 @@ impl Database {
                     audio_path: r.get(9)?,
                     video_path: r.get(10)?,
                     queue_task_id: r.get(11)?,
+                    product_id: r.get(12)?,
+                    camera_moves,
+                    style: style.or_else(|| Some("default".to_string())),
                 })
             })?;
             let mut scenes = Vec::new();
@@ -705,9 +782,11 @@ impl Database {
                 target_duration_sec,
                 ratio,
                 status,
+                environment_lock_en,
                 created_at,
                 updated_at,
                 characters,
+                products,
                 scenes,
             }))
         } else {
@@ -775,6 +854,8 @@ impl Database {
 
     pub fn update_script_scene(&self, scene: &ScriptSceneItem) -> Result<(), AppError> {
         let conn = self.conn.lock().unwrap();
+        let camera_moves_json = serde_json::to_string(&scene.camera_moves).unwrap_or_else(|_| "[]".to_string());
+        let style_str = scene.style.clone().unwrap_or_else(|| "default".to_string());
         conn.execute(
             "UPDATE script_scenes SET
                 narration = ?1,
@@ -785,8 +866,11 @@ impl Database {
                 ref_image_path = ?6,
                 audio_path = ?7,
                 video_path = ?8,
-                queue_task_id = ?9
-             WHERE id = ?10",
+                queue_task_id = ?9,
+                product_id = ?10,
+                camera_moves = ?11,
+                style = ?12
+             WHERE id = ?13",
             params![
                 scene.narration,
                 scene.visual_prompt,
@@ -797,6 +881,9 @@ impl Database {
                 scene.audio_path,
                 scene.video_path,
                 scene.queue_task_id,
+                scene.product_id,
+                camera_moves_json,
+                style_str,
                 scene.id,
             ],
         )?;
@@ -812,11 +899,30 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_character_lock(&self, character_id: &str, identity_lock_en: Option<&str>, locked: bool) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE characters SET identity_lock_en = ?1, locked = ?2 WHERE id = ?3",
+            params![identity_lock_en, locked as i32, character_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_product_lock(&self, product_id: &str, product_lock_en: Option<&str>, locked: bool) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE products SET product_lock_en = ?1, locked = ?2 WHERE id = ?3",
+            params![product_lock_en, locked as i32, product_id],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_script_project(&self, script_id: &str) -> Result<(), AppError> {
         let mut conn = self.conn.lock().unwrap();
-        // S7: Xóa trong 1 giao dịch và dọn dẹp sạch cả 3 bảng
+        // S7: Xóa trong 1 giao dịch và dọn dẹp sạch cả 4 bảng
         let tx = conn.transaction()?;
         tx.execute("DELETE FROM script_scenes WHERE script_id = ?1", params![script_id])?;
+        tx.execute("DELETE FROM products WHERE script_id = ?1", params![script_id])?;
         tx.execute("DELETE FROM characters WHERE script_id = ?1", params![script_id])?;
         tx.execute("DELETE FROM scripts WHERE id = ?1", params![script_id])?;
         tx.commit()?;

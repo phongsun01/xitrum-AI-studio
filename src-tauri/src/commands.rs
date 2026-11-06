@@ -63,6 +63,133 @@ pub async fn check_muse_session(
     }))
 }
 
+#[derive(serde::Serialize)]
+pub struct CookieSessionResult {
+    pub ok: bool,
+    pub message: String,
+    pub checked_at: u64,
+}
+
+#[tauri::command]
+pub async fn check_muse_session_by_cookie(
+    hatch_sess: String,
+    hatch_native_auth_device: String,
+    hatch_gw: Option<String>,
+    hatch_vml: Option<String>,
+) -> Result<CookieSessionResult, AppError> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let sess = hatch_sess.trim();
+    let auth_dev = hatch_native_auth_device.trim();
+
+    if sess.is_empty() || auth_dev.is_empty() {
+        return Ok(CookieSessionResult {
+            ok: false,
+            message: "Thiếu cookie bắt buộc: hatch_sess và hatch_native_auth_device không được để trống.".to_string(),
+            checked_at: now,
+        });
+    }
+
+    let mut cookie_parts = vec![
+        format!("hatch_sess={}", sess),
+        format!("hatch_native_auth_device={}", auth_dev),
+    ];
+    if let Some(gw) = hatch_gw {
+        let gw = gw.trim();
+        if !gw.is_empty() {
+            cookie_parts.push(format!("hatch_gw={}", gw));
+        }
+    }
+    if let Some(vml) = hatch_vml {
+        let vml = vml.trim();
+        if !vml.is_empty() {
+            cookie_parts.push(format!("hatch_vml={}", vml));
+        }
+    }
+    let cookie_header = cookie_parts.join("; ");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+        .build()
+        .map_err(|e| AppError::Other(format!("Lỗi tạo HTTP client: {}", e)))?;
+
+    // 1. Kiểm tra session ban đầu
+    let res = match client
+        .get("https://muse.ai/api/session")
+        .header(reqwest::header::COOKIE, &cookie_header)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return Ok(CookieSessionResult {
+                ok: false,
+                message: format!("Không kết nối được Muse: {}", e),
+                checked_at: now,
+            });
+        }
+    };
+
+    let status = res.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return Ok(CookieSessionResult {
+            ok: false,
+            message: "Phiên đã hết hạn. Vui lòng đăng nhập lại trên trình duyệt rồi lấy cookie mới.".to_string(),
+            checked_at: now,
+        });
+    }
+
+    if !status.is_success() {
+        return Ok(CookieSessionResult {
+            ok: false,
+            message: format!("Muse trả về mã lỗi HTTP {}.", status.as_u16()),
+            checked_at: now,
+        });
+    }
+
+    // 2. Gửi lệnh wake VM
+    let _ = client
+        .post("https://muse.ai/api/hatch/vm/wake")
+        .header(reqwest::header::COOKIE, &cookie_header)
+        .send()
+        .await;
+
+    // 3. Polling kiểm tra lại session
+    let mut verified = false;
+    for _ in 0..5 {
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        if let Ok(r) = client
+            .get("https://muse.ai/api/session")
+            .header(reqwest::header::COOKIE, &cookie_header)
+            .send()
+            .await
+        {
+            if r.status().is_success() {
+                verified = true;
+                break;
+            }
+        }
+    }
+
+    if verified {
+        Ok(CookieSessionResult {
+            ok: true,
+            message: "Phiên còn dùng được. Máy ảo Muse.ai đã sẵn sàng!".to_string(),
+            checked_at: now,
+        })
+    } else {
+        Ok(CookieSessionResult {
+            ok: true,
+            message: "Phiên hợp lệ nhưng máy ảo Muse.ai phản hồi chậm. Vui lòng kiểm tra lại sau vài giây.".to_string(),
+            checked_at: now,
+        })
+    }
+}
+
 #[tauri::command]
 pub async fn retry_task(
     task_id: String,
@@ -757,18 +884,25 @@ pub async fn dispatch_script_to_queue(
         .get_script_project(&script_id)?
         .ok_or_else(|| AppError::Other("Không tìm thấy dự án kịch bản".into()))?;
 
-    // Tạo map tra cứu nhân vật: name -> (description, ref_image_path)
-    let char_map: std::collections::HashMap<String, (String, Option<String>)> = script
+    // Tạo map tra cứu nhân vật: name -> (description, ref_image_path, identity_lock_en)
+    let char_map: std::collections::HashMap<String, (String, Option<String>, Option<String>)> = script
         .characters
         .iter()
-        .map(|c| (c.name.trim().to_lowercase(), (c.description.clone(), c.ref_image_path.clone())))
+        .map(|c| (c.name.trim().to_lowercase(), (c.description.clone(), c.ref_image_path.clone(), c.identity_lock_en.clone())))
+        .collect();
+
+    // Tạo map tra cứu sản phẩm: id -> product_lock_en
+    let prod_map: std::collections::HashMap<String, Option<String>> = script
+        .products
+        .iter()
+        .map(|p| (p.id.clone(), p.product_lock_en.clone()))
         .collect();
 
     let mut queued_count = 0;
     let mut task_ids = Vec::new();
 
     for scene in &script.scenes {
-        // Kết hợp prompt: visual_prompt + mô tả nhân vật (nếu có)
+        // Kết hợp prompt: video_prompt (hoặc visual_prompt nếu video_prompt trống)
         let mut final_prompt = if !scene.video_prompt.trim().is_empty() {
             scene.video_prompt.trim().to_string()
         } else {
@@ -778,15 +912,83 @@ pub async fn dispatch_script_to_queue(
         // Xác định ảnh tham chiếu khuôn mặt (ưu tiên từ scene, sau đó từ Character Bible)
         let mut char_ref_img = scene.ref_image_path.clone();
 
+        let mut scene_char_lock: Option<String> = None;
         if let Some(ref char_name) = scene.character {
             let key = char_name.trim().to_lowercase();
-            if let Some((desc, char_img)) = char_map.get(&key) {
+            if let Some((desc, char_img, char_lock)) = char_map.get(&key) {
                 if !desc.trim().is_empty() && !final_prompt.contains(desc) {
                     final_prompt = format!("{}, Character: {}", final_prompt, desc);
                 }
                 if char_ref_img.is_none() && char_img.is_some() {
                     char_ref_img = char_img.clone();
                 }
+                if let Some(l) = char_lock {
+                    if !l.trim().is_empty() {
+                        scene_char_lock = Some(l.trim().to_string());
+                    }
+                }
+            }
+        }
+
+        // Phase 2: Ráp camera moves và visual style
+        let mut camera_style_parts: Vec<&str> = Vec::new();
+        for m in &scene.camera_moves {
+            let phrase = match m.as_str() {
+                "drone" => "aerial drone shot",
+                "slow_motion" => "slow motion",
+                "dolly_in" => "dolly in",
+                "pan" => "panning shot",
+                "orbit" => "orbit shot",
+                "tracking" => "tracking shot",
+                "handheld" => "handheld",
+                "timelapse" => "time-lapse",
+                "static" => "static shot",
+                "crane" => "crane shot",
+                _ => "",
+            };
+            if !phrase.is_empty() && !final_prompt.to_lowercase().contains(phrase) {
+                camera_style_parts.push(phrase);
+            }
+        }
+
+        if let Some(ref st) = scene.style {
+            let style_phrase = match st.as_str() {
+                "cinematic" => "cinematic, film grain",
+                "documentary" => "documentary, realistic",
+                "commercial" => "high-end commercial",
+                "anime" => "2D anime style",
+                "vintage" => "vintage film",
+                "dreamy" => "dreamy, soft light",
+                "noir" => "black and white noir",
+                _ => "",
+            };
+            if !style_phrase.is_empty() && !final_prompt.to_lowercase().contains(style_phrase) {
+                camera_style_parts.push(style_phrase);
+            }
+        }
+
+        if !camera_style_parts.is_empty() {
+            final_prompt = format!("{}, {}", final_prompt, camera_style_parts.join(", "));
+        }
+
+        // Phase 3: Dán câu khóa (Prompt Lock Descriptors)
+        if let Some(ref lock_str) = scene_char_lock {
+            if !final_prompt.contains(lock_str) {
+                final_prompt = format!("{}\n\nCharacter — keep exactly the same in every scene:\n{}", final_prompt, lock_str);
+            }
+        }
+
+        if let Some(ref p_id) = scene.product_id {
+            if let Some(Some(ref prod_lock)) = prod_map.get(p_id) {
+                if !prod_lock.trim().is_empty() && !final_prompt.contains(prod_lock.trim()) {
+                    final_prompt = format!("{}\n\nProduct — keep exactly the same in every scene:\n{}", final_prompt, prod_lock.trim());
+                }
+            }
+        }
+
+        if let Some(ref env_lock) = script.environment_lock_en {
+            if !env_lock.trim().is_empty() && !final_prompt.contains(env_lock.trim()) {
+                final_prompt = format!("{}\n\nSetting — keep exactly the same in every scene:\n{}", final_prompt, env_lock.trim());
             }
         }
 
@@ -819,6 +1021,138 @@ pub async fn dispatch_script_to_queue(
         "queued_count": queued_count,
         "task_ids": task_ids,
     }))
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct AnalyzeImageResult {
+    pub ok: bool,
+    pub descriptor: Option<String>,
+    pub message: String,
+}
+
+#[tauri::command]
+pub async fn analyze_image(
+    image_path: String,
+    kind: String, // "character", "product", "environment"
+    gemini_api_key: Option<String>,
+) -> Result<AnalyzeImageResult, AppError> {
+    let key = gemini_api_key.unwrap_or_default().trim().to_string();
+    if key.is_empty() {
+        return Ok(AnalyzeImageResult {
+            ok: false,
+            descriptor: None,
+            message: "Chưa cấu hình Gemini API Key. Bạn có thể nhập key trong Cài Đặt hoặc nhập khóa bằng tay.".to_string(),
+        });
+    }
+
+    let p = std::path::Path::new(&image_path);
+    if !p.exists() {
+        return Ok(AnalyzeImageResult {
+            ok: false,
+            descriptor: None,
+            message: format!("Không tìm thấy file ảnh: {}", image_path),
+        });
+    }
+
+    let img_bytes = tokio::fs::read(&image_path)
+        .await
+        .map_err(|e| AppError::Other(format!("Không đọc được ảnh: {}", e)))?;
+
+    use base64::{engine::general_purpose, Engine as _};
+    let b64 = general_purpose::STANDARD.encode(&img_bytes);
+
+    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+    let mime_type = match ext.as_str() {
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        _ => "image/jpeg",
+    };
+
+    let prompt_instruction = match kind.as_str() {
+        "character" => "You are an expert AI vision analyst for video generation consistency. Analyze the human character in this image. Write exactly ONE concise, comprehensive English sentence describing the character to lock their visual identity across scenes. Include apparent age, gender, facial traits, hair color/style, skin tone, clothing items/colors, and expression. Do NOT guess or hallucinate unseen details. If a detail is unclear, omit it or state 'not clear'. Output ONLY valid JSON: {\"identity_lock_en\": \"<description sentence>\"}.",
+        "product" => "You are an expert AI vision analyst for commercial video generation consistency. Analyze the product in this image. Write exactly ONE concise, comprehensive English sentence describing the product to lock its packaging, color, shape, materials, visible labels/text, and key visual features across scenes. Do NOT hallucinate unseen text or claims. Output ONLY valid JSON: {\"product_lock_en\": \"<description sentence>\"}.",
+        _ => "You are an expert AI vision analyst for video generation consistency. Analyze the environment/setting in this image. Write exactly ONE concise English sentence describing the background room, lighting setup, color palette, and key props to lock the scene consistency. Output ONLY valid JSON: {\"environment_lock_en\": \"<description sentence>\"}.",
+    };
+
+    let payload = serde_json::json!({
+        "contents": [{
+            "parts": [
+                { "text": prompt_instruction },
+                {
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": b64
+                    }
+                }
+            ]
+        }],
+        "generationConfig": {
+            "temperature": 0.2,
+            "response_mime_type": "application/json"
+        }
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| AppError::Other(format!("Lỗi tạo HTTP client: {}", e)))?;
+
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}",
+        key
+    );
+
+    let resp = match client.post(&url).json(&payload).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return Ok(AnalyzeImageResult {
+                ok: false,
+                descriptor: None,
+                message: format!("Không kết nối được Gemini API: {}", e),
+            });
+        }
+    };
+
+    if !resp.status().is_success() {
+        let err_body = resp.text().await.unwrap_or_default();
+        return Ok(AnalyzeImageResult {
+            ok: false,
+            descriptor: None,
+            message: format!("Gemini API trả về lỗi: {}", err_body),
+        });
+    }
+
+    let json_resp: serde_json::Value = resp.json().await.map_err(|e| AppError::Other(e.to_string()))?;
+    let text_content = json_resp
+        .pointer("/candidates/0/content/parts/0/text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let parsed_desc: serde_json::Value = serde_json::from_str(text_content).unwrap_or_default();
+    let lock_key = match kind.as_str() {
+        "character" => "identity_lock_en",
+        "product" => "product_lock_en",
+        _ => "environment_lock_en",
+    };
+
+    let descriptor = parsed_desc.get(lock_key).and_then(|v| v.as_str()).map(|s| s.trim().to_string());
+
+    if let Some(desc) = descriptor {
+        if !desc.is_empty() {
+            return Ok(AnalyzeImageResult {
+                ok: true,
+                descriptor: Some(desc),
+                message: "Phân tích và tạo câu khóa thành công!".to_string(),
+            });
+        }
+    }
+
+    Ok(AnalyzeImageResult {
+        ok: false,
+        descriptor: None,
+        message: "Gemini trả về kết quả nhưng không có trường khóa hợp lệ. Vui lòng thử lại hoặc nhập tay.".to_string(),
+    })
 }
 
 // ==========================================

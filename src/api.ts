@@ -77,6 +77,19 @@ export interface CharacterItem {
   description: string;
   voice: string | null;
   ref_image_path: string | null;
+  identity_lock_en?: string | null;
+  locked?: boolean;
+  created_at: number;
+}
+
+export interface ProductItem {
+  id: string;
+  script_id: string;
+  name: string;
+  description?: string | null;
+  image_path?: string | null;
+  product_lock_en?: string | null;
+  locked?: boolean;
   created_at: number;
 }
 
@@ -93,6 +106,9 @@ export interface ScriptSceneItem {
   audio_path: string | null;
   video_path: string | null;
   queue_task_id: string | null;
+  product_id?: string | null;
+  camera_moves?: string[];
+  style?: string | null;
 }
 
 export interface ScriptProjectItem {
@@ -103,9 +119,11 @@ export interface ScriptProjectItem {
   target_duration_sec: number | null;
   ratio: string;
   status: "draft" | "reviewed" | "queued" | "done";
+  environment_lock_en?: string | null;
   created_at: number;
   updated_at: number;
   characters: CharacterItem[];
+  products?: ProductItem[];
   scenes: ScriptSceneItem[];
 }
 
@@ -187,6 +205,31 @@ export const api = {
   // Kiểm tra phiên đăng nhập Muse.ai (F11)
   checkMuseSession: () =>
     invoke<{ ok: boolean; message: string }>("check_muse_session"),
+
+  // Kiểm tra nhanh phiên Muse.ai qua Cookie (Phase 1)
+  checkMuseSessionByCookie: (
+    hatchSess: string,
+    hatchNativeAuthDevice: string,
+    hatchGw?: string | null,
+    hatchVml?: string | null
+  ) =>
+    invoke<{ ok: boolean; message: string; checked_at: number }>(
+      "check_muse_session_by_cookie",
+      {
+        hatchSess,
+        hatchNativeAuthDevice,
+        hatchGw: hatchGw ?? null,
+        hatchVml: hatchVml ?? null,
+      }
+    ),
+
+  // Phân tích ảnh khóa mặt / khóa sản phẩm với Gemini Vision (Phase 3)
+  analyzeImage: (imagePath: string, kind: "character" | "product" | "environment", geminiApiKey?: string | null) =>
+    invoke<{ ok: boolean; descriptor: string | null; message: string }>("analyze_image", {
+      imagePath,
+      kind,
+      geminiApiKey: geminiApiKey ?? null,
+    }),
 
   // Kiểm tra trạng thái các luồng Multi-Lane (F14)
   getLaneStatus: () =>

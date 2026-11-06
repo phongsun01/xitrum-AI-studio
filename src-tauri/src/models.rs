@@ -74,6 +74,22 @@ pub struct CharacterItem {
     pub description: String,
     pub voice: Option<String>,
     pub ref_image_path: Option<String>,
+    pub identity_lock_en: Option<String>,
+    #[serde(default)]
+    pub locked: bool,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductItem {
+    pub id: String,
+    pub script_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub image_path: Option<String>,
+    pub product_lock_en: Option<String>,
+    #[serde(default)]
+    pub locked: bool,
     pub created_at: i64,
 }
 
@@ -91,6 +107,15 @@ pub struct ScriptSceneItem {
     pub audio_path: Option<String>,
     pub video_path: Option<String>,
     pub queue_task_id: Option<String>,
+    pub product_id: Option<String>,
+    #[serde(default)]
+    pub camera_moves: Vec<String>,
+    #[serde(default = "default_scene_style")]
+    pub style: Option<String>,
+}
+
+fn default_scene_style() -> Option<String> {
+    Some("default".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,9 +127,12 @@ pub struct ScriptProjectItem {
     pub target_duration_sec: Option<i32>,
     pub ratio: String,
     pub status: String, // "draft", "reviewed", "queued", "done"
+    pub environment_lock_en: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub characters: Vec<CharacterItem>,
+    #[serde(default)]
+    pub products: Vec<ProductItem>,
     pub scenes: Vec<ScriptSceneItem>,
 }
 
