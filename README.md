@@ -5,14 +5,15 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.3.0
+## 📦 Phiên Bản Hiện Tại: v0.4.0
 
-### Tính năng mới v0.3.0 (Audio Pipeline & Timeline Editor):
-- 🎙️ **Audio Timeline Segment Editor (F7)**: Bóc tách giọng nói tự động phân rã thành từng câu, cho phép nghe, chỉnh sửa câu chữ, gán prompt AI và ảnh người mẫu tham chiếu trực tiếp trên giao diện Timeline.
-- 📤 **Đẩy Trực Tiếp Sang Hàng Đợi Queue (F7)**: Nút "Tạo Video" cho từng segment giúp tạo task sinh video Muse.ai tức thì theo đúng timestamp và hình ảnh đã chọn.
-- 💾 **Xuất Phụ Đề & Kịch Bản (F8)**: Xuất kịch bản ra định dạng `.srt` chuẩn mili-giây hoặc file `.txt`.
-- ⚙️ **Bộ Chọn Mô Hình Whisper (F9)**: Tùy chọn chuyển đổi linh hoạt giữa các model `ggml-tiny` (nhanh), `ggml-base` (cân bằng), `ggml-medium` (chuẩn xác cao).
-- 👍 **Duyệt Kết Quả Segment (F10)**: Tính năng duyệt/bỏ qua (Approve / Reject) từng câu thoại trước khi render.
+### Tính năng mới v0.4.0 (Automation Engine & Multi-Lane Production):
+- 🤖 **Runner Muse.ai Playwright CDP Tự Động (F11)**: Tự động đăng nhập, gửi prompt, tải ảnh tham chiếu và download video hoàn thành từ Muse.ai thông qua profile Chrome thật của người dùng.
+- 📐 **Menu Thu Gọn / Mở Rộng Linh Hoạt**: Tối ưu không gian làm việc với nút toggle sidebar phong cách ChatGPT.
+- 🎬 **Tự Động Render Nối Video FFmpeg (F12)**: Tự động gom toàn bộ video clips từ các segment đã hoàn thành, ghép nối theo đúng thứ tự thời gian và chèn lại track giọng nói gốc đồng bộ.
+- 🎵 **Trộn Nhạc Nền Tự Động (F13)**: Tự động quét thư mục nhạc nền, loop/cắt khớp độ dài video, hạ âm lượng thông minh (ducking/volume slider) để làm nổi bật giọng thuyết minh.
+- 🚦 **Hàng Đợi Đa Luồng Độc Lập - Multi-Lane Semaphore (F14)**: Tách riêng luồng xử lý Muse.ai (giới hạn 1 tác vụ để tránh checkpoint) và luồng xử lý Local (Rembg/FFmpeg chạy song song), hiển thị trạng thái realtime trên thanh tiêu đề.
+- 🔄 **Tạo Lại Đoạn Đơn Lẻ (F15)**: Cho phép tạo lại video cho riêng từng câu thoại/segment không ưng ý mà không cần dựng lại cả kịch bản.
 
 ---
 
@@ -22,7 +23,7 @@
   - Nhập file âm thanh thu âm bất kỳ.
   - Phân tích và biên tập câu chữ trên Audio Timeline.
   - Ghép hình người mẫu đã xóa phông nền (Rembg ONNX).
-  - Tự động sinh video qua Muse.ai.
+  - Tự động sinh video qua Muse.ai và render video hoàn chỉnh kèm nhạc nền.
 - **Siêu Nhẹ & Tiết Kiệm Tài Nguyên**:
   - Dung lượng cài đặt chỉ **~41 MB** (thay vì >250 MB như Electron).
   - Tiêu tốn chỉ **~40 - 60 MB RAM** khi chạy ngầm.
@@ -73,7 +74,7 @@ File cài đặt sẽ được tạo tại `src-tauri/target/release/bundle/nsis
 - [x] **v0.1.0**: Lõi hàng đợi SQLite, Rembg ONNX native, FFmpeg & Whisper STT.
 - [x] **v0.2.0**: Mở folder kết quả, Retry, Duplicate, Edit prompt, Toast notification, Thư viện Templates.
 - [x] **v0.3.0**: Audio Timeline Segment Editor, Xuất phụ đề (.SRT/.TXT), Chọn mô hình Whisper, Duyệt câu thoại (Approve/Reject).
-- [ ] **v0.4.0**: Runner Muse.ai tự động hoàn chỉnh, Tự động ghép video + nhạc nền, Multi-lane runner đa luồng.
+- [x] **v0.4.0**: Runner Muse.ai tự động hoàn chỉnh, Tự động ghép video + nhạc nền, Multi-lane runner đa luồng, Tái sinh segment đơn lẻ.
 
 ---
 
