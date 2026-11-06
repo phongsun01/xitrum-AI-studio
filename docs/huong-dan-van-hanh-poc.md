@@ -23,7 +23,58 @@ npm run tauri dev
 
 ---
 
-## 2. Các Tính Năng Mới Đã Hoàn Thiện (v0.2.0, v0.3.0, v0.4.0)
+## 2. Quy Trình Vận Hành Tạo Video (Workflow Chi Tiết)
+
+Hệ thống cung cấp **2 luồng chạy tạo video** tùy theo mục đích sử dụng:
+
+### 🌟 Luồng 1: Luồng Tự Động Hóa Toàn Diện từ Âm Thanh (Audio → Video Kahi Workflow)
+> *Đây là luồng cốt lõi mạnh nhất của hệ thống: Biến một đoạn thu âm kịch bản thành video AI ghép nhiều phân cảnh, khớp khẩu hình/nội dung, kèm nhạc nền.*
+
+```mermaid
+flowchart TD
+    A["1. Thu âm / File âm thanh (.mp3, .wav)"] --> B["Tab Phân tích âm thanh\n(Chạy Whisper STT)"]
+    B --> C["Audio Timeline Editor\n(Phân rã thành từng câu thoại)"]
+    C --> D["Biên tập: Sửa prompt, gán ảnh mẫu\nvà bấm 'Duyệt câu'"]
+    D --> E["Bấm 'Đẩy vào hàng đợi'\n(Sinh các task Muse.ai)"]
+    E --> F["Hàng đợi chạy tự động\n(Chrome CDP tải clips từ Muse.ai)"]
+    F --> G["Hệ thống tự động nối clips (F12)\nvà mix nhạc nền (F13)"]
+    G --> H["Video hoàn chỉnh xuất ra folder"]
+```
+
+#### Các bước thao tác cụ thể:
+1. **Chuẩn bị ảnh mẫu (Tùy chọn)**:
+   - Vào tab **Xóa phông (Rembg)** ➜ Chọn ảnh chân dung người mẫu ➜ Bấm thực thi để tách nền trong suốt chuẩn bị cho AI sinh video.
+2. **Nạp âm thanh & Bóc tách câu thoại**:
+   - Vào tab **Phân tích âm thanh** ➜ Chọn file giọng đọc (`.mp3`/`.wav`) ➜ Chọn model Whisper (ví dụ: `ggml-base` hoặc `ggml-medium`) ➜ Bấm **Bắt đầu bóc tách**.
+3. **Biên tập trên Audio Timeline**:
+   - Hệ thống tự động chia âm thanh thành từng câu thoại kèm mốc thời gian (`Start` - `End`).
+   - Bấm nghe thử từng câu, chỉnh lại câu chữ, chọn ảnh người mẫu tham chiếu tương ứng và sửa prompt mô tả động tác/bối cảnh.
+   - Bấm **Duyệt (Approve)** các câu đạt yêu cầu.
+4. **Đẩy sang Hàng Đợi (Queue)**:
+   - Bấm nút **"Đẩy vào hàng đợi"** ở góc trên Timeline (hoặc bấm nút "Tạo video" ở từng segment lẻ).
+   - Hệ thống sẽ tạo các tác vụ sinh video Muse.ai tương ứng với từng câu thoại.
+5. **Xử lý tự động (Hàng đợi đa luồng)**:
+   - Runner Playwright kết nối vào Chrome thật của bạn, tự động nhập prompt, đính kèm ảnh và tải các đoạn video clip hoàn thành về máy.
+   - *(Nếu có đoạn nào chưa ưng ý, bạn chỉ cần bấm nút **"Tạo lại"** (F15) riêng cho đoạn đó mà không cần làm lại từ đầu).*
+6. **Ghép video & Chèn nhạc nền hoàn chỉnh (Tự động)**:
+   - Khi toàn bộ các segment hoàn thành: FFmpeg tự động ghép nối tất cả các clip video lại với nhau theo đúng timeline, chèn lại track giọng nói gốc đồng bộ và tự động trộn thêm nhạc nền từ thư mục cấu hình.
+   - Bấm nút **"Mở thư mục"** tại hàng đợi để lấy video thành phẩm.
+
+---
+
+### ⚡ Luồng 2: Tạo Video Trực Tiếp Nhanh (Tab "Tạo video")
+> *Dành cho trường hợp bạn chỉ muốn tạo nhanh 1 clip video lẻ từ Prompt + Ảnh mẫu.*
+
+1. Mở tab **Tạo video** trên menu bên trái.
+2. Nhập **Prompt** (mô tả cảnh quay, hành động, ánh sáng, góc máy). Hoặc bấm chọn nhanh từ **Thư viện mẫu (Preset/Template)**.
+3. Chọn **Ảnh người mẫu/Ảnh tham chiếu** (đã qua tách nền hoặc ảnh gốc).
+4. Chọn **Tỷ lệ khung hình** (`16:9` ngang cho Youtube hoặc `9:16` dọc cho TikTok/Shorts/Reels).
+5. Bấm **"Thêm vào hàng đợi"**.
+6. Hệ thống đẩy task vào **Queue**, runner mở Muse.ai trên Chrome sinh video và tải file về máy khi hoàn thành.
+
+---
+
+## 3. Các Tính Năng Đã Hoàn Thiện (v0.2.0, v0.3.0, v0.4.0)
 
 ### A. Thanh Điều Hướng Thu Gọn / Mở Rộng (Sidebar Toggle)
 - Nút icon `PanelLeftClose` / `PanelLeft` nằm ngay góc trên bên trái cạnh logo.
