@@ -63,6 +63,7 @@ pub struct AudioSegmentItem {
     pub prompt: Option<String>,
     pub ref_image_path: Option<String>,
     pub queue_task_id: Option<String>,
+    pub output_video_path: Option<String>,
     pub approval: Option<String>, // "approved", "rejected", null
 }
 

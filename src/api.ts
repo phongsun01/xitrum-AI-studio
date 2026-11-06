@@ -49,6 +49,7 @@ export interface AudioSegmentItem {
   prompt: string | null;
   ref_image_path: string | null;
   queue_task_id: string | null;
+  output_video_path: string | null;
   approval: "approved" | "rejected" | null;
 }
 
@@ -122,6 +123,8 @@ export const api = {
     invoke<TaskItem>("add_segment_to_queue", { jobId, segmentId }),
   exportScript: (jobId: string, format: "srt" | "txt") =>
     invoke<string>("export_script", { jobId, format }),
+  renderAudioJob: (jobId: string) =>
+    invoke<string>("render_audio_job", { jobId }),
 
   // Kiểm tra phiên đăng nhập Muse.ai (F11)
   checkMuseSession: () =>

@@ -199,12 +199,15 @@ flowchart LR
   - **Files:** `sidecar-muse/runner.mjs`, `src-tauri/src/executors/muse_runner.rs`, `src-tauri/src/queue.rs`, `src-tauri/src/commands.rs`, `src/App.tsx`, `src/api.ts`
   - **Effort:** ~12h
 
-- [ ] **F12: Auto-Render Ghép Video (`audio.render`)**
-  - Sau khi tất cả segment có video từ Muse.ai:
-    - FFmpeg concat: `ffmpeg -f concat -i list.txt -i audio.m4a output.mp4`
-    - Option: burn subtitle từ segments đã sửa
-  - Rust command `render_audio_job(job_id, options)`
-  - **Files:** `executors/audio.rs`, `commands.rs`, `App.tsx`
+- [x] **F12: Auto-Render Ghép Video (`audio.render`)**
+  - Tự động liên kết video sinh ra từ Muse.ai vào từng segment trong bảng `audio_segments`.
+  - Hiển thị nhãn `output_video_path` trực quan trên từng hàng Audio Timeline.
+  - Rust executor pipeline `render_video_concat` dùng FFmpeg:
+    - Tự động sinh `list.txt` cho FFmpeg concat demuxer.
+    - Ghép tất cả video segment hợp lệ theo thứ tự mốc thời gian kèm file âm thanh gốc.
+    - Xuất video chuẩn `final_render_{job_id}.mp4` vào thư mục `output_dir`.
+  - Nút bấm **"Render Ghép Video (F12)"** ngay trên thanh thao tác Audio Timeline.
+  - **Files:** `src-tauri/src/executors/audio.rs`, `src-tauri/src/commands.rs`, `src-tauri/src/db.rs`, `src/components/AudioTimeline.tsx`, `src/api.ts`
   - **Effort:** ~8h
 
 - [ ] **F13: Nhạc Nền Tự Động (`music.pickDir`, `music.set`)**

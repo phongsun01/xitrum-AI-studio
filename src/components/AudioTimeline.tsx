@@ -15,6 +15,7 @@ import {
   ThumbsDown,
   RefreshCw,
   Image as ImageIcon,
+  Film,
 } from "lucide-react";
 
 interface Props {
@@ -35,6 +36,8 @@ export const AudioTimeline: React.FC<Props> = ({
   const [editingSegId, setEditingSegId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
+
+  const [rendering, setRendering] = useState(false);
 
   const loadJobs = async () => {
     try {
@@ -160,6 +163,22 @@ export const AudioTimeline: React.FC<Props> = ({
     }
   };
 
+  const handleRenderFullVideo = async () => {
+    if (!selectedJobId) return;
+    setRendering(true);
+    try {
+      onAddToast("info", "Đang tiến hành ghép các đoạn video + âm thanh gốc với FFmpeg...");
+      const finalFile = await api.renderAudioJob(selectedJobId);
+      onAddToast("success", `✅ Ghép video hoàn tất: ${finalFile}`);
+      loadJobs();
+      if (selectedJobId) loadSegments(selectedJobId);
+    } catch (e) {
+      onAddToast("error", `Lỗi ghép video: ${e}`);
+    } finally {
+      setRendering(false);
+    }
+  };
+
   return (
     <div className="panel-card audio-timeline-card">
       <div className="timeline-top-bar">
@@ -192,6 +211,14 @@ export const AudioTimeline: React.FC<Props> = ({
 
         {selectedJobId && segments.length > 0 && (
           <div className="export-actions">
+            <button
+              className="primary-btn sm-btn"
+              disabled={rendering}
+              onClick={handleRenderFullVideo}
+              title="Ghép các video segment hoàn thành thành 1 video duy nhất"
+            >
+              <Film size={14} /> {rendering ? "Đang Ghép..." : "Render Ghép Video (F12)"}
+            </button>
             <button
               className="secondary-btn sm-btn"
               onClick={() => handleExport("srt")}
@@ -226,6 +253,7 @@ export const AudioTimeline: React.FC<Props> = ({
                 <th>Lời Thoại (Speech Transcript)</th>
                 <th>Prompt Tạo Video</th>
                 <th style={{ width: "120px" }}>Ảnh Mẫu</th>
+                <th style={{ width: "110px" }}>Video Segment</th>
                 <th style={{ width: "90px" }}>Duyệt</th>
                 <th style={{ width: "110px" }}>Hàng Đợi</th>
               </tr>
@@ -312,6 +340,22 @@ export const AudioTimeline: React.FC<Props> = ({
                         </button>
                       )}
                     </div>
+                  </td>
+                  <td>
+                    {seg.output_video_path ? (
+                      <span
+                        className="ref-path-tag video-tag"
+                        title={seg.output_video_path}
+                      >
+                        🎬 {seg.output_video_path.split("\\").pop()}
+                      </span>
+                    ) : seg.queue_task_id ? (
+                      <span className="ratio-tag" style={{ background: "#fef9c3", color: "#a16207" }}>
+                        ⏳ Đang xử lý
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>-</span>
+                    )}
                   </td>
                   <td>
                     <div className="actions-cell">

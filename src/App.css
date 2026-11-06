@@ -38,6 +38,14 @@ body, html, #root {
   display: flex;
   flex-direction: column;
   padding: 20px 14px;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s ease;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.sidebar.collapsed {
+  width: 72px;
+  padding: 20px 10px;
 }
 
 .logo-box {
@@ -46,6 +54,42 @@ body, html, #root {
   gap: 12px;
   margin-bottom: 28px;
   padding-left: 8px;
+  position: relative;
+}
+
+.sidebar.collapsed .logo-box {
+  padding-left: 0;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar-toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-sidebar);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 6px;
+  margin-left: auto;
+  transition: all 0.15s ease;
+}
+
+.sidebar-toggle-btn:hover {
+  background-color: #1e293b;
+  color: white;
+}
+
+.sidebar.collapsed .sidebar-toggle-btn {
+  margin-left: 0;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px 0;
 }
 
 .logo-badge {

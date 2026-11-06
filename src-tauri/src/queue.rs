@@ -230,6 +230,7 @@ async fn run_task(
                                                 prompt: None,
                                                 ref_image_path: None,
                                                 queue_task_id: None,
+                                                output_video_path: None,
                                                 approval: None,
                                             });
                                         }
@@ -328,6 +329,8 @@ async fn run_task(
                 Ok(out_file) => {
                     let out_str = out_file.to_string_lossy().to_string();
                     let _ = db.update_task_status(&task_id, TaskStatus::Success, 100, Some(&out_str), None);
+                    // Tự động liên kết video hoàn thành vào audio_segments nếu task này bắt nguồn từ timeline
+                    let _ = db.update_segment_by_task_id(&task_id, &out_str);
                 }
                 Err(e) => {
                     let err_str = e.to_string();

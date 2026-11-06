@@ -73,7 +73,7 @@ impl Database {
             [],
         )?;
 
-        // 5. Bảng Audio Segments (v0.3.0 F7 & F10)
+        // 5. Bảng Audio Segments (v0.3.0 F7 & F10, v0.4.0 F12)
         conn.execute(
             "CREATE TABLE IF NOT EXISTS audio_segments (
                 id TEXT PRIMARY KEY,
@@ -85,11 +85,15 @@ impl Database {
                 prompt TEXT,
                 ref_image_path TEXT,
                 queue_task_id TEXT,
+                output_video_path TEXT,
                 approval TEXT,
                 FOREIGN KEY (job_id) REFERENCES audio_jobs(id) ON DELETE CASCADE
             )",
             [],
         )?;
+
+        // Tự động kiểm tra bổ sung cột output_video_path nếu bảng đã tồn tại từ trước
+        let _ = conn.execute("ALTER TABLE audio_segments ADD COLUMN output_video_path TEXT", []);
 
         // Khôi phục trạng thái: Khi app khởi động lại, các task đang 'running' được reset về 'queued'
         conn.execute(
@@ -317,8 +321,8 @@ impl Database {
         let tx = conn.transaction()?;
         for s in segments {
             tx.execute(
-                "INSERT OR REPLACE INTO audio_segments (id, job_id, seq, start_ms, end_ms, text, prompt, ref_image_path, queue_task_id, approval)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                "INSERT OR REPLACE INTO audio_segments (id, job_id, seq, start_ms, end_ms, text, prompt, ref_image_path, queue_task_id, output_video_path, approval)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     s.id,
                     s.job_id,
@@ -329,6 +333,7 @@ impl Database {
                     s.prompt,
                     s.ref_image_path,
                     s.queue_task_id,
+                    s.output_video_path,
                     s.approval,
                 ],
             )?;
@@ -340,7 +345,7 @@ impl Database {
     pub fn list_audio_segments(&self, job_id: &str) -> Result<Vec<AudioSegmentItem>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, job_id, seq, start_ms, end_ms, text, prompt, ref_image_path, queue_task_id, approval
+            "SELECT id, job_id, seq, start_ms, end_ms, text, prompt, ref_image_path, queue_task_id, output_video_path, approval
              FROM audio_segments WHERE job_id = ?1 ORDER BY seq ASC",
         )?;
         let iter = stmt.query_map(params![job_id], |row| {
@@ -354,7 +359,8 @@ impl Database {
                 prompt: row.get(6)?,
                 ref_image_path: row.get(7)?,
                 queue_task_id: row.get(8)?,
-                approval: row.get(9)?,
+                output_video_path: row.get(9)?,
+                approval: row.get(10)?,
             })
         })?;
         let mut list = Vec::new();
@@ -370,6 +376,7 @@ impl Database {
         text: Option<&str>,
         prompt: Option<&str>,
         ref_image_path: Option<&str>,
+        output_video_path: Option<&str>,
         approval: Option<&str>,
     ) -> Result<(), AppError> {
         let conn = self.conn.lock().unwrap();
@@ -378,9 +385,36 @@ impl Database {
              SET text = COALESCE(?1, text),
                  prompt = COALESCE(?2, prompt),
                  ref_image_path = COALESCE(?3, ref_image_path),
-                 approval = COALESCE(?4, approval)
-             WHERE id = ?5",
-            params![text, prompt, ref_image_path, approval, segment_id],
+                 output_video_path = COALESCE(?4, output_video_path),
+                 approval = COALESCE(?5, approval)
+             WHERE id = ?6",
+            params![text, prompt, ref_image_path, output_video_path, approval, segment_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_segment_queue_task_id(
+        &self,
+        segment_id: &str,
+        queue_task_id: &str,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE audio_segments SET queue_task_id = ?1 WHERE id = ?2",
+            params![queue_task_id, segment_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_segment_by_task_id(
+        &self,
+        queue_task_id: &str,
+        output_video_path: &str,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE audio_segments SET output_video_path = ?1 WHERE queue_task_id = ?2",
+            params![output_video_path, queue_task_id],
         )?;
         Ok(())
     }

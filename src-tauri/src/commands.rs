@@ -157,6 +157,7 @@ pub fn update_audio_segment(
         text.as_deref(),
         prompt.as_deref(),
         ref_image_path.as_deref(),
+        None,
         approval.as_deref(),
     )
 }
@@ -178,6 +179,9 @@ pub async fn add_segment_to_queue(
         .queue
         .enqueue(TaskKind::MuseVideo, Some(prompt), Some("16:9".into()), seg.ref_image_path)
         .await?;
+
+    // Liên kết queue_task_id vào segment để sau này khi task xong sẽ cập nhật output_video_path
+    let _ = state.db.set_segment_queue_task_id(&segment_id, &task.id);
 
     Ok(task)
 }
@@ -243,6 +247,71 @@ pub fn export_script(
             Ok(out_file.to_string_lossy().to_string())
         }
     }
+}
+
+// --- F12: Render ghép toàn bộ video ---
+#[tauri::command]
+pub async fn render_audio_job(
+    job_id: String,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, AppError> {
+    let jobs = state.db.list_audio_jobs()?;
+    let job = jobs
+        .into_iter()
+        .find(|j| j.id == job_id)
+        .ok_or_else(|| AppError::NotFound(format!("Không tìm thấy Audio Job {}", job_id)))?;
+
+    let segments = state.db.list_audio_segments(&job_id)?;
+    if segments.is_empty() {
+        return Err(AppError::Other("Audio Job không có segment nào".into()));
+    }
+
+    // Thu thập các video hợp lệ theo thứ tự seq
+    let mut video_paths = Vec::new();
+    for seg in &segments {
+        // Chỉ lấy những segment không bị reject
+        if seg.approval.as_deref() == Some("rejected") {
+            continue;
+        }
+
+        if let Some(v_path) = &seg.output_video_path {
+            if Path::new(v_path).exists() {
+                video_paths.push(v_path.clone());
+            }
+        }
+    }
+
+    if video_paths.is_empty() {
+        return Err(AppError::Other(
+            "Chưa có video segment nào hoàn thành. Hãy bấm 'Tạo Video' cho các câu thoại trước!".into(),
+        ));
+    }
+
+    let config = state.db.get_config().unwrap_or_default();
+    let out_dir = Path::new(&config.output_dir);
+    let _ = std::fs::create_dir_all(out_dir);
+
+    let short_id = &job_id[..8.min(job_id.len())];
+    let final_output = out_dir.join(format!("final_render_{}.mp4", short_id));
+    let final_output_str = final_output.to_string_lossy().to_string();
+
+    let pipeline = crate::executors::audio::AudioPipeline::new(app_handle);
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+
+    let res = pipeline
+        .render_video_concat(
+            &video_paths,
+            &job.audio_path,
+            &final_output_str,
+            &cancel_token,
+        )
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?;
+
+    let _ = state.db.update_audio_job_status(&job_id, "completed");
+
+    Ok(res.to_string_lossy().to_string())
 }
 
 #[tauri::command]

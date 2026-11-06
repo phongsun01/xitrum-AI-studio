@@ -161,4 +161,95 @@ impl AudioPipeline {
 
         Ok(out_json_path)
     }
+
+    /// F12: Ghép các video segments hoàn thành + file audio gốc thành 1 video hoàn chỉnh bằng FFmpeg
+    pub async fn render_video_concat(
+        &self,
+        video_paths: &[String],
+        audio_path: &str,
+        output_file: &str,
+        token: &CancellationToken,
+    ) -> Result<PathBuf> {
+        if video_paths.is_empty() {
+            return Err(anyhow::anyhow!("Không có video segment nào để ghép"));
+        }
+
+        let temp_dir = std::env::temp_dir();
+        let unique_id = uuid::Uuid::new_v4().to_string();
+        let list_file = temp_dir.join(format!("concat_list_{}.txt", unique_id));
+
+        // Chuẩn bị file list.txt cho FFmpeg concat demuxer
+        let mut list_content = String::new();
+        for p in video_paths {
+            let normalized = p.replace('\\', "/");
+            list_content.push_str(&format!("file '{}'\n", normalized));
+        }
+        std::fs::write(&list_file, list_content)?;
+
+        let list_file_str = list_file.to_string_lossy().to_string();
+        tracing::info!("FFmpeg concat demuxer file: {}", list_file_str);
+
+        // FFmpeg args ghép video + audio
+        // ffmpeg -y -f concat -safe 0 -i list.txt -i audio.m4a -c:v copy -c:a aac -b:a 192k -shortest output.mp4
+        let (mut rx, child) = self
+            .app
+            .shell()
+            .sidecar("ffmpeg")
+            .map_err(|e| anyhow::anyhow!("FFmpeg sidecar error: {e}"))?
+            .args([
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                &list_file_str,
+                "-i",
+                audio_path,
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-shortest",
+                output_file,
+            ])
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("Spawn FFmpeg concat error: {e}"))?;
+
+        let mut ffmpeg_stderr = String::new();
+
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    let _ = child.kill();
+                    let _ = std::fs::remove_file(&list_file);
+                    return Err(anyhow::anyhow!("Render video cancelled by user"));
+                }
+                event = rx.recv() => {
+                    match event {
+                        Some(CommandEvent::Stderr(bytes)) => {
+                            ffmpeg_stderr.push_str(&String::from_utf8_lossy(&bytes));
+                        }
+                        Some(CommandEvent::Terminated(status)) => {
+                            let _ = std::fs::remove_file(&list_file);
+                            if !status.code.map(|c| c == 0).unwrap_or(false) {
+                                tracing::error!("FFmpeg concat failed: {}", ffmpeg_stderr);
+                                return Err(anyhow::anyhow!("FFmpeg concat error (code {:?}): {}", status.code, ffmpeg_stderr));
+                            }
+                            break;
+                        }
+                        None => {
+                            let _ = std::fs::remove_file(&list_file);
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        Ok(PathBuf::from(output_file))
+    }
 }

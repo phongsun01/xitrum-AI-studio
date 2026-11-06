@@ -24,6 +24,8 @@ import {
   Check,
   X,
   ListVideo,
+  PanelLeftClose,
+  PanelLeft,
 } from "lucide-react";
 import "./App.css";
 
@@ -31,6 +33,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<
     "video" | "audio" | "timeline" | "rembg" | "templates" | "settings"
   >("video");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -246,48 +249,61 @@ function App() {
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
 
       {/* Sidebar Navigation */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
         <div className="logo-box">
           <div className="logo-badge">X</div>
-          <h2>Xitrum AI</h2>
+          {!sidebarCollapsed && <h2>Xitrum AI</h2>}
+          <button
+            className="sidebar-toggle-btn"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            title={sidebarCollapsed ? "Mở rộng menu (Sidebar)" : "Thu gọn menu"}
+          >
+            {sidebarCollapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
+          </button>
         </div>
 
         <nav className="nav-menu">
           <button
             className={`nav-item ${activeTab === "video" ? "active" : ""}`}
             onClick={() => setActiveTab("video")}
+            title="Tạo Video Muse.ai"
           >
-            <Video size={18} /> Tạo Video Muse.ai
+            <Video size={18} /> {!sidebarCollapsed && <span>Tạo Video Muse.ai</span>}
           </button>
           <button
             className={`nav-item ${activeTab === "audio" ? "active" : ""}`}
             onClick={() => setActiveTab("audio")}
+            title="Bóc Tách Audio (Whisper)"
           >
-            <Mic size={18} /> Bóc Tách Audio (Whisper)
+            <Mic size={18} /> {!sidebarCollapsed && <span>Bóc Tách Audio (Whisper)</span>}
           </button>
           <button
             className={`nav-item ${activeTab === "timeline" ? "active" : ""}`}
             onClick={() => setActiveTab("timeline")}
+            title="Audio Timeline Editor"
           >
-            <ListVideo size={18} /> Audio Timeline Editor
+            <ListVideo size={18} /> {!sidebarCollapsed && <span>Audio Timeline Editor</span>}
           </button>
           <button
             className={`nav-item ${activeTab === "rembg" ? "active" : ""}`}
             onClick={() => setActiveTab("rembg")}
+            title="Tách Nền Ảnh (Rembg)"
           >
-            <Scissors size={18} /> Tách Nền Ảnh (Rembg)
+            <Scissors size={18} /> {!sidebarCollapsed && <span>Tách Nền Ảnh (Rembg)</span>}
           </button>
           <button
             className={`nav-item ${activeTab === "templates" ? "active" : ""}`}
             onClick={() => setActiveTab("templates")}
+            title="Thư Viện Templates"
           >
-            <Bookmark size={18} /> Thư Viện Templates
+            <Bookmark size={18} /> {!sidebarCollapsed && <span>Thư Viện Templates</span>}
           </button>
           <button
             className={`nav-item ${activeTab === "settings" ? "active" : ""}`}
             onClick={() => setActiveTab("settings")}
+            title="Cài Đặt Hệ Thống"
           >
-            <Settings size={18} /> Cài Đặt Hệ Thống
+            <Settings size={18} /> {!sidebarCollapsed && <span>Cài Đặt Hệ Thống</span>}
           </button>
         </nav>
       </aside>
