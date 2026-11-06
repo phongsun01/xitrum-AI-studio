@@ -91,7 +91,23 @@ pub fn run() {
             render_audio_job,
             list_tasks,
             get_settings,
-            save_settings
+            save_settings,
+            save_script_project,
+            get_script_project,
+            list_script_projects,
+            update_script_scene,
+            update_character_ref_image,
+            delete_script_project,
+            list_tts_voices,
+            generate_scene_tts,
+            preview_tts_voice,
+            add_proxies,
+            list_proxies,
+            test_proxy,
+            delete_proxy,
+            delete_dead_proxies,
+            dispatch_script_to_queue,
+            render_script_postproduction
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

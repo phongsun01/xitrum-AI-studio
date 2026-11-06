@@ -1,44 +1,57 @@
 # 🚀 Xitrum AI Studio
 
-> **Hệ thống tạo video & audio tự động hóa đa luồng siêu nhẹ dành cho Windows**  
-> Được xây dựng trên nền tảng **Tauri v2 + Rust + React/TypeScript**.
+> **Hệ thống tạo video & audio tự động hóa toàn diện từ Ý Tưởng → Kịch Bản → Giọng Đọc → Video → Hậu Kỳ hoàn chỉnh**  
+> Được xây dựng trên nền tảng **Tauri v2 + Rust + React 19 / TypeScript** siêu nhẹ dành cho Windows.
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.4.0
+## 📦 Phiên Bản Hiện Tại: v0.6.0 (Kỷ Nguyên "Ý Tưởng → Video" & Hậu Kỳ Tự Động)
 
-### Tính năng mới v0.4.0 (Automation Engine & Multi-Lane Production):
-- 🤖 **Runner Muse.ai Playwright CDP Tự Động (F11)**: Tự động đăng nhập, gửi prompt, tải ảnh tham chiếu và download video hoàn thành từ Muse.ai thông qua profile Chrome thật của người dùng.
-- 📐 **Menu Thu Gọn / Mở Rộng Linh Hoạt**: Tối ưu không gian làm việc với nút toggle sidebar phong cách ChatGPT.
-- 🎬 **Tự Động Render Nối Video FFmpeg (F12)**: Tự động gom toàn bộ video clips từ các segment đã hoàn thành, ghép nối theo đúng thứ tự thời gian và chèn lại track giọng nói gốc đồng bộ.
-- 🎵 **Trộn Nhạc Nền Tự Động (F13)**: Tự động quét thư mục nhạc nền, loop/cắt khớp độ dài video, hạ âm lượng thông minh (ducking/volume slider) để làm nổi bật giọng thuyết minh.
-- 🚦 **Hàng Đợi Đa Luồng Độc Lập - Multi-Lane Semaphore (F14)**: Tách riêng luồng xử lý Muse.ai (giới hạn 1 tác vụ để tránh checkpoint) và luồng xử lý Local (Rembg/FFmpeg chạy song song), hiển thị trạng thái realtime trên thanh tiêu đề.
-- 🔄 **Tạo Lại Đoạn Đơn Lẻ (F15)**: Cho phép tạo lại video cho riêng từng câu thoại/segment không ưng ý mà không cần dựng lại cả kịch bản.
+Nâng cấp mang tính đột phá dựa trên nghiên cứu kiến trúc Muse AI Studio và tích hợp công nghệ AI giọng nói tiếng Việt VieNeu-TTS:
+
+### 🌟 1. Phân Hệ Ý Tưởng → Video & Character Bible (Mốc 1)
+- **Chuẩn Hóa Prompt Chatbot**: Cung cấp mẫu prompt JSON chuẩn hóa để sao chép sang ChatGPT / Claude / Gemini sinh kịch bản phân cảnh chi tiết.
+- **Trình Phân Tích JSON Thông Minh**: Tự động làm sạch các ký tự đặc biệt, smart quotes (`“ ” « »`), mã BOM, cắt lọc JSON chính xác 100%.
+- **Character Bible & Giữ Mặt Nhân Vật Đồng Nhất**: Quản lý dàn nhân vật, mô tả ngoại hình, gán ảnh khuôn mặt tham chiếu cố định xuyên suốt tất cả các cảnh.
+- **Biên Tập Phân Cảnh (Script Review UI)**: Quản lý lời thoại tiếng Việt, Visual prompt (tạo ảnh), Video prompt (chuyển động), thời lượng từng cảnh.
+
+### 🎙️ 2. Offline Vietnamese TTS Engine - VieNeu-TTS (Mốc 2)
+- **Giao Tiếp JSON-RPC Siêu Nhẹ**: Chạy độc lập qua `stdin/stdout` sidecar Python (không mở cổng HTTP để tránh xung đột port hay firewall).
+- **23 Giọng Đọc Tiếng Việt 3 Miền**: Giọng Bắc, Trung, Nam, nam/nữ, giọng đọc truyện, review phim truyền cảm.
+- **Audio-Driven Timing**: Tự động đo thời lượng audio thật của file `.wav` sinh ra và tự động cập nhật thời lượng cho từng cảnh.
+
+### 🌐 3. Quản Lý Proxy Bảo Mật & Chuẩn Hóa Runner (Mốc 3)
+- **Mã Hóa Mật Khẩu An Toàn**: Lưu trữ mật khẩu proxy an toàn trong SQLite bằng thuật toán mã hóa (không lưu plain text).
+- **Đo Ping & Kiểm Tra IP Thực Tế**: Đo latency mili-giây, phát hiện IP ngoại, dọn dẹp proxy chết 1 chạm.
+- **Dynamic Paths & Sạch Sẽ**: Loại bỏ hoàn toàn đường dẫn cứng; loại bỏ cờ phát hiện tự động hóa `--disable-blink-features=AutomationControlled`.
+
+### 🚀 4. Điều Phối Hàng Đợi Sinh Video Tự Động (Mốc 4)
+- **Mapping Kịch Bản → Task Queue**: Tự động kết hợp mô tả nhân vật + prompt cảnh + đính kèm ảnh tham chiếu khuôn mặt + gán proxy bảo mật vào Task Queue.
+- **Giám sát đa luồng độc lập (Multi-lane Semaphores)**: Phân tách luồng tác vụ Cloud và tác vụ Local mượt mà.
+
+### 🎬 5. Hậu Kỳ Hoàn Chỉnh & Trình Phát Video Xem Trước (Mốc 5)
+- **Ghép Video Clips Thông Minh**: Tự động ghép nối các cảnh theo đúng thứ tự (hỗ trợ cả video thật lẫn slide màu dự phòng thông minh).
+- **Đồng Bộ Giọng Đọc Đa Nhân Vật**: Nối chính xác audio giọng đọc tương ứng từng phân cảnh.
+- **Phụ Đề Tự Động (SRT Hardsub)**: Tự động tính toán mốc thời gian phụ đề khớp từng mili-giây và burn font chữ tiếng Việt trực tiếp lên video.
+- **Nhạc Nền BGM Ducking**: Tự động hòa trộn nhạc nền và hạ âm lượng khi có giọng nói nhân vật.
+- **Trình Phát Video Xem Trước**: Tích hợp Player xem trước ngay trên giao diện ứng dụng.
 
 ---
 
-## ✨ Điểm Nổi Bật
+## ✨ 3 Luồng Vận Hành Video Linh Hoạt
 
-- **Tái hiện trọn vẹn Workflow Audio → Video AI của Kahi**:
-  - Nhập file âm thanh thu âm bất kỳ.
-  - Phân tích và biên tập câu chữ trên Audio Timeline.
-  - Ghép hình người mẫu đã xóa phông nền (Rembg ONNX).
-  - Tự động sinh video qua Muse.ai và render video hoàn chỉnh kèm nhạc nền.
-- **Siêu Nhẹ & Tiết Kiệm Tài Nguyên**:
-  - Dung lượng cài đặt chỉ **~41 MB** (thay vì >250 MB như Electron).
-  - Tiêu tốn chỉ **~40 - 60 MB RAM** khi chạy ngầm.
-- **Hàng Đợi Bền Vững (Task Queue)**:
-  - Lưu trạng thái tác vụ vào **SQLite**.
-  - Tự động khôi phục hàng đợi khi app khởi động lại.
-  - Hỗ trợ hủy tác vụ tức thì qua `CancellationToken`.
+1. **Luồng 1 (Mới)**: **Ý Tưởng → Video**: Nhập ý tưởng ngắn ➜ Nạp kịch bản JSON ➜ Gán giọng & ảnh nhân vật ➜ Sinh video ➜ Xuất video thành phẩm.
+2. **Luồng 2**: **Audio → Video (Whisper STT Workflow)**: Thu âm giọng đọc ➜ Bóc tách timeline câu chữ ➜ Gán ảnh mẫu ➜ Sinh clip ➜ Tự động ghép clip.
+3. **Luồng 3**: **Tạo Video Lẻ Nhanh**: Nhập Prompt + Ảnh mẫu ➜ Thêm vào hàng đợi sinh clip lẻ.
 
 ---
 
 ## 🛠️ Công Nghệ Sử Dụng
 
-- **Backend**: Rust, Tauri v2, Tokio, Rusqlite, ONNX Runtime (`ort`), `opener`, `image` crate.
+- **Backend**: Rust 2021, Tauri v2, Tokio, Rusqlite, ONNX Runtime (`ort`), `opener`, `reqwest`, `url`, `base64`.
 - **Frontend**: React 19, TypeScript, Vite, `lucide-react`.
-- **RPA Engine**: Playwright Core kết nối Chrome CDP.
+- **RPA Engine**: Playwright Core kết nối Chrome CDP an toàn qua Proxy.
+- **TTS Engine**: VieNeu-TTS (Python JSON-RPC sidecar).
 - **Media Engine**: FFmpeg & Whisper.cpp portable sidecars.
 
 ---
@@ -49,6 +62,7 @@
 - Windows 10 / 11 64-bit
 - Node.js >= 20
 - Rust toolchain (`rustup`)
+- Python 3.10+ (có `py.exe` hoặc Python Launcher)
 - Microsoft C++ Build Tools 2022
 
 ### Chạy chế độ phát triển:
@@ -73,8 +87,9 @@ File cài đặt sẽ được tạo tại `src-tauri/target/release/bundle/nsis
 ## 🗺️ Lộ Trình Phát Triển (Roadmap)
 - [x] **v0.1.0**: Lõi hàng đợi SQLite, Rembg ONNX native, FFmpeg & Whisper STT.
 - [x] **v0.2.0**: Mở folder kết quả, Retry, Duplicate, Edit prompt, Toast notification, Thư viện Templates.
-- [x] **v0.3.0**: Audio Timeline Segment Editor, Xuất phụ đề (.SRT/.TXT), Chọn mô hình Whisper, Duyệt câu thoại (Approve/Reject).
-- [x] **v0.4.0**: Runner Muse.ai tự động hoàn chỉnh, Tự động ghép video + nhạc nền, Multi-lane runner đa luồng, Tái sinh segment đơn lẻ.
+- [x] **v0.3.0**: Audio Timeline Segment Editor, Xuất phụ đề (.SRT/.TXT), Chọn mô hình Whisper, Duyệt câu thoại.
+- [x] **v0.4.0**: Runner Muse.ai tự động hoàn chỉnh, Tự động ghép video + nhạc nền, Multi-lane runner đa luồng.
+- [x] **v0.6.0**: Đường ống "Ý Tưởng → Video", VieNeu-TTS 23 giọng đọc, Proxy Manager bảo mật, Hậu kỳ FFmpeg hoàn chỉnh (SRT Hardsub + BGM Ducking).
 
 ---
 

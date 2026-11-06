@@ -1,7 +1,7 @@
 {
   "name": "xitrum-ai-studio",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -26,3 +26,4 @@
     "vite": "^8.0.16"
   }
 }
+

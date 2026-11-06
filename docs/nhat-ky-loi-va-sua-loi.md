@@ -1,8 +1,8 @@
 # Nhật Ký Lỗi & Giải Pháp Xử Lý (Bug & Fix Log)
 
 > **Dự án**: Xitrum AI Studio (Porting Kahi AI sang Tauri v2 + Rust)  
-> **Thư mục dự án**: `D:\Antigravity\REA\project-docs\my-kahi-tauri`  
-> **Cập nhật ngày**: 2026-11-05
+> **Thư mục dự án**: `D:\Antigravity\REA\REA-project\xitrum-AI-studio`  
+> **Cập nhật ngày**: 2026-11-06
 
 ---
 
@@ -76,3 +76,76 @@
   2. Truyền file WAV tạm này cho `whisper-cli.exe` xử lý bóc tách sang JSON timeline.
   3. Sau khi Whisper xử lý xong, hệ thống tự động xóa file WAV tạm để dọn dẹp dung lượng đĩa.
 
+
+---
+
+## 5. Lỗi: Muse runner crash với thông báo "Cannot read properties of undefined (reading 'slice')"
+
+- **Thời điểm**: 2026-11-06 (Chạy tác vụ sinh MuseVideo / MuseImage từ hàng đợi).
+- **Hiện tượng**:
+  Khi tác vụ `MuseVideo` bắt đầu chạy, tiến trình Node.js runner kết thúc đột ngột và log tại `%TEMP%\xitrum_debug.log` báo:
+  ```text
+  ERROR xitrum_ai_studio_lib::queue: Muse execution failed: Muse runner error: Cannot read properties of undefined (reading 'slice')
+  ```
+- **Nguyên nhân gốc rễ**:
+  Lệch chuẩn định dạng khóa (naming convention mismatch) giữa Rust và Node.js:
+  - Trong `src-tauri/src/executors/muse_runner.rs`, enum `RunnerCommand` được cấu hình `#[serde(rename_all = "snake_case")]`. Khi Rust serialize lệnh `Generate` sang JSON gửi qua stdin cho Node.js, các key được tạo theo dạng snake_case: `task_id`, `input_path`, `output_dir`, `user_data_dir`.
+  - Phía script `sidecar-muse/runner.mjs` lại destructure trực tiếp theo chuẩn camelCase:
+    ```javascript
+    const { taskId, prompt, ratio, kind, inputPath, outputDir, userDataDir } = cmd;
+    ```
+  - Do đó `taskId` nhận giá trị `undefined`, dẫn đến việc gọi `taskId.slice(0, 8)` gây ra ngoại lệ (TypeError) làm runner dừng hoạt động.
+- **Phương án khắc phục triệt để**:
+  1. **Phía Rust (`src-tauri/src/executors/muse_runner.rs`)**:
+     - Định cấu hình `#[serde(rename = "...")]` tường minh theo chuẩn `camelCase` cho toàn bộ các trường của `RunnerCommand` (`taskId`, `inputPath`, `outputDir`, `userDataDir`).
+     - Với `RunnerMessage` (chiều nhận từ Node.js về Rust), bổ sung `#[serde(alias = "...")]` để Rust chấp nhận linh hoạt cả 2 định dạng `camelCase` lẫn `snake_case`.
+  2. **Phía Node.js (`sidecar-muse/runner.mjs`)**:
+     - Sử dụng toán tử nullish coalescing (`??`) để đảm bảo dự phòng nhận cả hai format:
+       ```javascript
+       const taskId      = cmd.taskId      ?? cmd.task_id;
+       const inputPath   = cmd.inputPath   ?? cmd.input_path;
+       const outputDir   = cmd.outputDir   ?? cmd.output_dir;
+       const userDataDir = cmd.userDataDir ?? cmd.user_data_dir;
+       ```
+
+---
+
+## 6. Lỗi: Đóng trình duyệt Chrome thủ công khiến các tác vụ sau bị lỗi "Target page, context or browser has been closed"
+
+- **Thời điểm**: 2026-11-06 (Khi người dùng vô tình hoặc chủ động tắt cửa sổ Chrome do Runner mở ra).
+- **Hiện tượng**:
+  Khi tắt cửa sổ trình duyệt Chrome, nếu tiếp tục bấm "Thêm vào hàng đợi" hoặc bấm "Kiểm tra phiên đăng nhập" (Refresh Session), hệ thống lập tức báo lỗi đỏ:
+  ```text
+  ERROR: Muse runner error: page.goto: Target page, context or browser has been closed
+  ```
+  hoặc
+  ```text
+  ERROR: Muse runner error: page.screenshot: Target page, context or browser has been closed
+  ```
+- **Nguyên nhân gốc rễ**:
+  - Script `sidecar-muse/runner.mjs` khởi tạo biến toàn cục `browserContext` và `page` dạng singleton.
+  - Ban đầu, hàm `getOrCreatePage` chỉ kiểm tra `if (!browserContext)`, nếu biến này đã được gán trước đó thì nó tái sử dụng luôn `browserContext` và `page` cũ.
+  - Khi người dùng đóng cửa sổ Chrome trên Windows, Playwright Context/Page đã bị đóng (`isClosed()` / `!isConnected()`), nhưng tham chiếu biến trong Node.js vẫn còn tồn tại. Do đó các lệnh tiếp theo (`p.goto(...)`, `p.screenshot(...)`) gọi vào page đã chết và văng ngoại lệ ngay lập tức.
+  - Đồng thời, phía Rust `MuseRunner` giữ tiến trình Node runner ngầm và không phát hiện nếu tiến trình này bị đơ hoặc đã thoát.
+- **Phương án khắc phục**:
+  1. **Trong `sidecar-muse/runner.mjs`**:
+     - Thêm kiểm tra trạng thái sống của `browserContext`:
+       ```javascript
+       if (browserContext) {
+         try {
+           if (!browserContext.isConnected()) {
+             browserContext = null;
+             page = null;
+           }
+         } catch {
+           browserContext = null;
+           page = null;
+         }
+       }
+       ```
+     - Lắng nghe sự kiện `browserContext.on("close")` và `page.on("close")` để tự động reset các biến về `null`.
+     - Trong `getOrCreatePage()`, nếu `page` bị đóng hoặc không còn page nào hợp lệ, tự động gọi `await browserContext.newPage()` hoặc khởi chạy lại context mới.
+     - Khi xảy ra lỗi hoặc timeout, chỉ gọi `screenshot` nếu `p && !p.isClosed()`.
+  2. **Trong `src-tauri/src/executors/muse_runner.rs`**:
+     - Bổ sung kiểm tra `child.try_wait()` trong `ensure_started()`. Nếu tiến trình Node sidecar đã kết thúc trước đó, tự động dọn dẹp và spawn tiến trình mới.
+     - Bổ sung hàm `reset()` để kill tiến trình cũ khi cần thiết.

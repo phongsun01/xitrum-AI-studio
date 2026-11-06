@@ -15,11 +15,27 @@ export interface TaskItem {
   updated_at: number;
 }
 
+export interface ProxyItem {
+  id: number;
+  name: string | null;
+  raw_masked: string;
+  scheme: string;
+  host: string;
+  port: number;
+  username: string | null;
+  status: "unknown" | "ok" | "dead" | "checking";
+  ip: string | null;
+  latency_ms: number | null;
+  checked_at: number | null;
+}
+
 export interface AppConfig {
   output_dir: string;
   default_ratio: string;
   whisper_model: string;
+  chrome_path: string | null;
   chrome_profile_dir: string;
+  active_proxy_id: number | null;
   music_dir: string | null;
   music_volume: number;
   max_parallel_muse: number;
@@ -53,6 +69,44 @@ export interface AudioSegmentItem {
   queue_task_id: string | null;
   output_video_path: string | null;
   approval: "approved" | "rejected" | null;
+}
+
+export interface CharacterItem {
+  id: string;
+  name: string;
+  description: string;
+  voice: string | null;
+  ref_image_path: string | null;
+  created_at: number;
+}
+
+export interface ScriptSceneItem {
+  id: string;
+  script_id: string;
+  scene_no: number;
+  narration: string;
+  visual_prompt: string;
+  video_prompt: string;
+  character: string | null;
+  duration_sec: number;
+  ref_image_path: string | null;
+  audio_path: string | null;
+  video_path: string | null;
+  queue_task_id: string | null;
+}
+
+export interface ScriptProjectItem {
+  id: string;
+  title: string;
+  idea: string | null;
+  genre: string | null;
+  target_duration_sec: number | null;
+  ratio: string;
+  status: "draft" | "reviewed" | "queued" | "done";
+  created_at: number;
+  updated_at: number;
+  characters: CharacterItem[];
+  scenes: ScriptSceneItem[];
 }
 
 export const api = {
@@ -143,6 +197,63 @@ export const api = {
   // Cấu hình settings
   getSettings: () => invoke<AppConfig>("get_settings"),
   saveSettings: (config: AppConfig) => invoke<void>("save_settings", { config }),
+
+  // Scripts & Character Bible (Mốc 1)
+  saveScriptProject: (script: ScriptProjectItem) =>
+    invoke<void>("save_script_project", { script }),
+  getScriptProject: (scriptId: string) =>
+    invoke<ScriptProjectItem | null>("get_script_project", { scriptId }),
+  listScriptProjects: () =>
+    invoke<ScriptProjectItem[]>("list_script_projects"),
+  updateScriptScene: (scene: ScriptSceneItem) =>
+    invoke<void>("update_script_scene", { scene }),
+  updateCharacterRefImage: (characterId: string, refImagePath: string) =>
+    invoke<void>("update_character_ref_image", { characterId, refImagePath }),
+  deleteScriptProject: (scriptId: string) =>
+    invoke<void>("delete_script_project", { scriptId }),
+
+  // VieNeu-TTS (Mốc 2)
+  listTtsVoices: () =>
+    invoke<{ id: string; name: string; gender: string; region: string }[]>("list_tts_voices"),
+  generateSceneTts: (sceneId: string, text: string, voiceId: string, speed?: number) =>
+    invoke<{ audio_path: string; duration_sec: number }>("generate_scene_tts", {
+      sceneId,
+      text,
+      voiceId,
+      speed: speed ?? 1.0,
+    }),
+  previewTtsVoice: (voiceId: string, text?: string) =>
+    invoke<string>("preview_tts_voice", { voiceId, text: text ?? null }),
+
+  // Proxies (Mốc 3)
+  addProxies: (text: string) =>
+    invoke<{ added: number; invalid: number }>("add_proxies", { text }),
+  listProxies: () =>
+    invoke<ProxyItem[]>("list_proxies"),
+  testProxy: (proxyId: number) =>
+    invoke<{ ok: boolean; ip?: string; latency_ms?: number; error?: string }>("test_proxy", { proxyId }),
+  deleteProxy: (proxyId: number) =>
+    invoke<void>("delete_proxy", { proxyId }),
+  deleteDeadProxies: () =>
+    invoke<number>("delete_dead_proxies"),
+
+  // Nối kịch bản vào hàng đợi Task (Mốc 4)
+  dispatchScriptToQueue: (scriptId: string) =>
+    invoke<{ ok: boolean; script_id: string; queued_count: number; task_ids: string[] }>(
+      "dispatch_script_to_queue",
+      { scriptId }
+    ),
+
+  // Hậu kỳ FFmpeg hoàn chỉnh (Mốc 5)
+  renderScriptPostproduction: (scriptId: string, burnSubtitles: boolean) =>
+    invoke<{
+      ok: boolean;
+      video_path: string;
+      srt_path: string;
+      has_tts: boolean;
+      has_bgm: boolean;
+      burned_subtitles: boolean;
+    }>("render_script_postproduction", { scriptId, burnSubtitles }),
 
   // Mở hộp thoại chọn file trên Windows
   pickFile: async (filters?: { name: string; extensions: string[] }[]) => {

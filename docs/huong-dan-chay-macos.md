@@ -88,3 +88,4 @@ npm run tauri dev
 - **Tốc độ AI cực nhanh**: Tận dụng GPU Metal & Apple Neural Engine cho Whisper STT và Rembg ONNX.
 - **Thời lượng pin & nhiệt độ**: Tiêu thụ điện năng và tỏa nhiệt thấp hơn đáng kể so với máy Windows khi xử lý video và AI đa luồng.
 - **Tiết kiệm tài nguyên**: Tauri v2 trên macOS sử dụng WKWebView gốc giúp kích thước gói cài đặt chỉ khoảng ~25 MB và tiêu tốn chưa đầy 50 MB RAM.
+

@@ -25,9 +25,37 @@ npm run tauri dev
 
 ## 2. Quy Trình Vận Hành Tạo Video (Workflow Chi Tiết)
 
-Hệ thống cung cấp **2 luồng chạy tạo video** tùy theo mục đích sử dụng:
+Hệ thống cung cấp **3 luồng chạy tạo video** linh hoạt:
 
-### 🌟 Luồng 1: Luồng Tự Động Hóa Toàn Diện từ Âm Thanh (Audio → Video Kahi Workflow)
+### 🌟 Luồng 1: Luồng Mới Đỉnh Cao “Ý Tưởng → Video” (Mốc 1, Mốc 2, Mốc 3)
+> *Không cần thu âm trước, không cần kịch bản dài dòng — bạn chỉ cần nhập 1 câu ý tưởng ngắn, hệ thống tự động sinh kịch bản JSON qua chatbot, tạo giọng đọc AI tiếng Việt VieNeu-TTS cho từng nhân vật, tự động phân cảnh và kết nối an toàn qua Proxy.*
+
+```mermaid
+flowchart TD
+    A["1. Gõ ý tưởng ngắn\n(Ví dụ: Kể chuyện mèo con đi lạc)"] --> B["Bấm 'Sao chép Prompt'\nvà dán cho ChatGPT/Claude"]
+    B --> C["Dán JSON kịch bản vào Studio\n(Tự động chia cảnh & dàn nhân vật)"]
+    C --> D["Character Bible: Gán giọng VieNeu-TTS\nvà chọn ảnh khuôn mặt nhân vật"]
+    D --> E["Bấm 'Tạo Giọng Đọc Tất Cả Cảnh'\n(Đo thời lượng duration_sec thật)"]
+    E --> F["Duyệt kịch bản & Đẩy vào hàng đợi sinh clip (Mốc 4)"]
+    F --> G["Ghép hoàn thiện: Video + Giọng đọc + BGM + Phụ đề (Mốc 5)"]
+```
+
+#### Các bước thao tác cụ thể:
+1. Mở menu **✨ Ý Tưởng → Video** trên thanh điều hướng bên trái.
+2. Nhập ý tưởng của bạn, chọn thể loại (Kể chuyện / Bán hàng / Giải thích / Hài hước), chọn thời lượng (15s/30s/60s/90s) và tỷ lệ khung hình.
+3. Bấm **"Sao chép Prompt Chatbot"** ➜ Dán sang ChatGPT, Claude hoặc Gemini.
+4. Copy toàn bộ JSON chatbot trả về ➜ Dán vào ô **"Dán kết quả JSON kịch bản"** ➜ Bấm **"Nạp Kịch Bản Vào Studio"**.
+5. Chuyển sang tab **2. Character Bible & Duyệt Kịch Bản**:
+   - Gán giọng đọc cho từng nhân vật (chọn trong 23 giọng dựng sẵn Bắc/Trung/Nam, bấm nút **Nghe thử**).
+   - Bấm **"+ Chọn ảnh tham chiếu"** để gán ảnh khuôn mặt cố định cho nhân vật.
+   - Bấm **"Tạo Giọng Đọc Tất Cả Cảnh"** để hệ thống tự động sinh audio `.wav` và đo số giây thật của từng cảnh.
+   - Kiểm tra, chỉnh sửa lời thoại hoặc prompt nếu muốn ➜ Bấm **"Lưu Kịch Bản Đã Duyệt"**.
+6. *(Mốc 4)* Bấm **"🚀 Duyệt & Đẩy Vào Hàng Đợi Sinh Video"** để tự động tạo toàn bộ các task Muse Video tương ứng từng cảnh, kèm ảnh khuôn mặt nhân vật và gán qua proxy an toàn.
+7. *(Mốc 5)* Sau khi các cảnh sinh xong, bấm **"🎬 Xuất Video Hoàn Thiện (FFmpeg Merge)"** để tự động ghép clip, đồng bộ giọng đọc từng cảnh, phụ đề SRT và nhạc nền ducking.
+
+---
+
+### 🎙️ Luồng 2: Luồng Tự Động Hóa từ Âm Thanh Có Sẵn (Audio → Video Whisper Workflow)
 > *Đây là luồng cốt lõi mạnh nhất của hệ thống: Biến một đoạn thu âm kịch bản thành video AI ghép nhiều phân cảnh, khớp khẩu hình/nội dung, kèm nhạc nền.*
 
 ```mermaid
@@ -62,7 +90,7 @@ flowchart TD
 
 ---
 
-### ⚡ Luồng 2: Tạo Video Trực Tiếp Nhanh (Tab "Tạo video")
+### ⚡ Luồng 3: Tạo Video Trực Tiếp Nhanh (Tab "Tạo video")
 > *Dành cho trường hợp bạn chỉ muốn tạo nhanh 1 clip video lẻ từ Prompt + Ảnh mẫu.*
 
 1. Mở tab **Tạo video** trên menu bên trái.
@@ -71,6 +99,23 @@ flowchart TD
 4. Chọn **Tỷ lệ khung hình** (`16:9` ngang cho Youtube hoặc `9:16` dọc cho TikTok/Shorts/Reels).
 5. Bấm **"Thêm vào hàng đợi"**.
 6. Hệ thống đẩy task vào **Queue**, runner mở Muse.ai trên Chrome sinh video và tải file về máy khi hoàn thành.
+
+---
+
+### 🌐 Phân Hệ Quản Lý Proxy Bảo Mật & Đổi IP (Mới - Mốc 3)
+> *Học hỏi từ kiến trúc Muse AI Studio: Giúp bạn chạy Muse Runner qua Proxy HTTP/SOCKS5 để tránh nghẽn mạng, đổi IP khi cần mà không lo lộ mật khẩu.*
+
+1. Mở menu **🌐 Quản Lý Proxy** trên thanh điều hướng bên trái.
+2. **Thêm Proxy hàng loạt**:
+   - Dán danh sách proxy vào ô textarea (hỗ trợ các định dạng: `host:port`, `host:port:user:pass`, `scheme://user:pass@host:port`).
+   - Bấm **"Thêm Vào Danh Sách"**.
+3. **Kiểm tra trạng thái & Tốc độ**:
+   - Bấm nút **"Test"** trên từng proxy hoặc bấm **"Kiểm Tra Tất Cả"**.
+   - Hệ thống tự động kết nối thử ra internet, đo độ trễ `latency_ms` và hiển thị IP public thực tế.
+   - Bấm **"Xóa Proxy Chết"** để dọn dẹp các proxy lỗi.
+4. **Kích hoạt cho Muse Runner**:
+   - Chọn proxy mong muốn tại menu xổ xuống **"Proxy đang gán cho Muse Runner"** (hoặc chọn *Chạy trực tiếp* nếu không dùng proxy).
+   - Mật khẩu proxy được mã hóa an toàn trong SQLite, tuyệt đối không lưu plain text.
 
 ---
 

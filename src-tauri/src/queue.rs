@@ -17,9 +17,11 @@ pub enum QueueAction {
 
 pub struct QueueManager {
     db: Arc<Database>,
+    #[allow(dead_code)]
     app_handle: tauri::AppHandle,
     tx: mpsc::Sender<QueueAction>,
     pub cancel_tokens: Arc<Mutex<HashMap<String, CancellationToken>>>,
+    #[allow(dead_code)]
     rembg_engine: Option<Arc<RembgEngine>>,
     muse_runner: Arc<Mutex<MuseRunner>>,
     pub muse_semaphore: Arc<Semaphore>,
@@ -114,10 +116,15 @@ impl QueueManager {
         })
     }
 
-    pub async fn check_muse_session(&self, user_data_dir: Option<String>) -> Result<(bool, String), AppError> {
+    pub async fn check_muse_session(
+        &self,
+        user_data_dir: Option<String>,
+        chrome_path: Option<String>,
+        proxy: Option<crate::executors::muse_runner::ProxyConfig>,
+    ) -> Result<(bool, String), AppError> {
         let mut runner = self.muse_runner.lock().await;
         runner
-            .check_session(user_data_dir)
+            .check_session(user_data_dir, chrome_path, proxy)
             .await
             .map_err(|e| AppError::Other(e.to_string()))
     }
@@ -319,6 +326,16 @@ async fn run_task(
             let config = db.get_config().unwrap_or_default();
             let output_dir = config.output_dir.clone();
             let chrome_profile = config.chrome_profile_dir.clone();
+            let chrome_path = config.chrome_path.clone();
+            let proxy_config = if let Some(proxy_id) = config.active_proxy_id {
+                db.get_proxy(proxy_id).ok().flatten().map(|p| crate::executors::muse_runner::ProxyConfig {
+                    server: format!("{}://{}:{}", p.scheme, p.host, p.port),
+                    username: p.username,
+                    password: p.encrypted_password, // Khi gửi sang runner trong tiến trình riêng
+                })
+            } else {
+                None
+            };
             let kind_str = match task.kind {
                 TaskKind::MuseImage => "muse_image",
                 _ => "muse_video",
@@ -340,6 +357,8 @@ async fn run_task(
                     input_ref,
                     &output_dir,
                     Some(&chrome_profile),
+                    chrome_path.as_deref(),
+                    proxy_config,
                     move |p, msg| {
                         let _ = db_prog.update_task_status(
                             &tid_prog,
@@ -359,6 +378,8 @@ async fn run_task(
                     let _ = db.update_task_status(&task_id, TaskStatus::Success, 100, Some(&out_str), None);
                     // Tự động liên kết video hoàn thành vào audio_segments nếu task này bắt nguồn từ timeline
                     let _ = db.update_segment_by_task_id(&task_id, &out_str);
+                    // Tự động liên kết video hoàn thành vào script_scenes nếu task này bắt nguồn từ kịch bản Mốc 4
+                    let _ = db.update_script_scene_by_task_id(&task_id, &out_str);
                 }
                 Err(e) => {
                     let err_str = e.to_string();

@@ -1,6 +1,7 @@
 use crate::errors::AppError;
 use crate::models::{
-    AppConfig, AudioJobItem, AudioSegmentItem, TaskItem, TaskKind, TaskStatus, TemplateItem,
+    AppConfig, AudioJobItem, AudioSegmentItem, CharacterItem, ProxyItem, ScriptProjectItem,
+    ScriptSceneItem, TaskItem, TaskKind, TaskStatus, TemplateItem,
 };
 use rusqlite::{params, Connection};
 use std::path::Path;
@@ -11,6 +12,10 @@ pub struct Database {
 }
 
 impl Database {
+    pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap()
+    }
+
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, AppError> {
         let conn = Connection::open(path)?;
         let db = Self {
@@ -147,6 +152,76 @@ impl Database {
 
         // Tự động kiểm tra bổ sung cột output_video_path nếu bảng đã tồn tại từ trước
         let _ = conn.execute("ALTER TABLE audio_segments ADD COLUMN output_video_path TEXT", []);
+
+        // 6. Bảng Scripts (Mốc 1 - Ý tưởng -> Kịch bản)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS scripts (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                idea TEXT,
+                genre TEXT,
+                target_duration_sec INTEGER,
+                ratio TEXT NOT NULL DEFAULT '16:9',
+                status TEXT NOT NULL DEFAULT 'draft',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // 7. Bảng Characters (Mốc 1 - Character Bible)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS characters (
+                id TEXT PRIMARY KEY,
+                script_id TEXT,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                voice TEXT,
+                ref_image_path TEXT,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // 8. Bảng Script Scenes (Mốc 1 - Phân cảnh kịch bản)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS script_scenes (
+                id TEXT PRIMARY KEY,
+                script_id TEXT NOT NULL,
+                scene_no INTEGER NOT NULL,
+                narration TEXT NOT NULL,
+                visual_prompt TEXT NOT NULL,
+                video_prompt TEXT NOT NULL,
+                character TEXT,
+                duration_sec REAL NOT NULL DEFAULT 5.0,
+                ref_image_path TEXT,
+                audio_path TEXT,
+                video_path TEXT,
+                queue_task_id TEXT,
+                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // 9. Bảng Proxies (Mốc 3 - Quản lý Proxy Bảo Mật)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS proxies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                raw_masked TEXT NOT NULL,
+                scheme TEXT DEFAULT 'http',
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                username TEXT,
+                encrypted_password TEXT,
+                status TEXT DEFAULT 'unknown',
+                ip TEXT,
+                latency_ms INTEGER,
+                checked_at REAL
+            )",
+            [],
+        )?;
 
         // Khôi phục trạng thái: Khi app khởi động lại, các task đang 'running' được reset về 'queued'
         conn.execute(
@@ -494,6 +569,370 @@ impl Database {
             params![json_str],
         )?;
         Ok(())
+    }
+
+    // ==========================================
+    // SCRIPTS & CHARACTER BIBLE METHODS (Mốc 1)
+    // ==========================================
+
+    pub fn save_script_project(&self, script: &ScriptProjectItem) -> Result<(), AppError> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        tx.execute(
+            "INSERT OR REPLACE INTO scripts (id, title, idea, genre, target_duration_sec, ratio, status, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                script.id,
+                script.title,
+                script.idea,
+                script.genre,
+                script.target_duration_sec,
+                script.ratio,
+                script.status,
+                script.created_at,
+                script.updated_at,
+            ],
+        )?;
+
+        // Xóa characters và scenes cũ nếu update
+        tx.execute("DELETE FROM characters WHERE script_id = ?1", params![script.id])?;
+        tx.execute("DELETE FROM script_scenes WHERE script_id = ?1", params![script.id])?;
+
+        for c in &script.characters {
+            tx.execute(
+                "INSERT INTO characters (id, script_id, name, description, voice, ref_image_path, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![c.id, script.id, c.name, c.description, c.voice, c.ref_image_path, c.created_at],
+            )?;
+        }
+
+        for s in &script.scenes {
+            tx.execute(
+                "INSERT INTO script_scenes (id, script_id, scene_no, narration, visual_prompt, video_prompt, character, duration_sec, ref_image_path, audio_path, video_path, queue_task_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    s.id,
+                    script.id,
+                    s.scene_no,
+                    s.narration,
+                    s.visual_prompt,
+                    s.video_prompt,
+                    s.character,
+                    s.duration_sec,
+                    s.ref_image_path,
+                    s.audio_path,
+                    s.video_path,
+                    s.queue_task_id,
+                ],
+            )?;
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_script_project(&self, script_id: &str) -> Result<Option<ScriptProjectItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, title, idea, genre, target_duration_sec, ratio, status, created_at, updated_at
+             FROM scripts WHERE id = ?1",
+        )?;
+
+        let mut rows = stmt.query(params![script_id])?;
+        if let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let idea: Option<String> = row.get(2)?;
+            let genre: Option<String> = row.get(3)?;
+            let target_duration_sec: Option<i32> = row.get(4)?;
+            let ratio: String = row.get(5)?;
+            let status: String = row.get(6)?;
+            let created_at: i64 = row.get(7)?;
+            let updated_at: i64 = row.get(8)?;
+
+            let mut char_stmt = conn.prepare(
+                "SELECT id, name, description, voice, ref_image_path, created_at
+                 FROM characters WHERE script_id = ?1 ORDER BY created_at ASC",
+            )?;
+            let char_rows = char_stmt.query_map(params![script_id], |r| {
+                Ok(CharacterItem {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    description: r.get(2)?,
+                    voice: r.get(3)?,
+                    ref_image_path: r.get(4)?,
+                    created_at: r.get(5)?,
+                })
+            })?;
+            let mut characters = Vec::new();
+            for c in char_rows {
+                characters.push(c?);
+            }
+
+            let mut scene_stmt = conn.prepare(
+                "SELECT id, script_id, scene_no, narration, visual_prompt, video_prompt, character, duration_sec, ref_image_path, audio_path, video_path, queue_task_id
+                 FROM script_scenes WHERE script_id = ?1 ORDER BY scene_no ASC",
+            )?;
+            let scene_rows = scene_stmt.query_map(params![script_id], |r| {
+                Ok(ScriptSceneItem {
+                    id: r.get(0)?,
+                    script_id: r.get(1)?,
+                    scene_no: r.get(2)?,
+                    narration: r.get(3)?,
+                    visual_prompt: r.get(4)?,
+                    video_prompt: r.get(5)?,
+                    character: r.get(6)?,
+                    duration_sec: r.get(7)?,
+                    ref_image_path: r.get(8)?,
+                    audio_path: r.get(9)?,
+                    video_path: r.get(10)?,
+                    queue_task_id: r.get(11)?,
+                })
+            })?;
+            let mut scenes = Vec::new();
+            for s in scene_rows {
+                scenes.push(s?);
+            }
+
+            Ok(Some(ScriptProjectItem {
+                id,
+                title,
+                idea,
+                genre,
+                target_duration_sec,
+                ratio,
+                status,
+                created_at,
+                updated_at,
+                characters,
+                scenes,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn list_script_projects(&self) -> Result<Vec<ScriptProjectItem>, AppError> {
+        let ids: Vec<String> = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id FROM scripts ORDER BY updated_at DESC",
+            )?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            let mut result = Vec::new();
+            for id in rows {
+                result.push(id?);
+            }
+            result
+        };
+
+        let mut list = Vec::new();
+        for id in ids {
+            if let Some(script) = self.get_script_project(&id)? {
+                list.push(script);
+            }
+        }
+        Ok(list)
+    }
+
+    pub fn update_script_scene_task(
+        &self,
+        scene_id: &str,
+        queue_task_id: &str,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE script_scenes SET queue_task_id = ?1 WHERE id = ?2",
+            params![queue_task_id, scene_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_script_scene_by_task_id(
+        &self,
+        queue_task_id: &str,
+        video_path: &str,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE script_scenes SET video_path = ?1 WHERE queue_task_id = ?2",
+            params![video_path, queue_task_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_script_status(&self, script_id: &str, status: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE scripts SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            params![status, crate::db::chrono_now(), script_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_script_scene(&self, scene: &ScriptSceneItem) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE script_scenes SET
+                narration = ?1,
+                visual_prompt = ?2,
+                video_prompt = ?3,
+                character = ?4,
+                duration_sec = ?5,
+                ref_image_path = ?6,
+                audio_path = ?7,
+                video_path = ?8,
+                queue_task_id = ?9
+             WHERE id = ?10",
+            params![
+                scene.narration,
+                scene.visual_prompt,
+                scene.video_prompt,
+                scene.character,
+                scene.duration_sec,
+                scene.ref_image_path,
+                scene.audio_path,
+                scene.video_path,
+                scene.queue_task_id,
+                scene.id,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_character_ref_image(&self, character_id: &str, ref_image_path: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE characters SET ref_image_path = ?1 WHERE id = ?2",
+            params![ref_image_path, character_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_script_project(&self, script_id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM scripts WHERE id = ?1", params![script_id])?;
+        Ok(())
+    }
+
+    // ==========================================
+    // PROXIES CRUD & MANAGEMENT (Mốc 3)
+    // ==========================================
+
+    pub fn insert_proxy(
+        &self,
+        name: Option<&str>,
+        raw_masked: &str,
+        scheme: &str,
+        host: &str,
+        port: i32,
+        username: Option<&str>,
+        encrypted_password: Option<&str>,
+    ) -> Result<i64, AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO proxies (name, raw_masked, scheme, host, port, username, encrypted_password, status, checked_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'unknown', ?8)",
+            params![
+                name,
+                raw_masked,
+                scheme,
+                host,
+                port,
+                username,
+                encrypted_password,
+                crate::db::chrono_now() as f64 / 1000.0,
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn list_proxies(&self) -> Result<Vec<ProxyItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, raw_masked, scheme, host, port, username, encrypted_password, status, ip, latency_ms, checked_at
+             FROM proxies ORDER BY id DESC",
+        )?;
+
+        let rows = stmt.query_map([], |r| {
+            Ok(ProxyItem {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                raw_masked: r.get(2)?,
+                scheme: r.get(3)?,
+                host: r.get(4)?,
+                port: r.get(5)?,
+                username: r.get(6)?,
+                encrypted_password: r.get(7)?,
+                status: r.get(8)?,
+                ip: r.get(9)?,
+                latency_ms: r.get(10)?,
+                checked_at: r.get(11)?,
+            })
+        })?;
+
+        let mut list = Vec::new();
+        for p in rows {
+            list.push(p?);
+        }
+        Ok(list)
+    }
+
+    pub fn get_proxy(&self, id: i64) -> Result<Option<ProxyItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, raw_masked, scheme, host, port, username, encrypted_password, status, ip, latency_ms, checked_at
+             FROM proxies WHERE id = ?1",
+        )?;
+
+        let mut rows = stmt.query(params![id])?;
+        if let Some(r) = rows.next()? {
+            Ok(Some(ProxyItem {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                raw_masked: r.get(2)?,
+                scheme: r.get(3)?,
+                host: r.get(4)?,
+                port: r.get(5)?,
+                username: r.get(6)?,
+                encrypted_password: r.get(7)?,
+                status: r.get(8)?,
+                ip: r.get(9)?,
+                latency_ms: r.get(10)?,
+                checked_at: r.get(11)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn update_proxy_status(
+        &self,
+        id: i64,
+        status: &str,
+        ip: Option<&str>,
+        latency_ms: Option<i32>,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        let now = crate::db::chrono_now() as f64 / 1000.0;
+        conn.execute(
+            "UPDATE proxies SET status = ?1, ip = ?2, latency_ms = ?3, checked_at = ?4 WHERE id = ?5",
+            params![status, ip, latency_ms, now, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_proxy(&self, id: i64) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM proxies WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn delete_dead_proxies(&self) -> Result<usize, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let count = conn.execute("DELETE FROM proxies WHERE status = 'dead'", [])?;
+        Ok(count)
     }
 }
 

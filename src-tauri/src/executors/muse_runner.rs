@@ -6,20 +6,38 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio_util::sync::CancellationToken;
 
+#[derive(Debug, Serialize, Clone)]
+pub struct ProxyConfig {
+    pub server: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum RunnerCommand {
     CheckSession {
+        #[serde(rename = "userDataDir")]
         user_data_dir: Option<String>,
+        #[serde(rename = "chromePath")]
+        chrome_path: Option<String>,
+        proxy: Option<ProxyConfig>,
     },
     Generate {
+        #[serde(rename = "taskId")]
         task_id: String,
         prompt: String,
         ratio: Option<String>,
         kind: String,
+        #[serde(rename = "inputPath")]
         input_path: Option<String>,
+        #[serde(rename = "outputDir")]
         output_dir: String,
+        #[serde(rename = "userDataDir")]
         user_data_dir: Option<String>,
+        #[serde(rename = "chromePath")]
+        chrome_path: Option<String>,
+        proxy: Option<ProxyConfig>,
     },
     Close,
 }
@@ -27,12 +45,34 @@ pub enum RunnerCommand {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RunnerMessage {
-    Ready { message: Option<String> },
-    Progress { task_id: Option<String>, percent: u32, message: Option<String> },
-    Success { task_id: Option<String>, percent: u32, output_path: String },
-    SessionStatus { ok: bool, message: String },
-    SessionExpired { task_id: Option<String>, message: String },
-    Error { error: String },
+    Ready {
+        message: Option<String>,
+    },
+    Progress {
+        #[serde(alias = "taskId")]
+        task_id: Option<String>,
+        percent: u32,
+        message: Option<String>,
+    },
+    Success {
+        #[serde(alias = "taskId")]
+        task_id: Option<String>,
+        percent: u32,
+        #[serde(alias = "outputPath")]
+        output_path: String,
+    },
+    SessionStatus {
+        ok: bool,
+        message: String,
+    },
+    SessionExpired {
+        #[serde(alias = "taskId")]
+        task_id: Option<String>,
+        message: String,
+    },
+    Error {
+        error: String,
+    },
 }
 
 pub struct MuseRunner {
@@ -48,10 +88,18 @@ impl MuseRunner {
         }
     }
 
-    /// Khởi động Node sidecar runner nếu chưa chạy
+    /// Khởi động Node sidecar runner nếu chưa chạy (hoặc đã chết)
     pub async fn ensure_started(&mut self) -> Result<()> {
-        if self.child.is_some() {
-            return Ok(());
+        if let Some(child) = self.child.as_mut() {
+            // Kiểm tra tiến trình còn sống không
+            match child.try_wait() {
+                Ok(None) => return Ok(()), // Vẫn đang chạy tốt
+                _ => {
+                    tracing::warn!("Muse runner process had exited, restarting...");
+                    self.child = None;
+                    self.stdin = None;
+                }
+            }
         }
 
         let script_path = "D:\\Antigravity\\REA\\REA-project\\xitrum-AI-studio\\sidecar-muse\\runner.mjs";
@@ -72,11 +120,28 @@ impl MuseRunner {
         Ok(())
     }
 
+    /// Reset / đóng tiến trình runner nếu gặp lỗi nặng
+    pub fn reset(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.start_kill();
+        }
+        self.stdin = None;
+    }
+
     /// Kiểm tra phiên đăng nhập Muse.ai
-    pub async fn check_session(&mut self, user_data_dir: Option<String>) -> Result<(bool, String)> {
+    pub async fn check_session(
+        &mut self,
+        user_data_dir: Option<String>,
+        chrome_path: Option<String>,
+        proxy: Option<ProxyConfig>,
+    ) -> Result<(bool, String)> {
         self.ensure_started().await?;
 
-        let cmd = RunnerCommand::CheckSession { user_data_dir };
+        let cmd = RunnerCommand::CheckSession {
+            user_data_dir,
+            chrome_path,
+            proxy,
+        };
         let cmd_str = serde_json::to_string(&cmd)?;
 
         if let Some(stdin) = self.stdin.as_mut() {
@@ -115,6 +180,8 @@ impl MuseRunner {
         input_path: Option<&str>,
         output_dir: &str,
         user_data_dir: Option<&str>,
+        chrome_path: Option<&str>,
+        proxy: Option<ProxyConfig>,
         progress_cb: F,
         token: &CancellationToken,
     ) -> Result<PathBuf>
@@ -131,6 +198,8 @@ impl MuseRunner {
             input_path: input_path.map(|p| p.to_string()),
             output_dir: output_dir.to_string(),
             user_data_dir: user_data_dir.map(|p| p.to_string()),
+            chrome_path: chrome_path.map(|p| p.to_string()),
+            proxy,
         };
 
         let cmd_str = serde_json::to_string(&cmd)?;

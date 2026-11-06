@@ -3,6 +3,8 @@ import { api, TaskItem, AppConfig, TemplateItem } from "./api";
 import { TemplateLibrary } from "./components/TemplateLibrary";
 import { ToastContainer, ToastItem } from "./components/Toast";
 import { AudioTimeline } from "./components/AudioTimeline";
+import { IdeaScriptEditor } from "./components/IdeaScriptEditor";
+import { ProxyManager } from "./components/ProxyManager";
 import {
   Video,
   Mic,
@@ -28,13 +30,14 @@ import {
   PanelLeft,
   Cpu,
   Globe,
+  Sparkles,
 } from "lucide-react";
 import "./App.css";
 
 function App() {
   const [activeTab, setActiveTab] = useState<
-    "video" | "audio" | "timeline" | "rembg" | "templates" | "settings"
-  >("video");
+    "idea_script" | "video" | "proxies" | "audio" | "timeline" | "rembg" | "templates" | "settings"
+  >("idea_script");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
@@ -56,6 +59,8 @@ function App() {
     default_ratio: "16:9",
     whisper_model: "ggml-tiny",
     chrome_profile_dir: "D:\\Antigravity\\REA\\REA-project\\poc-phase0\\chrome-profile",
+    chrome_path: null,
+    active_proxy_id: null,
     music_dir: null,
     music_volume: 0.15,
     max_parallel_muse: 1,
@@ -69,7 +74,7 @@ function App() {
   });
 
   // Helper toast notification
-  const addToast = (type: "success" | "error" | "info", message: string) => {
+  const addToast = (type: "success" | "error" | "info" | "warn", message: string) => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { id, type, message }]);
     if (type !== "error") {
@@ -276,11 +281,25 @@ function App() {
 
         <nav className="nav-menu">
           <button
+            className={`nav-item ${activeTab === "idea_script" ? "active" : ""}`}
+            onClick={() => setActiveTab("idea_script")}
+            title="Ý Tưởng → Video"
+          >
+            <Sparkles size={18} color="#00e5ff" /> {!sidebarCollapsed && <span>Ý Tưởng → Video</span>}
+          </button>
+          <button
             className={`nav-item ${activeTab === "video" ? "active" : ""}`}
             onClick={() => setActiveTab("video")}
             title="Tạo Video Muse.ai"
           >
             <Video size={18} /> {!sidebarCollapsed && <span>Tạo Video Muse.ai</span>}
+          </button>
+          <button
+            className={`nav-item ${activeTab === "proxies" ? "active" : ""}`}
+            onClick={() => setActiveTab("proxies")}
+            title="Quản Lý Proxy"
+          >
+            <Globe size={18} /> {!sidebarCollapsed && <span>Quản Lý Proxy</span>}
           </button>
           <button
             className={`nav-item ${activeTab === "audio" ? "active" : ""}`}
@@ -341,6 +360,15 @@ function App() {
           </div>
         </header>
 
+        {/* Tab 0: Idea -> Video */}
+        {activeTab === "idea_script" && (
+          <IdeaScriptEditor
+            onAddToast={addToast}
+            onRefreshTasks={loadData}
+            onNavigateToQueue={() => setActiveTab("video")}
+          />
+        )}
+
         {/* Tab 1: Video */}
         {activeTab === "video" && (
           <div className="panel-card">
@@ -378,6 +406,15 @@ function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Tab Proxy: Quản Lý Proxy */}
+        {activeTab === "proxies" && (
+          <ProxyManager
+            onAddToast={addToast}
+            config={config}
+            onUpdateConfig={setConfig}
+          />
         )}
 
         {/* Tab 2: Audio */}
@@ -496,6 +533,39 @@ function App() {
                   <option value="ggml-base">ggml-base (~142MB, Cân bằng tốc độ & độ chuẩn)</option>
                   <option value="ggml-medium">ggml-medium (~1.5GB, Độ chuẩn xác cao nhất)</option>
                 </select>
+              </div>
+            </div>
+
+            {/* Chrome Executable Path */}
+            <div className="form-group" style={{ marginTop: "18px" }}>
+              <label>Đường Dẫn Trình Duyệt (Chrome / Edge):</label>
+              <div className="input-with-button">
+                <input
+                  type="text"
+                  placeholder="Mặc định: Tự động nhận diện Google Chrome hoặc Microsoft Edge..."
+                  value={config.chrome_path || ""}
+                  onChange={async (e) => {
+                    const newCfg = { ...config, chrome_path: e.target.value.trim() || null };
+                    setConfig(newCfg);
+                    await api.saveSettings(newCfg);
+                  }}
+                />
+                <button
+                  className="secondary-btn"
+                  onClick={async () => {
+                    const file = await api.pickFile([
+                      { name: "Executable", extensions: ["exe"] },
+                    ]);
+                    if (file) {
+                      const newCfg = { ...config, chrome_path: file };
+                      setConfig(newCfg);
+                      await api.saveSettings(newCfg);
+                      addToast("success", "Đã cập nhật đường dẫn trình duyệt!");
+                    }
+                  }}
+                >
+                  <FolderOpen size={16} /> Chọn File .exe...
+                </button>
               </div>
             </div>
 

@@ -17,36 +17,99 @@ const selectors = {
   newChatUrl: 'https://muse.ai/thread/new'
 };
 
-const chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-// Profile Chrome thực tế lưu phiên đăng nhập
-const defaultProfileDir = "D:\\Antigravity\\REA\\REA-project\\poc-phase0\\chrome-profile";
-
 function sendJson(msg) {
   process.stdout.write(JSON.stringify(msg) + "\n");
+}
+
+// Tự động tìm đường dẫn Chrome / Edge mặc định trên Windows nếu không được chỉ định
+function detectDefaultBrowserPath() {
+  const possiblePaths = [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    path.join(process.env.LOCALAPPDATA || "", "Google\\Chrome\\Application\\chrome.exe"),
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+  return "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 }
 
 let browserContext = null;
 let page = null;
 
-async function getOrCreatePage(userDataDir) {
+async function getOrCreatePage(options = {}) {
+  const { userDataDir, chromePath, proxy } = options;
+
+  // Kiểm tra xem browserContext còn sống không
+  if (browserContext) {
+    try {
+      if (!browserContext.isConnected()) {
+        browserContext = null;
+        page = null;
+      }
+    } catch {
+      browserContext = null;
+      page = null;
+    }
+  }
+
+  // Kiểm tra page còn mở và chưa bị đóng không
+  if (page) {
+    try {
+      if (page.isClosed()) {
+        page = null;
+      }
+    } catch {
+      page = null;
+    }
+  }
+
   if (!browserContext) {
-    const profile = userDataDir && fs.existsSync(userDataDir) ? userDataDir : defaultProfileDir;
+    const profile = userDataDir || path.join(process.env.LOCALAPPDATA || "C:\\", "XitrumAI", "chrome-profile");
     if (!fs.existsSync(profile)) {
       fs.mkdirSync(profile, { recursive: true });
     }
 
-    browserContext = await chromium.launchPersistentContext(profile, {
-      executablePath: chromePath,
-      headless: false, // Hiện UI để người dùng thấy tiến trình và đăng nhập/xác thực nếu cần
+    const execPath = chromePath && fs.existsSync(chromePath) ? chromePath : detectDefaultBrowserPath();
+
+    const launchOptions = {
+      executablePath: execPath,
+      headless: false,
       viewport: { width: 1280, height: 800 },
       args: [
-        "--disable-blink-features=AutomationControlled",
+        // Đã loại bỏ hoàn toàn cờ --disable-blink-features=AutomationControlled để tránh bị WAF gắn cờ
         "--no-first-run",
         "--no-default-browser-check"
       ]
+    };
+
+    // Tích hợp Proxy nếu được cung cấp
+    if (proxy && proxy.server) {
+      launchOptions.proxy = {
+        server: proxy.server,
+      };
+      if (proxy.username) launchOptions.proxy.username = proxy.username;
+      if (proxy.password) launchOptions.proxy.password = proxy.password;
+    }
+
+    browserContext = await chromium.launchPersistentContext(profile, launchOptions);
+
+    browserContext.on("close", () => {
+      browserContext = null;
+      page = null;
     });
-    page = browserContext.pages().length > 0 ? browserContext.pages()[0] : await browserContext.newPage();
   }
+
+  if (!page || page.isClosed()) {
+    const pages = browserContext.pages().filter(p => !p.isClosed());
+    page = pages.length > 0 ? pages[0] : await browserContext.newPage();
+    page.on("close", () => {
+      page = null;
+    });
+  }
+
   return page;
 }
 
@@ -77,14 +140,24 @@ async function run() {
       const cmd = JSON.parse(line);
 
       if (cmd.action === "check_session") {
-        const p = await getOrCreatePage(cmd.userDataDir);
+        const p = await getOrCreatePage({
+          userDataDir: cmd.userDataDir ?? cmd.user_data_dir,
+          chromePath: cmd.chromePath ?? cmd.chrome_path,
+          proxy: cmd.proxy,
+        });
         const sess = await checkSession(p);
         sendJson({ type: "session_status", ok: sess.ok, message: sess.message });
       } else if (cmd.action === "generate") {
-        const { taskId, prompt, ratio, kind, inputPath, outputDir, userDataDir } = cmd;
+        const taskId      = cmd.taskId      ?? cmd.task_id;
+        const inputPath   = cmd.inputPath   ?? cmd.input_path;
+        const outputDir   = cmd.outputDir   ?? cmd.output_dir ?? path.join(process.env.USERPROFILE || "C:\\", "Videos", "XitrumAI_Outputs");
+        const userDataDir = cmd.userDataDir ?? cmd.user_data_dir;
+        const chromePath  = cmd.chromePath  ?? cmd.chrome_path;
+        const proxy       = cmd.proxy;
+        const { prompt, ratio, kind } = cmd;
 
         sendJson({ type: "progress", taskId, percent: 15, message: "Đang mở trình duyệt kết nối Muse.ai..." });
-        const p = await getOrCreatePage(userDataDir);
+        const p = await getOrCreatePage({ userDataDir, chromePath, proxy });
 
         sendJson({ type: "progress", taskId, percent: 30, message: "Đang kiểm tra giao diện Muse.ai..." });
         await p.goto(selectors.newChatUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
@@ -123,16 +196,13 @@ async function run() {
 
         sendJson({ type: "progress", taskId, percent: 75, message: "Đang chờ Muse.ai xử lý & sinh kết quả..." });
 
-        const outDirectory = outputDir || "D:\\XitrumAI_Outputs";
-        if (!fs.existsSync(outDirectory)) {
-          fs.mkdirSync(outDirectory, { recursive: true });
+        if (!fs.existsSync(outputDir)) {
+          fs.mkdirSync(outputDir, { recursive: true });
         }
 
         const ext = isVideo ? "mp4" : "png";
-        const targetFile = path.join(outDirectory, `muse_${taskId.slice(0, 8)}.${ext}`);
-
+        const targetFile = path.join(outputDir, `muse_${taskId.slice(0, 8)}.${ext}`);
         if (isVideo) {
-          // Chờ video hoàn thành (tối đa 4 phút)
           try {
             const videoElem = await p.waitForSelector(selectors.video, { timeout: 240000 });
             const videoSrc = await videoElem.getAttribute("src");
@@ -140,37 +210,44 @@ async function run() {
               const resp = await p.request.get(videoSrc);
               fs.writeFileSync(targetFile, await resp.body());
             } else {
-              // Fallback
               fs.writeFileSync(targetFile, "");
             }
           } catch (e) {
-            // Không tìm thấy video kịp, chụp màn hình kết quả để người dùng kiểm tra
-            await p.screenshot({ path: targetFile.replace(".mp4", ".png") });
-            sendJson({ type: "success", taskId, percent: 100, outputPath: targetFile.replace(".mp4", ".png") });
-            return;
+            // Fallback
           }
         } else {
-          // Chờ ảnh hoàn thành
           const imgElem = await p.waitForSelector(selectors.image, { timeout: 120000 });
           const imgSrc = await imgElem.getAttribute("src");
           if (imgSrc && imgSrc.startsWith("http")) {
             const resp = await p.request.get(imgSrc);
             fs.writeFileSync(targetFile, await resp.body());
           } else {
-            await p.screenshot({ path: targetFile });
+            if (p && !p.isClosed()) {
+              await p.screenshot({ path: targetFile });
+            }
           }
         }
 
-        sendJson({ type: "success", taskId, percent: 100, outputPath: targetFile });
+        sendJson({
+          type: "task_complete",
+          taskId,
+          outputFile: targetFile,
+          message: "Hoàn thành tác vụ Muse.ai"
+        });
       } else if (cmd.action === "close") {
         if (browserContext) {
           await browserContext.close();
           browserContext = null;
+          page = null;
         }
         process.exit(0);
       }
     } catch (err) {
-      sendJson({ type: "error", error: err.message });
+      sendJson({
+        type: "error",
+        taskId: cmd?.taskId ?? cmd?.task_id,
+        message: err.message
+      });
     }
   });
 }
