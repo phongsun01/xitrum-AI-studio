@@ -72,6 +72,7 @@ pub fn run() {
             greet,
             test_ffmpeg_sidecar,
             check_muse_session,
+            get_lane_status,
             enqueue_task,
             cancel_task,
             retry_task,

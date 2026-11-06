@@ -28,6 +28,11 @@ pub async fn cancel_task(
 }
 
 #[tauri::command]
+pub fn get_lane_status(state: State<'_, AppState>) -> serde_json::Value {
+    state.queue.get_lane_status()
+}
+
+#[tauri::command]
 pub async fn check_muse_session(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {

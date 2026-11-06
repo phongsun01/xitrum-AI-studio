@@ -26,6 +26,8 @@ import {
   ListVideo,
   PanelLeftClose,
   PanelLeft,
+  Cpu,
+  Globe,
 } from "lucide-react";
 import "./App.css";
 
@@ -61,6 +63,10 @@ function App() {
   });
   const [sessionChecking, setSessionChecking] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [laneStatus, setLaneStatus] = useState<{ muse_available_slots: number; local_available_slots: number }>({
+    muse_available_slots: 1,
+    local_available_slots: 2,
+  });
 
   // Helper toast notification
   const addToast = (type: "success" | "error" | "info", message: string) => {
@@ -96,8 +102,12 @@ function App() {
     loadData();
     const interval = setInterval(async () => {
       try {
-        const taskList = await api.listTasks();
+        const [taskList, lanes] = await Promise.all([
+          api.listTasks(),
+          api.getLaneStatus(),
+        ]);
         setTasks(taskList);
+        if (lanes) setLaneStatus(lanes);
       } catch (e) {
         console.error(e);
       }
@@ -315,7 +325,19 @@ function App() {
         <header className="top-bar">
           <div className="title-section">
             <h1>Xitrum AI Studio</h1>
-            <span className="version-badge">v0.2.0 • Rust Core • Offline Engine</span>
+            <span className="version-badge">v0.4.0 • Rust Multi-Lane • Offline Engine</span>
+          </div>
+
+          {/* F14: Multi-Lane Status Indicators */}
+          <div className="lane-status-container" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <div className="lane-badge" title="Số luồng Muse.ai RPA còn trống">
+              <Globe size={14} className="text-primary" />
+              <span>Muse Cloud: <strong>{laneStatus.muse_available_slots}/{config.max_parallel_muse}</strong> slot</span>
+            </div>
+            <div className="lane-badge" title="Số luồng Local Offline (Whisper/Rembg/FFmpeg) còn trống">
+              <Cpu size={14} style={{ color: "#16a34a" }} />
+              <span>Local Offline: <strong>{laneStatus.local_available_slots}/{config.max_parallel_local}</strong> slot</span>
+            </div>
           </div>
         </header>
 
@@ -336,17 +358,24 @@ function App() {
               />
             </div>
             <div className="form-row">
-              <div className="form-group" style={{ flex: 1 }}>
+              <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
                 <label>Tỉ lệ khung hình (Aspect Ratio):</label>
-                <select value={videoRatio} onChange={(e) => setVideoRatio(e.target.value)}>
+                <select value={videoRatio} onChange={(e) => setVideoRatio(e.target.value)} style={{ height: "42px" }}>
                   <option value="16:9">Ngang YouTube / TV (16:9)</option>
                   <option value="9:16">Dọc TikTok / Reels / Shorts (9:16)</option>
                   <option value="1:1">Vuông Instagram (1:1)</option>
                 </select>
               </div>
-              <button className="primary-btn" onClick={handleCreateVideo} style={{ alignSelf: "flex-end" }}>
-                <Send size={16} /> Thêm Vào Hàng Đợi
-              </button>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ visibility: "hidden" }}>Thao tác</label>
+                <button
+                  className="primary-btn"
+                  onClick={handleCreateVideo}
+                  style={{ height: "42px", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  <Send size={16} /> Thêm Vào Hàng Đợi
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -596,6 +625,46 @@ function App() {
                     await api.saveSettings(newCfg);
                   }}
                 />
+              </div>
+            </div>
+
+            {/* F14: Cấu hình số luồng song song Multi-Lane */}
+            <div className="form-group" style={{ marginTop: "24px", paddingTop: "18px", borderTop: "1px dashed var(--border-color)" }}>
+              <label>🚦 Cấu Hình Số Luồng Song Song (F14 Multi-Lane Runner):</label>
+              <div className="form-row" style={{ marginTop: "8px" }}>
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label>Số luồng Muse.ai (Tối đa song song):</label>
+                  <select
+                    value={config.max_parallel_muse}
+                    onChange={async (e) => {
+                      const val = parseInt(e.target.value, 10);
+                      const newCfg = { ...config, max_parallel_muse: val };
+                      setConfig(newCfg);
+                      await api.saveSettings(newCfg);
+                      addToast("info", `Đã lưu cấu hình Muse: ${val} luồng`);
+                    }}
+                  >
+                    <option value={1}>1 luồng (Khuyên dùng - Tránh rate limit Chrome)</option>
+                    <option value={2}>2 luồng song song</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label>Số luồng Local Offline (Whisper / Rembg):</label>
+                  <select
+                    value={config.max_parallel_local}
+                    onChange={async (e) => {
+                      const val = parseInt(e.target.value, 10);
+                      const newCfg = { ...config, max_parallel_local: val };
+                      setConfig(newCfg);
+                      await api.saveSettings(newCfg);
+                      addToast("info", `Đã lưu cấu hình Local: ${val} luồng`);
+                    }}
+                  >
+                    <option value={1}>1 luồng</option>
+                    <option value={2}>2 luồng song song (Tiết kiệm CPU)</option>
+                    <option value={4}>4 luồng song song (Tối đa hiệu năng)</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>

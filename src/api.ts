@@ -132,6 +132,12 @@ export const api = {
   checkMuseSession: () =>
     invoke<{ ok: boolean; message: string }>("check_muse_session"),
 
+  // Kiểm tra trạng thái các luồng Multi-Lane (F14)
+  getLaneStatus: () =>
+    invoke<{ muse_available_slots: number; local_available_slots: number }>(
+      "get_lane_status"
+    ),
+
   // Cấu hình settings
   getSettings: () => invoke<AppConfig>("get_settings"),
   saveSettings: (config: AppConfig) => invoke<void>("save_settings", { config }),

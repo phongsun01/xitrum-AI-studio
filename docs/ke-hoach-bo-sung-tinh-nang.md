@@ -219,11 +219,14 @@ flowchart LR
   - **Files:** `src-tauri/src/models.rs`, `src-tauri/src/executors/audio.rs`, `src-tauri/src/commands.rs`, `src/App.tsx`, `src/api.ts`
   - **Effort:** ~4h
 
-- [ ] **F14: Multi-Lane Runner (`runner.lanes`)**
-  - Config `max_parallel_muse: u8` (default 1) và `max_parallel_local: u8` (default 2)
-  - `tokio::sync::Semaphore` giới hạn concurrent tasks theo loại
-  - UI hiển thị lane status
-  - **Files:** `queue.rs`, `models.rs`, `App.tsx`
+- [x] **F14: Multi-Lane Runner (`runner.lanes`)**
+  - Đồng bộ và quản lý tài nguyên bằng `tokio::sync::Semaphore` tách biệt 2 làn:
+    - **Làn Muse Cloud RPA**: Giới hạn `max_parallel_muse` (mặc định 1 slot để tránh rate limit hoặc xung đột session Chrome).
+    - **Làn Local Offline**: Giới hạn `max_parallel_local` (mặc định 2 slot song song cho Whisper STT, Rembg ONNX và FFmpeg).
+  - Giao diện người dùng:
+    - Bổ sung thanh trạng thái trực quan **Muse Cloud** và **Local Offline** ngay trên thanh Top Bar (hiển thị số slot rảnh / tổng số slot thời gian thực).
+    - Cài đặt tùy chỉnh số luồng song song linh hoạt trong tab Cài Đặt Hệ Thống.
+  - **Files:** `src-tauri/src/queue.rs`, `src-tauri/src/commands.rs`, `src/App.tsx`, `src/api.ts`, `src/App.css`
   - **Effort:** ~5h
 
 - [ ] **F15: Regenerate Segment (`audio.regenerate`)**

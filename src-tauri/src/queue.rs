@@ -6,7 +6,7 @@ use crate::executors::rembg::RembgEngine;
 use crate::models::{AudioJobItem, AudioSegmentItem, TaskItem, TaskKind, TaskStatus};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, Semaphore};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -22,6 +22,8 @@ pub struct QueueManager {
     pub cancel_tokens: Arc<Mutex<HashMap<String, CancellationToken>>>,
     rembg_engine: Option<Arc<RembgEngine>>,
     muse_runner: Arc<Mutex<MuseRunner>>,
+    pub muse_semaphore: Arc<Semaphore>,
+    pub local_semaphore: Arc<Semaphore>,
 }
 
 impl QueueManager {
@@ -29,9 +31,15 @@ impl QueueManager {
         let (tx, mut rx) = mpsc::channel::<QueueAction>(100);
         let cancel_tokens = Arc::new(Mutex::new(HashMap::<String, CancellationToken>::new()));
 
+        let cfg = db.get_config().unwrap_or_default();
+        let muse_semaphore = Arc::new(Semaphore::new(cfg.max_parallel_muse.max(1)));
+        let local_semaphore = Arc::new(Semaphore::new(cfg.max_parallel_local.max(1)));
+
         let db_worker = Arc::clone(&db);
         let tokens_worker = Arc::clone(&cancel_tokens);
         let app_worker = app_handle.clone();
+        let muse_sem_worker = Arc::clone(&muse_semaphore);
+        let local_sem_worker = Arc::clone(&local_semaphore);
 
         let model_path = "D:\\Antigravity\\REA\\project-docs\\poc-phase0\\poc_rembg\\u2netp.onnx";
         let rembg_engine = if std::path::Path::new(model_path).exists() {
@@ -45,7 +53,7 @@ impl QueueManager {
         let muse_worker = Arc::clone(&muse_runner);
 
         tokio::spawn(async move {
-            tracing::info!("Queue actor started");
+            tracing::info!("Queue actor started with Multi-Lane Semaphores");
             while let Some(action) = rx.recv().await {
                 match action {
                     QueueAction::Enqueue(task) => {
@@ -56,13 +64,24 @@ impl QueueManager {
                         }
 
                         let db_ref = Arc::clone(&db_worker);
-                        let _tokens_cleanup = Arc::clone(&tokens_worker);
                         let app_ref = app_worker.clone();
                         let rembg_ref = rembg_worker.clone();
                         let muse_ref = Arc::clone(&muse_worker);
+                        let muse_sem = Arc::clone(&muse_sem_worker);
+                        let local_sem = Arc::clone(&local_sem_worker);
 
                         tokio::spawn(async move {
-                            run_task(task, db_ref, app_ref, rembg_ref, muse_ref, token).await;
+                            // F14: Điều phối luồng qua Semaphore Multi-Lane tương ứng
+                            match task.kind {
+                                TaskKind::MuseVideo | TaskKind::MuseImage => {
+                                    let _permit = muse_sem.acquire().await;
+                                    run_task(task, db_ref, app_ref, rembg_ref, muse_ref, token).await;
+                                }
+                                _ => {
+                                    let _permit = local_sem.acquire().await;
+                                    run_task(task, db_ref, app_ref, rembg_ref, muse_ref, token).await;
+                                }
+                            }
                         });
                     }
                     QueueAction::Cancel(task_id) => {
@@ -83,7 +102,16 @@ impl QueueManager {
             cancel_tokens,
             rembg_engine,
             muse_runner,
+            muse_semaphore,
+            local_semaphore,
         }
+    }
+
+    pub fn get_lane_status(&self) -> serde_json::Value {
+        serde_json::json!({
+            "muse_available_slots": self.muse_semaphore.available_permits(),
+            "local_available_slots": self.local_semaphore.available_permits(),
+        })
     }
 
     pub async fn check_muse_session(&self, user_data_dir: Option<String>) -> Result<(bool, String), AppError> {
