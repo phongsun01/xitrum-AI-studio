@@ -28,6 +28,18 @@ pub async fn cancel_task(
 }
 
 #[tauri::command]
+pub async fn check_muse_session(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let cfg = state.db.get_config().unwrap_or_default();
+    let (ok, msg) = state.queue.check_muse_session(Some(cfg.chrome_profile_dir)).await?;
+    Ok(serde_json::json!({
+        "ok": ok,
+        "message": msg
+    }))
+}
+
+#[tauri::command]
 pub async fn retry_task(
     task_id: String,
     state: State<'_, AppState>,

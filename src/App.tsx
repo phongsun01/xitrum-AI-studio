@@ -50,9 +50,12 @@ function App() {
     output_dir: "D:\\XitrumAI_Outputs",
     default_ratio: "16:9",
     whisper_model: "ggml-tiny",
+    chrome_profile_dir: "D:\\Antigravity\\REA\\REA-project\\poc-phase0\\chrome-profile",
     max_parallel_muse: 1,
     max_parallel_local: 2,
   });
+  const [sessionChecking, setSessionChecking] = useState(false);
+  const [sessionStatus, setSessionStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Helper toast notification
   const addToast = (type: "success" | "error" | "info", message: string) => {
@@ -447,6 +450,69 @@ function App() {
                   <option value="ggml-medium">ggml-medium (~1.5GB, Độ chuẩn xác cao nhất)</option>
                 </select>
               </div>
+            </div>
+
+            {/* F11: Muse.ai Chrome Profile & Session Management */}
+            <div className="form-group" style={{ marginTop: "18px" }}>
+              <label>Thư Mục Lưu Chrome Profile Muse.ai (F11 Runner Thật):</label>
+              <div className="input-with-button">
+                <input
+                  type="text"
+                  value={config.chrome_profile_dir}
+                  onChange={async (e) => {
+                    const newCfg = { ...config, chrome_profile_dir: e.target.value };
+                    setConfig(newCfg);
+                    await api.saveSettings(newCfg);
+                  }}
+                />
+                <button
+                  className="secondary-btn"
+                  onClick={async () => {
+                    const dir = await api.pickDirectory();
+                    if (dir) {
+                      const newCfg = { ...config, chrome_profile_dir: dir };
+                      setConfig(newCfg);
+                      await api.saveSettings(newCfg);
+                      addToast("success", "Đã cập nhật thư mục Chrome profile!");
+                    }
+                  }}
+                >
+                  <FolderOpen size={16} /> Chọn Folder...
+                </button>
+              </div>
+            </div>
+
+            <div className="session-status-box" style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "10px" }}>
+              <button
+                className="primary-btn sm-btn"
+                disabled={sessionChecking}
+                onClick={async () => {
+                  setSessionChecking(true);
+                  try {
+                    addToast("info", "Đang mở Chrome kiểm tra phiên đăng nhập Muse.ai...");
+                    const res = await api.checkMuseSession();
+                    setSessionStatus(res);
+                    if (res.ok) {
+                      addToast("success", res.message);
+                    } else {
+                      addToast("error", res.message);
+                    }
+                  } catch (e) {
+                    addToast("error", `Lỗi kiểm tra session: ${e}`);
+                  } finally {
+                    setSessionChecking(false);
+                  }
+                }}
+              >
+                <RotateCw size={14} className={sessionChecking ? "spin-icon" : ""} />
+                {sessionChecking ? "Đang Kiểm Tra..." : "Kiểm Tra Phiên Đăng Nhập Muse.ai"}
+              </button>
+
+              {sessionStatus && (
+                <span className={`status-badge status-${sessionStatus.ok ? "success" : "failed"}`}>
+                  {sessionStatus.message}
+                </span>
+              )}
             </div>
           </div>
         )}

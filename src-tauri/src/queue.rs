@@ -1,6 +1,7 @@
 use crate::db::{chrono_now, Database};
 use crate::errors::AppError;
 use crate::executors::audio::AudioPipeline;
+use crate::executors::muse_runner::MuseRunner;
 use crate::executors::rembg::RembgEngine;
 use crate::models::{AudioJobItem, AudioSegmentItem, TaskItem, TaskKind, TaskStatus};
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ pub struct QueueManager {
     tx: mpsc::Sender<QueueAction>,
     pub cancel_tokens: Arc<Mutex<HashMap<String, CancellationToken>>>,
     rembg_engine: Option<Arc<RembgEngine>>,
+    muse_runner: Arc<Mutex<MuseRunner>>,
 }
 
 impl QueueManager {
@@ -39,6 +41,8 @@ impl QueueManager {
         };
 
         let rembg_worker = rembg_engine.clone();
+        let muse_runner = Arc::new(Mutex::new(MuseRunner::new()));
+        let muse_worker = Arc::clone(&muse_runner);
 
         tokio::spawn(async move {
             tracing::info!("Queue actor started");
@@ -55,9 +59,10 @@ impl QueueManager {
                         let _tokens_cleanup = Arc::clone(&tokens_worker);
                         let app_ref = app_worker.clone();
                         let rembg_ref = rembg_worker.clone();
+                        let muse_ref = Arc::clone(&muse_worker);
 
                         tokio::spawn(async move {
-                            run_task(task, db_ref, app_ref, rembg_ref, token).await;
+                            run_task(task, db_ref, app_ref, rembg_ref, muse_ref, token).await;
                         });
                     }
                     QueueAction::Cancel(task_id) => {
@@ -77,7 +82,16 @@ impl QueueManager {
             tx,
             cancel_tokens,
             rembg_engine,
+            muse_runner,
         }
+    }
+
+    pub async fn check_muse_session(&self, user_data_dir: Option<String>) -> Result<(bool, String), AppError> {
+        let mut runner = self.muse_runner.lock().await;
+        runner
+            .check_session(user_data_dir)
+            .await
+            .map_err(|e| AppError::Other(e.to_string()))
     }
 
     pub async fn enqueue(
@@ -151,6 +165,7 @@ async fn run_task(
     db: Arc<Database>,
     app: tauri::AppHandle,
     rembg: Option<Arc<RembgEngine>>,
+    muse_runner: Arc<Mutex<MuseRunner>>,
     token: CancellationToken,
 ) {
     let task_id = task.id.clone();
@@ -266,20 +281,60 @@ async fn run_task(
         }
 
         TaskKind::MuseVideo | TaskKind::MuseImage => {
-            for p in [30, 60, 90, 100] {
-                tokio::select! {
-                    _ = token.cancelled() => {
-                        let _ = db.update_task_status(&task_id, TaskStatus::Cancelled, p, None, Some("Cancelled by user"));
-                        return;
-                    }
-                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(800)) => {
-                        let _ = db.update_task_status(&task_id, TaskStatus::Running, p, None, None);
-                    }
+            let prompt = task.prompt.clone().unwrap_or_default();
+            if prompt.trim().is_empty() {
+                let _ = db.update_task_status(&task_id, TaskStatus::Failed, 0, None, Some("Thiếu prompt mô tả"));
+                return;
+            }
+
+            let config = db.get_config().unwrap_or_default();
+            let output_dir = config.output_dir.clone();
+            let chrome_profile = config.chrome_profile_dir.clone();
+            let kind_str = match task.kind {
+                TaskKind::MuseImage => "muse_image",
+                _ => "muse_video",
+            };
+
+            let ratio_str = task.ratio.as_deref().unwrap_or(&config.default_ratio);
+            let input_ref = task.input_path.as_deref();
+
+            let db_prog = Arc::clone(&db);
+            let tid_prog = task_id.clone();
+
+            let mut runner = muse_runner.lock().await;
+            let res = runner
+                .execute_task(
+                    &task_id,
+                    kind_str,
+                    &prompt,
+                    Some(ratio_str),
+                    input_ref,
+                    &output_dir,
+                    Some(&chrome_profile),
+                    move |p, msg| {
+                        let _ = db_prog.update_task_status(
+                            &tid_prog,
+                            TaskStatus::Running,
+                            p,
+                            None,
+                            msg.as_deref(),
+                        );
+                    },
+                    &token,
+                )
+                .await;
+
+            match res {
+                Ok(out_file) => {
+                    let out_str = out_file.to_string_lossy().to_string();
+                    let _ = db.update_task_status(&task_id, TaskStatus::Success, 100, Some(&out_str), None);
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    tracing::error!("Muse execution failed: {}", err_str);
+                    let _ = db.update_task_status(&task_id, TaskStatus::Failed, 0, None, Some(&err_str));
                 }
             }
-            let short_id = &task_id[..8.min(task_id.len())];
-            let output_video = format!("D:\\XitrumAI_Outputs\\muse_{}.mp4", short_id);
-            let _ = db.update_task_status(&task_id, TaskStatus::Success, 100, Some(&output_video), None);
         }
 
         _ => {}

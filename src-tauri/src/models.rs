@@ -71,6 +71,7 @@ pub struct AppConfig {
     pub output_dir: String,
     pub default_ratio: String,
     pub whisper_model: String, // "ggml-tiny", "ggml-base", "ggml-medium"
+    pub chrome_profile_dir: String, // Thư mục Chrome profile để giữ đăng nhập Muse.ai
     pub max_parallel_muse: usize,
     pub max_parallel_local: usize,
 }
@@ -81,6 +82,7 @@ impl Default for AppConfig {
             output_dir: String::from("D:\\XitrumAI_Outputs"),
             default_ratio: String::from("16:9"),
             whisper_model: String::from("ggml-tiny"),
+            chrome_profile_dir: String::from("D:\\Antigravity\\REA\\REA-project\\poc-phase0\\chrome-profile"),
             max_parallel_muse: 1,
             max_parallel_local: 2,
         }

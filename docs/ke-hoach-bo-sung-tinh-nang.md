@@ -185,12 +185,18 @@ flowchart LR
 ### v0.4.0 — Render Video Hoàn Chỉnh + Runner Thật
 *Mục tiêu: Tái hiện toàn bộ pipeline Kahi. Effort: ~30h*
 
-- [ ] **F11: Muse.ai Runner Thật (`runner.start`, `runner.stop`, `runner.lanes`)**
-  - Nối sidecar `runner.mjs` (Playwright + Chrome CDP) vào Rust executor
-  - JSON-lines stdio protocol: `{"type":"progress","value":50}`, `{"type":"done","url":"..."}`
-  - Xử lý session expired: dialog hướng dẫn re-login
-  - Rate limiting: nghỉ khi Muse giới hạn gửi (đọc từ Kahi: `pausedUntil`)
-  - **Files:** `executors/muse_runner.rs`, `sidecar-muse/runner.mjs`, `App.tsx`
+- [x] **F11: Muse.ai Runner Thật (`runner.start`, `runner.stop`, `runner.lanes`)**
+  - Đã tích hợp Node.js sidecar `runner.mjs` (Playwright Core + Chrome CDP thật) vào backend Rust (`src-tauri/src/executors/muse_runner.rs`).
+  - Giao thức 2 chiều chuẩn JSON-lines qua stdio:
+    - Báo tiến độ theo thời gian thực (15% → 30% → 60% → 75% → 100%).
+    - Tự động đính kèm ảnh tham chiếu người mẫu nếu có (`input_path`).
+    - Tự động download video/ảnh xuất ra từ Muse.ai về thư mục `output_dir`.
+  - Quản lý phiên đăng nhập:
+    - Lưu vĩnh viễn trong Chrome Profile (`poc-phase0/chrome-profile`).
+    - Nút "Kiểm Tra Phiên Đăng Nhập Muse.ai" trực tiếp trong Cài Đặt (tự mở Chrome kiểm tra tài khoản).
+    - Phát hiện và báo lỗi `SESSION_EXPIRED` kèm cảnh báo trên hàng đợi nếu phiên đăng nhập hết hạn.
+  - Hỗ trợ hủy tác vụ ngay lập tức (`CancellationToken`).
+  - **Files:** `sidecar-muse/runner.mjs`, `src-tauri/src/executors/muse_runner.rs`, `src-tauri/src/queue.rs`, `src-tauri/src/commands.rs`, `src/App.tsx`, `src/api.ts`
   - **Effort:** ~12h
 
 - [ ] **F12: Auto-Render Ghép Video (`audio.render`)**

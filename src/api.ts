@@ -19,6 +19,7 @@ export interface AppConfig {
   output_dir: string;
   default_ratio: string;
   whisper_model: string;
+  chrome_profile_dir: string;
   max_parallel_muse: number;
   max_parallel_local: number;
 }
@@ -121,6 +122,10 @@ export const api = {
     invoke<TaskItem>("add_segment_to_queue", { jobId, segmentId }),
   exportScript: (jobId: string, format: "srt" | "txt") =>
     invoke<string>("export_script", { jobId, format }),
+
+  // Kiểm tra phiên đăng nhập Muse.ai (F11)
+  checkMuseSession: () =>
+    invoke<{ ok: boolean; message: string }>("check_muse_session"),
 
   // Cấu hình settings
   getSettings: () => invoke<AppConfig>("get_settings"),
