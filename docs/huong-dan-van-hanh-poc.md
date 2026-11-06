@@ -99,6 +99,29 @@ npm run tauri dev
 
 ---
 
+### I. Tự Động Hòa Trộn Nhạc Nền (F13 - Background Music Mixer)
+- Trong tab **Cài Đặt Hệ Thống**:
+  - Chọn thư mục chứa các bài nhạc nền yêu thích (`.mp3`, `.wav`, `.m4a`...).
+  - Tùy chỉnh thanh trượt **Âm lượng nhạc nền** từ 5% đến 50% (mặc định 15%).
+- Khi bấm **Render Ghép Video (F12)**, hệ thống sẽ tự động pick ngẫu nhiên một bản nhạc và dùng bộ lọc `amix` của FFmpeg để hòa trộn êm ái cùng giọng đọc mà không làm át tiếng nói.
+
+---
+
+### J. Đa Luồng Song Song & Quản Lý Tài Nguyên (F14 - Multi-Lane Runner)
+- **Top Bar Badges**: Theo dõi số slot trống thời gian thực:
+  - 🌐 **Muse Cloud**: Tránh gửi dồn dập nhiều yêu cầu lên cùng 1 session Muse.ai.
+  - ⚡ **Local Offline**: Tối ưu số nhân CPU xử lý tách âm Whisper và xóa nền Rembg.
+- Cấu hình số luồng chạy song song trong **Cài Đặt Hệ Thống** tùy thuộc vào cấu hình máy tính của bạn.
+
+---
+
+### K. Tạo Lại Video Cho Từng Câu Thoại (F15 - Regenerate Segment)
+- Nếu đoạn video AI sinh ra cho một câu thoại chưa vừa ý:
+  - Trên bảng **Audio Timeline Editor**, hàng câu thoại đó sẽ có nút **"Tạo Lại (F15)"** (icon `RotateCcw`).
+  - Chỉ cần bấm 1 click: hệ thống sẽ xóa liên kết video cũ và tự động đưa đoạn câu thoại đó vào hàng đợi để Muse.ai sinh một phiên bản video mới.
+
+---
+
 ## 3. Thư Viện File Portable & Môi Trường
 
 Tất cả sidecars đã được tích hợp sẵn trong ứng dụng, người dùng không cần cài thêm công cụ bên ngoài:

@@ -123,6 +123,8 @@ export const api = {
     }),
   addSegmentToQueue: (jobId: string, segmentId: string) =>
     invoke<TaskItem>("add_segment_to_queue", { jobId, segmentId }),
+  regenerateSegment: (jobId: string, segmentId: string) =>
+    invoke<TaskItem>("regenerate_segment", { jobId, segmentId }),
   exportScript: (jobId: string, format: "srt" | "txt") =>
     invoke<string>("export_script", { jobId, format }),
   renderAudioJob: (jobId: string) =>

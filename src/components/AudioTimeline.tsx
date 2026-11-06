@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Image as ImageIcon,
   Film,
+  RotateCcw,
 } from "lucide-react";
 
 interface Props {
@@ -148,8 +149,22 @@ export const AudioTimeline: React.FC<Props> = ({
       await api.addSegmentToQueue(selectedJobId, segId);
       onAddToast("success", "Đã đẩy đoạn video này vào hàng đợi Muse.ai!");
       onRefreshTasks();
+      loadSegments(selectedJobId);
     } catch (e) {
       onAddToast("error", `Lỗi đẩy vào queue: ${e}`);
+    }
+  };
+
+  // F15: Chạy lại Muse.ai cho 1 segment cụ thể
+  const handleRegenerate = async (segId: string) => {
+    if (!selectedJobId) return;
+    try {
+      await api.regenerateSegment(selectedJobId, segId);
+      onAddToast("info", "Đã đưa đoạn video vào hàng đợi để tạo lại (Regenerate)!");
+      onRefreshTasks();
+      loadSegments(selectedJobId);
+    } catch (e) {
+      onAddToast("error", `Lỗi tạo lại video: ${e}`);
     }
   };
 
@@ -384,13 +399,25 @@ export const AudioTimeline: React.FC<Props> = ({
                     </div>
                   </td>
                   <td>
-                    <button
-                      className="primary-btn sm-btn"
-                      onClick={() => handlePushToQueue(seg.id)}
-                      title="Gửi đoạn này sang Queue Muse.ai"
-                    >
-                      <Send size={12} /> Tạo Video
-                    </button>
+                    <div className="actions-cell">
+                      {seg.output_video_path ? (
+                        <button
+                          className="secondary-btn sm-btn"
+                          onClick={() => handleRegenerate(seg.id)}
+                          title="Tạo lại video đoạn này bằng Muse.ai (Regenerate)"
+                        >
+                          <RotateCcw size={12} /> Tạo Lại (F15)
+                        </button>
+                      ) : (
+                        <button
+                          className="primary-btn sm-btn"
+                          onClick={() => handlePushToQueue(seg.id)}
+                          title="Gửi đoạn này sang Queue Muse.ai"
+                        >
+                          <Send size={12} /> Tạo Video
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

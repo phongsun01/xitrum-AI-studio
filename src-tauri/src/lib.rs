@@ -86,6 +86,7 @@ pub fn run() {
             list_audio_segments,
             update_audio_segment,
             add_segment_to_queue,
+            regenerate_segment,
             export_script,
             render_audio_job,
             list_tasks,

@@ -191,6 +191,40 @@ pub async fn add_segment_to_queue(
     Ok(task)
 }
 
+// --- F15: Chạy lại Muse.ai cho 1 segment cụ thể (Regenerate) ---
+#[tauri::command]
+pub async fn regenerate_segment(
+    job_id: String,
+    segment_id: String,
+    state: State<'_, AppState>,
+) -> Result<TaskItem, AppError> {
+    let segments = state.db.list_audio_segments(&job_id)?;
+    let seg = segments
+        .into_iter()
+        .find(|s| s.id == segment_id)
+        .ok_or_else(|| AppError::NotFound("Segment không tồn tại".into()))?;
+
+    // Reset output_video_path cũ về None
+    let _ = state.db.update_audio_segment(
+        &segment_id,
+        None,
+        None,
+        None,
+        Some(""), // Đặt rỗng để xóa đường dẫn video cũ
+        None,
+    );
+
+    let prompt = seg.prompt.unwrap_or(seg.text);
+    let task = state
+        .queue
+        .enqueue(TaskKind::MuseVideo, Some(prompt), Some("16:9".into()), seg.ref_image_path)
+        .await?;
+
+    let _ = state.db.set_segment_queue_task_id(&segment_id, &task.id);
+
+    Ok(task)
+}
+
 #[tauri::command]
 pub fn export_script(
     job_id: String,

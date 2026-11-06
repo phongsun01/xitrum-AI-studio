@@ -229,9 +229,14 @@ flowchart LR
   - **Files:** `src-tauri/src/queue.rs`, `src-tauri/src/commands.rs`, `src/App.tsx`, `src/api.ts`, `src/App.css`
   - **Effort:** ~5h
 
-- [ ] **F15: Regenerate Segment (`audio.regenerate`)**
-  - Chạy lại Muse.ai cho 1 segment cụ thể nếu kết quả không ưng
-  - **Files:** `commands.rs`, `App.tsx`
+- [x] **F15: Regenerate Segment (`audio.regenerate`)**
+  - Cho phép người dùng chạy lại AI cho từng đoạn clip cụ thể nếu kết quả video sinh ra chưa ưng ý.
+  - Rust IPC Command `regenerate_segment(job_id, segment_id)`:
+    - Tự động xóa đường dẫn video cũ trong cơ sở dữ liệu (`output_video_path = null`).
+    - Lấy lại prompt tùy biến hoặc câu thoại hiện tại kèm ảnh người mẫu tham chiếu tương ứng và tạo task mới vào hàng đợi Muse.ai.
+  - Giao diện Audio Timeline:
+    - Khi đoạn câu thoại đã có video thành phẩm, nút thao tác tự động chuyển thành **"Tạo Lại (F15)"** (icon `RotateCcw`) giúp 1-click sinh lại video mới mượt mà.
+  - **Files:** `src-tauri/src/commands.rs`, `src-tauri/src/lib.rs`, `src/components/AudioTimeline.tsx`, `src/api.ts`
   - **Effort:** ~2h
 
 ---
