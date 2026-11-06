@@ -54,6 +54,8 @@ function App() {
     default_ratio: "16:9",
     whisper_model: "ggml-tiny",
     chrome_profile_dir: "D:\\Antigravity\\REA\\REA-project\\poc-phase0\\chrome-profile",
+    music_dir: null,
+    music_volume: 0.15,
     max_parallel_muse: 1,
     max_parallel_local: 2,
   });
@@ -529,6 +531,72 @@ function App() {
                   {sessionStatus.message}
                 </span>
               )}
+            </div>
+
+            {/* F13: Thư viện Nhạc Nền Tự Động */}
+            <div className="form-group" style={{ marginTop: "24px", paddingTop: "18px", borderTop: "1px dashed var(--border-color)" }}>
+              <label>🎵 Thư Mục Nhạc Nền Tự Động (F13 - Auto Background Music):</label>
+              <p className="panel-desc" style={{ marginBottom: "8px" }}>
+                Khi Render ghép video (F12), hệ thống sẽ tự động chọn ngẫu nhiên 1 bản nhạc từ thư mục này và hòa trộn (amix) làm nền video.
+              </p>
+              <div className="input-with-button">
+                <input
+                  type="text"
+                  placeholder="Chưa chọn thư mục nhạc nền (bấm Chọn Folder...)"
+                  value={config.music_dir || ""}
+                  onChange={async (e) => {
+                    const newCfg = { ...config, music_dir: e.target.value.trim() ? e.target.value : null };
+                    setConfig(newCfg);
+                    await api.saveSettings(newCfg);
+                  }}
+                />
+                <button
+                  className="secondary-btn"
+                  onClick={async () => {
+                    const dir = await api.pickDirectory();
+                    if (dir) {
+                      const newCfg = { ...config, music_dir: dir };
+                      setConfig(newCfg);
+                      await api.saveSettings(newCfg);
+                      addToast("success", "Đã chọn thư mục nhạc nền!");
+                    }
+                  }}
+                >
+                  <FolderOpen size={16} /> Chọn Folder...
+                </button>
+                {config.music_dir && (
+                  <button
+                    className="danger-btn sm-btn"
+                    onClick={async () => {
+                      const newCfg = { ...config, music_dir: null };
+                      setConfig(newCfg);
+                      await api.saveSettings(newCfg);
+                      addToast("info", "Đã bỏ chọn thư mục nhạc nền");
+                    }}
+                  >
+                    Bỏ Chọn
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="form-row" style={{ marginTop: "12px" }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Âm Lượng Nhạc Nền: {Math.round((config.music_volume || 0.15) * 100)}%</label>
+                <input
+                  type="range"
+                  min="0.05"
+                  max="0.5"
+                  step="0.05"
+                  value={config.music_volume || 0.15}
+                  onChange={async (e) => {
+                    const vol = parseFloat(e.target.value);
+                    const newCfg = { ...config, music_volume: vol };
+                    setConfig(newCfg);
+                    await api.saveSettings(newCfg);
+                  }}
+                />
+              </div>
             </div>
           </div>
         )}

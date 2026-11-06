@@ -292,6 +292,35 @@ pub async fn render_audio_job(
     let out_dir = Path::new(&config.output_dir);
     let _ = std::fs::create_dir_all(out_dir);
 
+    // F13: Tự động chọn ngẫu nhiên 1 file nhạc nền từ thư mục music_dir (nếu được cấu hình)
+    let mut selected_music_path: Option<String> = None;
+    if let Some(music_dir) = &config.music_dir {
+        let m_dir = Path::new(music_dir);
+        if m_dir.exists() && m_dir.is_dir() {
+            let mut audio_files = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(m_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                            let ext_lower = ext.to_lowercase();
+                            if matches!(ext_lower.as_str(), "mp3" | "wav" | "m4a" | "aac" | "flac" | "ogg") {
+                                audio_files.push(path.to_string_lossy().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !audio_files.is_empty() {
+                // Pick ngẫu nhiên dựa trên timestamp
+                let idx = (chrono_now() as usize) % audio_files.len();
+                selected_music_path = Some(audio_files[idx].clone());
+                tracing::info!("Selected background music: {:?}", selected_music_path);
+            }
+        }
+    }
+
     let short_id = &job_id[..8.min(job_id.len())];
     let final_output = out_dir.join(format!("final_render_{}.mp4", short_id));
     let final_output_str = final_output.to_string_lossy().to_string();
@@ -303,6 +332,8 @@ pub async fn render_audio_job(
         .render_video_concat(
             &video_paths,
             &job.audio_path,
+            selected_music_path.as_deref(),
+            Some(config.music_volume),
             &final_output_str,
             &cancel_token,
         )

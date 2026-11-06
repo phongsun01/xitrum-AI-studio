@@ -20,6 +20,8 @@ export interface AppConfig {
   default_ratio: string;
   whisper_model: string;
   chrome_profile_dir: string;
+  music_dir: string | null;
+  music_volume: number;
   max_parallel_muse: number;
   max_parallel_local: number;
 }

@@ -162,11 +162,13 @@ impl AudioPipeline {
         Ok(out_json_path)
     }
 
-    /// F12: Ghép các video segments hoàn thành + file audio gốc thành 1 video hoàn chỉnh bằng FFmpeg
+    /// F12 & F13: Ghép các video segments + file audio giọng đọc + nhạc nền tự động (F13)
     pub async fn render_video_concat(
         &self,
         video_paths: &[String],
         audio_path: &str,
+        music_path: Option<&str>,
+        music_volume: Option<f32>,
         output_file: &str,
         token: &CancellationToken,
     ) -> Result<PathBuf> {
@@ -189,32 +191,79 @@ impl AudioPipeline {
         let list_file_str = list_file.to_string_lossy().to_string();
         tracing::info!("FFmpeg concat demuxer file: {}", list_file_str);
 
-        // FFmpeg args ghép video + audio
-        // ffmpeg -y -f concat -safe 0 -i list.txt -i audio.m4a -c:v copy -c:a aac -b:a 192k -shortest output.mp4
+        let mut args: Vec<String> = vec![
+            "-y".into(),
+            "-f".into(),
+            "concat".into(),
+            "-safe".into(),
+            "0".into(),
+            "-i".into(),
+            list_file_str.clone(),
+            "-i".into(),
+            audio_path.to_string(),
+        ];
+
+        // Nếu có file nhạc nền (F13): thêm input thứ 3 và cấu hình bộ trộn amix
+        if let Some(bgm) = music_path {
+            if Path::new(bgm).exists() {
+                args.push("-stream_loop".into());
+                args.push("-1".into()); // Lặp nhạc nền nếu audio dài hơn bài nhạc
+                args.push("-i".into());
+                args.push(bgm.to_string());
+
+                let vol = music_volume.unwrap_or(0.15).clamp(0.01, 1.0);
+                // Giọng đọc kênh 1:a, Nhạc nền kênh 2:a hạ âm lượng và hòa trộn
+                let filter_str = format!(
+                    "[2:a]volume={:.2}[bgm];[1:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                    vol
+                );
+                args.push("-filter_complex".into());
+                args.push(filter_str);
+                args.push("-map".into());
+                args.push("0:v:0".into());
+                args.push("-map".into());
+                args.push("[aout]".into());
+                args.push("-c:v".into());
+                args.push("copy".into());
+                args.push("-c:a".into());
+                args.push("aac".into());
+                args.push("-b:a".into());
+                args.push("192k".into());
+                args.push("-shortest".into());
+                args.push(output_file.to_string());
+            } else {
+                args.extend([
+                    "-c:v".into(),
+                    "copy".into(),
+                    "-c:a".into(),
+                    "aac".into(),
+                    "-b:a".into(),
+                    "192k".into(),
+                    "-shortest".into(),
+                    output_file.to_string(),
+                ]);
+            }
+        } else {
+            args.extend([
+                "-c:v".into(),
+                "copy".into(),
+                "-c:a".into(),
+                "aac".into(),
+                "-b:a".into(),
+                "192k".into(),
+                "-shortest".into(),
+                output_file.to_string(),
+            ]);
+        }
+
+        let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+
         let (mut rx, child) = self
             .app
             .shell()
             .sidecar("ffmpeg")
             .map_err(|e| anyhow::anyhow!("FFmpeg sidecar error: {e}"))?
-            .args([
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                &list_file_str,
-                "-i",
-                audio_path,
-                "-c:v",
-                "copy",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-                "-shortest",
-                output_file,
-            ])
+            .args(arg_refs)
             .spawn()
             .map_err(|e| anyhow::anyhow!("Spawn FFmpeg concat error: {e}"))?;
 

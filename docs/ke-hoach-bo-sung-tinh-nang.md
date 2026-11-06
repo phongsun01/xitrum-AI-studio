@@ -210,11 +210,13 @@ flowchart LR
   - **Files:** `src-tauri/src/executors/audio.rs`, `src-tauri/src/commands.rs`, `src-tauri/src/db.rs`, `src/components/AudioTimeline.tsx`, `src/api.ts`
   - **Effort:** ~8h
 
-- [ ] **F13: Nhạc Nền Tự Động (`music.pickDir`, `music.set`)**
-  - Settings: chọn thư mục nhạc
-  - Khi render: random pick 1 file `.mp3`/`.wav`, FFmpeg auto-mix
-  - `ffmpeg -i video.mp4 -i music.mp3 -shortest -filter_complex amix output.mp4`
-  - **Files:** `commands.rs`, `App.tsx`
+- [x] **F13: Nhạc Nền Tự Động (`music.pickDir`, `music.set`)**
+  - Settings: Cho phép chọn thư mục chứa các bản nhạc nền (`music_dir`) và thanh kéo điều chỉnh âm lượng nền (`music_volume`: 5% đến 50%).
+  - Lõi Rust & FFmpeg:
+    - Khi Render video (F12), tự động quét và chọn ngẫu nhiên 1 bản nhạc (`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`) từ thư mục.
+    - Tự động lặp lại bản nhạc (`-stream_loop -1`) nếu thời lượng video dài hơn file nhạc.
+    - Hòa trộn âm thanh thông minh bằng FFmpeg `amix`: Giọng đọc giữ nguyên âm lượng chuẩn, nhạc nền được hạ âm lượng tự động và mượt mà (`dropout_transition=2`).
+  - **Files:** `src-tauri/src/models.rs`, `src-tauri/src/executors/audio.rs`, `src-tauri/src/commands.rs`, `src/App.tsx`, `src/api.ts`
   - **Effort:** ~4h
 
 - [ ] **F14: Multi-Lane Runner (`runner.lanes`)**

@@ -73,6 +73,8 @@ pub struct AppConfig {
     pub default_ratio: String,
     pub whisper_model: String, // "ggml-tiny", "ggml-base", "ggml-medium"
     pub chrome_profile_dir: String, // Thư mục Chrome profile để giữ đăng nhập Muse.ai
+    pub music_dir: Option<String>, // Thư mục chứa nhạc nền tự động (F13)
+    pub music_volume: f32, // Âm lượng nhạc nền (0.05 -> 0.5, mặc định 0.15)
     pub max_parallel_muse: usize,
     pub max_parallel_local: usize,
 }
@@ -84,6 +86,8 @@ impl Default for AppConfig {
             default_ratio: String::from("16:9"),
             whisper_model: String::from("ggml-tiny"),
             chrome_profile_dir: String::from("D:\\Antigravity\\REA\\REA-project\\poc-phase0\\chrome-profile"),
+            music_dir: None,
+            music_volume: 0.15,
             max_parallel_muse: 1,
             max_parallel_local: 2,
         }
