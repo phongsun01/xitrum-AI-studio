@@ -62,6 +62,59 @@ impl Database {
             [],
         )?;
 
+        // Khởi tạo các template mẫu chất lượng cao nếu bảng templates còn trống
+        let tpl_count: i64 = conn.query_row(
+            "SELECT count(*) FROM templates",
+            [],
+            |r| r.get(0),
+        ).unwrap_or(0);
+
+        if tpl_count == 0 {
+            let default_templates = vec![
+                (
+                    "tpl-tiktok-hook",
+                    "📱 TikTok Hook - Giữ Chân Người Xem",
+                    "A charismatic presenter talking dynamically towards the camera, energetic hand gestures, expressive face, modern studio background with neon accent lights, cinematic lighting, 4k ultra-realistic.",
+                    "9:16"
+                ),
+                (
+                    "tpl-cinematic-broll",
+                    "🎬 Điện Ảnh - Cinematic B-Roll",
+                    "Slow motion cinematic panning shot, warm sunset golden hour lighting, gentle wind blowing, shallow depth of field, anamorphic lens flare, professional film color grading 8k.",
+                    "16:9"
+                ),
+                (
+                    "tpl-podcast-talk",
+                    "🎙️ Podcast / Talkshow Phỏng Vấn",
+                    "Close-up interview angle, speaker talking thoughtfully in front of a shure microphone, cozy ambient warm cafe studio, natural bokeh background, soft rim light.",
+                    "16:9"
+                ),
+                (
+                    "tpl-review-showcase",
+                    "📦 Review Sản Phẩm / Đập Hộp",
+                    "Top-down isometric view transitioning to front view, hands unboxing luxury premium device, clean minimalist wooden desk setup, crisp shadows, sharp product focus.",
+                    "9:16"
+                ),
+                (
+                    "tpl-tech-explainer",
+                    "💡 Giải Thích Khoa Học / Công Nghệ",
+                    "Modern expert standing in high-tech laboratory with glowing holographic data charts floating around, pointing and explaining complex concepts, sleek futuristic aesthetic.",
+                    "16:9"
+                )
+            ];
+
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+            for (id, name, prompt, ratio) in default_templates {
+                let _ = conn.execute(
+                    "INSERT INTO templates (id, name, prompt, ratio, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![id, name, prompt, ratio, now],
+                );
+            }
+        }
+
         // 4. Bảng Audio Jobs (v0.3.0 F7)
         conn.execute(
             "CREATE TABLE IF NOT EXISTS audio_jobs (
