@@ -171,6 +171,32 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
         throw new Error("JSON thiếu trường 'title' hoặc 'scenes'. Vui lòng kiểm tra lại cấu trúc JSON!");
       }
 
+      if (parsed.scenes.length === 0) {
+        throw new Error("Kịch bản phải có ít nhất 1 phân cảnh (scenes không được rỗng)!");
+      }
+
+      // S8: Kiểm tra chi tiết từng scene và tổng thời lượng
+      const seenSceneNos = new Set<number>();
+      for (let i = 0; i < parsed.scenes.length; i++) {
+        const s = parsed.scenes[i];
+        const sNo = Number(s.scene_no) || (i + 1);
+        if (seenSceneNos.has(sNo)) {
+          throw new Error(`Trùng lặp số thứ tự cảnh: Cảnh số ${sNo}`);
+        }
+        seenSceneNos.add(sNo);
+
+        const dur = Number(s.duration_sec);
+        if (isNaN(dur) || dur <= 0) {
+          throw new Error(`Thời lượng cảnh ${sNo} không hợp lệ (phải > 0 giây, nhận được: ${s.duration_sec})`);
+        }
+
+        const narration = (s.narration || "").trim();
+        const visual = (s.visual_prompt || s.video_prompt || "").trim();
+        if (!narration && !visual) {
+          throw new Error(`Cảnh ${sNo} không có lời thoại lẫn mô tả hình ảnh.`);
+        }
+      }
+
       const scriptId = `script_${Date.now()}`;
       const now = Date.now();
 
@@ -179,9 +205,17 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
       const characters: CharacterItem[] = (parsed.characters || []).map(
         (c: any, idx: number) => {
           let chosenVoice = defaultVoice;
-          if (c.voice && c.voice.toLowerCase().includes("nam")) {
+          const desc = `${c.name || ""} ${c.description || ""} ${c.voice || ""}`.toLowerCase();
+          
+          // S8: Ánh xạ giọng thông minh theo giới tính và nhóm tuổi
+          if (desc.includes("trẻ em") || desc.includes("bé") || desc.includes("con nít") || desc.includes("child")) {
+            chosenVoice = voices.find((v) => v.id.includes("child") || v.id.includes("be"))?.id || "hn_female_thao";
+          } else if (desc.includes("nam") || desc.includes("ông") || desc.includes("chú") || desc.includes("anh") || desc.includes("male")) {
             chosenVoice = voices.find((v) => v.gender === "male")?.id || "hn_male_tuan";
+          } else {
+            chosenVoice = voices.find((v) => v.gender === "female")?.id || "hn_female_thao";
           }
+
           return {
             id: `char_${scriptId}_${idx + 1}`,
             name: c.name || `Nhân vật ${idx + 1}`,

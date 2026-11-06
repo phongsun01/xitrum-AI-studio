@@ -54,11 +54,13 @@ pub enum RunnerMessage {
         percent: u32,
         message: Option<String>,
     },
+    #[serde(alias = "task_complete")]
     Success {
         #[serde(alias = "taskId")]
         task_id: Option<String>,
+        #[serde(default)]
         percent: u32,
-        #[serde(alias = "outputPath")]
+        #[serde(alias = "outputPath", alias = "outputFile", alias = "output_file")]
         output_path: String,
     },
     SessionStatus {
@@ -71,6 +73,7 @@ pub enum RunnerMessage {
         message: String,
     },
     Error {
+        #[serde(alias = "message")]
         error: String,
     },
 }
@@ -102,11 +105,25 @@ impl MuseRunner {
             }
         }
 
-        let script_path = "D:\\Antigravity\\REA\\REA-project\\xitrum-AI-studio\\sidecar-muse\\runner.mjs";
-        tracing::info!("Starting Muse Node.js runner: {}", script_path);
+        // Tự động tìm đường dẫn tới file sidecar-muse/runner.mjs tương đối theo thư mục app (B3)
+        let current_dir = std::env::current_dir().unwrap_or_default();
+        let candidate_1 = current_dir.join("sidecar-muse").join("runner.mjs");
+        let candidate_2 = current_dir.join("..").join("sidecar-muse").join("runner.mjs");
+        let candidate_3 = PathBuf::from("D:\\Antigravity\\REA\\REA-project\\xitrum-AI-studio\\sidecar-muse\\runner.mjs");
+
+        let script_path = if candidate_1.exists() {
+            candidate_1
+        } else if candidate_2.exists() {
+            candidate_2
+        } else if candidate_3.exists() {
+            candidate_3
+        } else {
+            PathBuf::from("sidecar-muse/runner.mjs")
+        };
+        tracing::info!("Starting Muse Node.js runner: {:?}", script_path);
 
         let mut child = Command::new("node")
-            .arg(script_path)
+            .arg(&script_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -216,7 +233,9 @@ impl MuseRunner {
         loop {
             tokio::select! {
                 _ = token.cancelled() => {
-                    tracing::warn!("Task {} cancelled by token", task_id);
+                    tracing::warn!("Task {} cancelled by token, resetting runner process", task_id);
+                    // S9: Khi hủy thì tắt runner rồi khởi động lại sạch để dừng browser và tránh nhận nhầm kết quả
+                    self.reset();
                     return Err(anyhow::anyhow!("Cancelled by user"));
                 }
                 res = reader.next_line() => {

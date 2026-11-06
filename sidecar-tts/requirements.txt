@@ -1,0 +1,6 @@
+vieneu>=0.1.0
+numpy
+scipy
+torch
+soundfile
+

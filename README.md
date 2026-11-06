@@ -5,7 +5,7 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.6.0 (Kỷ Nguyên "Ý Tưởng → Video" & Hậu Kỳ Tự Động)
+## 📦 Phiên Bản Hiện Tại: v0.6.1 (Kỷ Nguyên "Ý Tưởng → Video" & Hậu Kỳ Tự Động)
 
 Nâng cấp mang tính đột phá dựa trên nghiên cứu kiến trúc Muse AI Studio và tích hợp công nghệ AI giọng nói tiếng Việt VieNeu-TTS:
 
@@ -65,10 +65,14 @@ Nâng cấp mang tính đột phá dựa trên nghiên cứu kiến trúc Muse A
 - Python 3.10+ (có `py.exe` hoặc Python Launcher)
 - Microsoft C++ Build Tools 2022
 
-### Chạy chế độ phát triển:
+### Cài đặt dependencies:
 ```powershell
-# Cài đặt frontend dependencies
+# 1. Cài đặt Node dependencies (bao gồm playwright-core)
 npm install
+
+# 2. Cài đặt Python packages cho VieNeu-TTS (nếu dùng tính năng Ý Tưởng -> Video)
+py -m pip install -r sidecar-tts/requirements.txt
+```
 
 # Khởi động ứng dụng Tauri Dev
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
@@ -89,9 +93,10 @@ File cài đặt sẽ được tạo tại `src-tauri/target/release/bundle/nsis
 - [x] **v0.2.0**: Mở folder kết quả, Retry, Duplicate, Edit prompt, Toast notification, Thư viện Templates.
 - [x] **v0.3.0**: Audio Timeline Segment Editor, Xuất phụ đề (.SRT/.TXT), Chọn mô hình Whisper, Duyệt câu thoại.
 - [x] **v0.4.0**: Runner Muse.ai tự động hoàn chỉnh, Tự động ghép video + nhạc nền, Multi-lane runner đa luồng.
-- [x] **v0.6.0**: Đường ống "Ý Tưởng → Video", VieNeu-TTS 23 giọng đọc, Proxy Manager bảo mật, Hậu kỳ FFmpeg hoàn chỉnh (SRT Hardsub + BGM Ducking).
+- [x] **v0.5.0** (Internal / Milestone): Tích hợp Sidecar JSON-RPC VieNeu-TTS và kiến trúc Character Bible.
+- [x] **v0.6.1**: Đường ống "Ý Tưởng → Video" hoàn chỉnh, VieNeu-TTS tiếng Việt, Proxy Manager, Hậu kỳ FFmpeg (SRT Hardsub + BGM Sidechain Ducking).
 
 ---
 
 ## 📄 Bản Quyền
-Dự án phát triển cho mục đích cá nhân và nghiên cứu công nghệ.
+Dự án được phân phối theo giấy phép MIT License (xem chi tiết tại `LICENSE`). Mọi thành phần mã nguồn mở tuân thủ điều khoản tương ứng của tác giả.

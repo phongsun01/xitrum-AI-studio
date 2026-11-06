@@ -149,3 +149,46 @@
   2. **Trong `src-tauri/src/executors/muse_runner.rs`**:
      - Bổ sung kiểm tra `child.try_wait()` trong `ensure_started()`. Nếu tiến trình Node sidecar đã kết thúc trước đó, tự động dọn dẹp và spawn tiến trình mới.
      - Bổ sung hàm `reset()` để kill tiến trình cũ khi cần thiết.
+
+---
+
+## 7. Tổng hợp xử lý toàn diện các lỗi chặn chạy (B1-B6), lỗi logic kết quả (S1-S11), bảo mật (R1-R5) và đồng bộ v0.6.0
+
+- **Thời điểm**: 2026-11-06 (Tổng rà soát chất lượng & Production readiness).
+- **Các nhóm lỗi và giải pháp thực hiện**:
+  1. **B1 & S11 (Lệch giao thức Rust - Node.js)**:
+     - Thống nhất phía `runner.mjs` phát tin type `"success"` kèm các alias `output_path`, `outputPath`, `taskId`. Phía Rust `RunnerMessage::Success` bổ sung alias `task_complete`, `outputFile`, `output_file`.
+     - Thống nhất báo lỗi với cả trường `error` và `message`. Khai báo `cmd` bên ngoài khối `try` để tránh lỗi kép khi parse JSON.
+  2. **B2 (Thiếu thư viện playwright-core)**:
+     - Thêm `playwright-core` vào `package.json` và cài đặt vào môi trường dự án.
+  3. **B3 & B6 (Đường dẫn cứng máy tác giả)**:
+     - Trong `muse_runner.rs`: dò tìm file `sidecar-muse/runner.mjs` tương đối theo thư mục ứng dụng (tương tự như `tts.rs`).
+     - Trong `queue.rs`: nạp model `u2netp.onnx` từ thư mục `resources/` tương đối; đường dẫn lưu kết quả lấy động từ cấu hình SQLite `config.output_dir`.
+     - Trong `audio.rs`: tìm model Whisper `ggml-tiny.bin` từ thư mục `resources/` tương đối.
+     - Trong `App.tsx`: xóa toàn bộ đường dẫn ghi cứng ổ `D:`.
+  4. **B4 & B5 (Kiểm tra và cấu hình sidecars & VieNeu-TTS)**:
+     - Xác nhận và bổ sung model `ggml-tiny.bin` vào `src-tauri/resources/`.
+     - Thêm file `sidecar-tts/requirements.txt` và cập nhật README hướng dẫn cài đặt `vieneu`.
+     - S2: Trong `tts_runner.py`, trả về lỗi rõ ràng yêu cầu cài `vieneu` thay vì sinh tiếng bíp 440 Hz giả mạo.
+  5. **S1 & S3 (Tránh ghi file rỗng hoặc chụp màn hình lỗi)**:
+     - Trong `runner.mjs`, ném lỗi nếu URL video/ảnh không hợp lệ hoặc dữ liệu trả về rỗng, ngăn chặn ghi file rỗng và ngăn chụp màn hình trang web làm ảnh thành phẩm.
+  6. **S4 (Giải mã mật khẩu Proxy)**:
+     - Trong `queue.rs`, giải mã mật khẩu proxy đã mã hóa trước khi truyền cấu hình sang `muse_runner`.
+  7. **S5, S6, S10 (Chuẩn hóa Hậu kỳ FFmpeg)**:
+     - S5: Thay thế `amix` bằng `sidechaincompress` trong filter complex để thực hiện Audio Ducking thực thụ (hạ nhạc nền khi có giọng TTS).
+     - S6: Thay cờ `-c copy` khi ghép cảnh bằng re-encoding chuẩn hóa (`-c:v libx264 -pix_fmt yuv420p -r 30`) để tránh hỏng video do lệch codec/fps giữa các cảnh Muse.
+     - S10: Sắp xếp danh sách file nhạc nền theo thứ tự bảng chữ cái để chọn bài ổn định.
+  8. **S7 & R3 (Bảo toàn dữ liệu & Toàn vẹn SQLite)**:
+     - Kích hoạt `PRAGMA foreign_keys = ON;` khi mở kết nối Database.
+     - Hàm `delete_script_project` thực thi trong 1 transaction xóa sạch cả 3 bảng `script_scenes`, `characters`, `scripts`.
+     - R3: Chuyển vị trí lưu `xitrum_ai.db` sang thư mục dữ liệu ứng dụng (`app_local_data_dir`) thay vì thư mục tạm (`temp_dir`).
+  9. **S8 (Validation kịch bản JSON & ánh xạ giọng)**:
+     - Kiểm tra bắt buộc có ít nhất 1 cảnh, thời lượng > 0 giây, không trùng số thứ tự cảnh, có thoại hoặc visual prompt.
+     - Ánh xạ giọng đọc thông minh phân biệt cả giới tính và nhóm tuổi (trẻ em / người lớn).
+  10. **S9 & R2 (Hủy task & kiểm soát hạn mức RPA)**:
+      - Khi người dùng bấm hủy task trong Rust, thực hiện `self.reset()` để dừng ngay tiến trình Node và đóng trình duyệt.
+      - Trong `runner.mjs`, kiểm tra tức thì các dấu hiệu Captcha, Rate Limit, Hết Credit sau khi gửi prompt.
+  11. **R4 & D1-D5 (Dọn dẹp bảo mật, phiên bản và tài liệu)**:
+      - Đổi tên ứng dụng trong `capabilities/default.json` thành "Xitrum AI Studio".
+      - Đồng bộ toàn bộ badge phiên bản và tài liệu vận hành lên `v0.6.0`.
+      - Bổ sung `LICENSE` (MIT) và `.env.example`.

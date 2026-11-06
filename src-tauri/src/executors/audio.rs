@@ -91,20 +91,44 @@ impl AudioPipeline {
         progress_cb(50);
         tracing::info!("FFmpeg done. Starting Whisper on {}", temp_wav_str);
 
-        // Bước 2: Xác định model Whisper (F9)
+        // Bước 2: Xác định model Whisper (F9) linh hoạt đường dẫn tương đối (B6)
         let model_file = match model_name.unwrap_or("ggml-tiny") {
             "ggml-base" => "ggml-base.bin",
             "ggml-medium" => "ggml-medium.bin",
             _ => "ggml-tiny.bin",
         };
-        let model_dir = "D:\\Antigravity\\REA\\REA-project\\poc-phase0\\tools\\whisper\\models";
-        let target_model_path = Path::new(model_dir).join(model_file);
-        let final_model_path = if target_model_path.exists() {
-            target_model_path
-        } else {
-            tracing::warn!("Model {:?} không tồn tại, fallback về ggml-tiny.bin", target_model_path);
-            Path::new(model_dir).join("ggml-tiny.bin")
-        };
+
+        let candidate_dirs = [
+            PathBuf::from("resources"),
+            PathBuf::from("src-tauri/resources"),
+            PathBuf::from("../src-tauri/resources"),
+            PathBuf::from("models"),
+            PathBuf::from("D:\\Antigravity\\REA\\REA-project\\poc-phase0\\tools\\whisper\\models"),
+        ];
+
+        let mut final_model_path: Option<PathBuf> = None;
+        for dir in &candidate_dirs {
+            let target = dir.join(model_file);
+            if target.exists() {
+                final_model_path = Some(target);
+                break;
+            }
+        }
+
+        // Fallback sang ggml-tiny.bin nếu model được chọn chưa tải
+        if final_model_path.is_none() {
+            for dir in &candidate_dirs {
+                let target = dir.join("ggml-tiny.bin");
+                if target.exists() {
+                    tracing::warn!("Model {} không tồn tại, fallback về {:?}", model_file, target);
+                    final_model_path = Some(target);
+                    break;
+                }
+            }
+        }
+
+        let final_model_path = final_model_path
+            .ok_or_else(|| anyhow::anyhow!("Không tìm thấy file model Whisper ({} hoặc ggml-tiny.bin)", model_file))?;
         let final_model_str = final_model_path.to_string_lossy().to_string();
 
         let out_json_base_str = out_json_base.to_string_lossy().to_string();

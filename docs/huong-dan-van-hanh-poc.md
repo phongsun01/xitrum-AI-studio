@@ -2,7 +2,7 @@
 
 > **Tài liệu theo dõi và hướng dẫn sử dụng toàn diện ứng dụng desktop Xitrum AI Studio**  
 > **Thư mục dự án**: `D:\Antigravity\REA\REA-project\xitrum-AI-studio`  
-> **Cập nhật lần cuối**: 2026-11-06 (Phiên bản: **v0.4.0**)
+> **Cập nhật lần cuối**: 2026-11-06 (Phiên bản: **v0.6.1**)
 
 ---
 

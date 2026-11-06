@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import readline from "readline";
 
-const selectors = {
+let selectors = {
   composer: 'textarea[aria-label="Message"]',
   sendButton: 'button[aria-label="Send"]',
   fileInput: 'input[type="file"]',
@@ -14,8 +14,29 @@ const selectors = {
   video: '[data-hatch-video-wrapper="true"] video',
   image: '[data-testid="hatch-chat-attachment-presentation-image"] img',
   rateLimit: '[role="alert"]:has-text("limit")',
+  outOfCredit: '[role="alert"]:has-text("credit")',
   newChatUrl: 'https://muse.ai/thread/new'
 };
+
+// Đọc selectors.default.json nếu có
+try {
+  const possibleSelectorFiles = [
+    path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([a-zA-Z]:)/, '$1')), "..", "src-tauri", "resources", "selectors.default.json"),
+    path.join(process.cwd(), "src-tauri", "resources", "selectors.default.json"),
+    path.join(process.cwd(), "resources", "selectors.default.json")
+  ];
+  for (const sPath of possibleSelectorFiles) {
+    if (fs.existsSync(sPath)) {
+      const parsed = JSON.parse(fs.readFileSync(sPath, "utf8"));
+      if (parsed.selectors) {
+        selectors = { ...selectors, ...parsed.selectors, newChatUrl: parsed.newChatUrl || selectors.newChatUrl };
+      }
+      break;
+    }
+  }
+} catch (e) {
+  // Dùng default fallback
+}
 
 function sendJson(msg) {
   process.stdout.write(JSON.stringify(msg) + "\n");
@@ -136,8 +157,9 @@ async function run() {
 
   rl.on("line", async (line) => {
     if (!line.trim()) return;
+    let cmd = null;
     try {
-      const cmd = JSON.parse(line);
+      cmd = JSON.parse(line);
 
       if (cmd.action === "check_session") {
         const p = await getOrCreatePage({
@@ -194,6 +216,18 @@ async function run() {
         await p.fill(selectors.composer, promptTemplate);
         await p.click(selectors.sendButton);
 
+        // R2: Kiểm tra ngay các cảnh báo Captcha / Rate Limit / Hết Credit sau khi gửi
+        await p.waitForTimeout(1500);
+        if ((await p.locator(selectors.captcha).count()) > 0) {
+          throw new Error("Phát hiện CAPTCHA / Bot Verification trên Muse.ai. Vui lòng giải CAPTCHA trên trình duyệt.");
+        }
+        if ((await p.locator(selectors.rateLimit).count()) > 0) {
+          throw new Error("Muse.ai cảnh báo: Tài khoản đang bị giới hạn tốc độ (Rate Limit). Vui lòng thử lại sau.");
+        }
+        if (selectors.outOfCredit && (await p.locator(selectors.outOfCredit).count()) > 0) {
+          throw new Error("Muse.ai thông báo: Tài khoản đã hết lượt tạo (Out of Credit).");
+        }
+
         sendJson({ type: "progress", taskId, percent: 75, message: "Đang chờ Muse.ai xử lý & sinh kết quả..." });
 
         if (!fs.existsSync(outputDir)) {
@@ -208,30 +242,46 @@ async function run() {
             const videoSrc = await videoElem.getAttribute("src");
             if (videoSrc && videoSrc.startsWith("http")) {
               const resp = await p.request.get(videoSrc);
-              fs.writeFileSync(targetFile, await resp.body());
+              const buf = await resp.body();
+              if (!buf || buf.length === 0) {
+                throw new Error("Muse.ai trả về luồng video rỗng");
+              }
+              fs.writeFileSync(targetFile, buf);
             } else {
-              fs.writeFileSync(targetFile, "");
+              // S1: Báo lỗi thay vì ghi file rỗng
+              throw new Error(`Muse.ai không trả về URL video hợp lệ (src: ${videoSrc || 'null'})`);
             }
           } catch (e) {
-            // Fallback
+            throw new Error(`Quá trình sinh video thất bại: ${e.message}`);
           }
         } else {
-          const imgElem = await p.waitForSelector(selectors.image, { timeout: 120000 });
-          const imgSrc = await imgElem.getAttribute("src");
-          if (imgSrc && imgSrc.startsWith("http")) {
-            const resp = await p.request.get(imgSrc);
-            fs.writeFileSync(targetFile, await resp.body());
-          } else {
-            if (p && !p.isClosed()) {
-              await p.screenshot({ path: targetFile });
+          try {
+            const imgElem = await p.waitForSelector(selectors.image, { timeout: 120000 });
+            const imgSrc = await imgElem.getAttribute("src");
+            if (imgSrc && imgSrc.startsWith("http")) {
+              const resp = await p.request.get(imgSrc);
+              const buf = await resp.body();
+              if (!buf || buf.length === 0) {
+                throw new Error("Muse.ai trả về hình ảnh rỗng");
+              }
+              fs.writeFileSync(targetFile, buf);
+            } else {
+              // S3: Báo lỗi thay vì chụp màn hình
+              throw new Error(`Muse.ai không trả về URL ảnh hợp lệ (src: ${imgSrc || 'null'})`);
             }
+          } catch (e) {
+            throw new Error(`Quá trình sinh ảnh thất bại: ${e.message}`);
           }
         }
 
+        // B1: Gửi type "success" và output_path (đồng thời giữ aliases cho tương thích)
         sendJson({
-          type: "task_complete",
+          type: "success",
           taskId,
-          outputFile: targetFile,
+          task_id: taskId,
+          outputPath: targetFile,
+          output_path: targetFile,
+          percent: 100,
           message: "Hoàn thành tác vụ Muse.ai"
         });
       } else if (cmd.action === "close") {
@@ -243,10 +293,14 @@ async function run() {
         process.exit(0);
       }
     } catch (err) {
+      // S11 & B1: Báo lỗi có error và message, cmd khai báo ngoài try
+      const tId = cmd?.taskId ?? cmd?.task_id;
       sendJson({
         type: "error",
-        taskId: cmd?.taskId ?? cmd?.task_id,
-        message: err.message
+        taskId: tId,
+        task_id: tId,
+        error: err.message || "Unknown runner error",
+        message: err.message || "Unknown runner error"
       });
     }
   });

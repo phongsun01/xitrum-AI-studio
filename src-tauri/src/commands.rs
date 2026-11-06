@@ -5,7 +5,7 @@ use crate::models::{
     TaskItem, TaskKind, TemplateItem,
 };
 use crate::state::AppState;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::State;
 use uuid::Uuid;
 
@@ -953,6 +953,7 @@ pub async fn render_script_postproduction(
     let raw_concat_video = temp_dir.join(format!("raw_video_{}.mp4", short_id));
     let raw_concat_video_str = raw_concat_video.to_string_lossy().to_string();
 
+    // S6: Ghép video scenes với re-encoding chuẩn hóa để đảm bảo cùng codec H.264/yuv420p và fps ổn định
     let concat_output = app_handle
         .shell()
         .sidecar("ffmpeg")
@@ -962,7 +963,9 @@ pub async fn render_script_postproduction(
             "-f", "concat",
             "-safe", "0",
             "-i", &concat_list_str,
-            "-c", "copy",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-r", "30",
             &raw_concat_video_str,
         ])
         .output()
@@ -1045,21 +1048,25 @@ pub async fn render_script_postproduction(
     std::fs::write(&srt_file, srt_content)
         .map_err(|e| AppError::Other(format!("Lỗi lưu file phụ đề SRT: {e}")))?;
 
-    // 5. Kiểm tra nhạc nền BGM để ducking
+    // 5. Kiểm tra nhạc nền BGM để ducking (S10: sắp xếp danh sách file theo thứ tự bảng chữ cái để chọn bài ổn định)
     let mut selected_music_path: Option<String> = None;
     if let Some(ref music_dir) = config.music_dir {
         let dir_p = Path::new(music_dir);
         if dir_p.is_dir() {
             if let Ok(entries) = std::fs::read_dir(dir_p) {
+                let mut valid_tracks: Vec<PathBuf> = Vec::new();
                 for entry in entries.flatten() {
                     let p = entry.path();
                     if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
                         let ext_lower = ext.to_lowercase();
                         if ext_lower == "mp3" || ext_lower == "wav" || ext_lower == "m4a" {
-                            selected_music_path = Some(p.to_string_lossy().to_string());
-                            break;
+                            valid_tracks.push(p);
                         }
                     }
+                }
+                valid_tracks.sort();
+                if let Some(first_track) = valid_tracks.first() {
+                    selected_music_path = Some(first_track.to_string_lossy().to_string());
                 }
             }
         }
@@ -1092,9 +1099,9 @@ pub async fn render_script_postproduction(
     let vol = config.music_volume.clamp(0.01, 1.0);
 
     if has_bgm {
-        // Audio Ducking: giảm âm lượng BGM khi có giọng TTS (sidechain ducking hoặc volume level)
+        // S5: Audio Ducking bằng sidechaincompressor: lấy giọng TTS [1:a] làm sidechain điều khiển nén BGM [2:a]
         filter_complex.push_str(&format!(
-            "[2:a]volume={:.2}[bgm];[1:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+            "[2:a]volume={:.2}[bgm_pre];[1:a]asplit=2[voice_main][voice_side];[bgm_pre][voice_side]sidechaincompress=threshold=0.125:ratio=4:attack=50:release=1000[bgm_ducked];[voice_main][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2[aout]",
             vol
         ));
     } else {

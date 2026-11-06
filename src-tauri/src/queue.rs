@@ -43,9 +43,26 @@ impl QueueManager {
         let muse_sem_worker = Arc::clone(&muse_semaphore);
         let local_sem_worker = Arc::clone(&local_semaphore);
 
-        let model_path = "D:\\Antigravity\\REA\\project-docs\\poc-phase0\\poc_rembg\\u2netp.onnx";
-        let rembg_engine = if std::path::Path::new(model_path).exists() {
-            RembgEngine::new(model_path).ok().map(Arc::new)
+        // B6: Tìm model Rembg theo đường dẫn linh hoạt tương đối app hoặc resources
+        let candidate_rembg_1 = std::path::PathBuf::from("resources/u2netp.onnx");
+        let candidate_rembg_2 = std::path::PathBuf::from("src-tauri/resources/u2netp.onnx");
+        let candidate_rembg_3 = std::path::PathBuf::from("../src-tauri/resources/u2netp.onnx");
+        let candidate_rembg_4 = std::path::PathBuf::from("D:\\Antigravity\\REA\\project-docs\\poc-phase0\\poc_rembg\\u2netp.onnx");
+
+        let resolved_rembg_path = if candidate_rembg_1.exists() {
+            Some(candidate_rembg_1)
+        } else if candidate_rembg_2.exists() {
+            Some(candidate_rembg_2)
+        } else if candidate_rembg_3.exists() {
+            Some(candidate_rembg_3)
+        } else if candidate_rembg_4.exists() {
+            Some(candidate_rembg_4)
+        } else {
+            None
+        };
+
+        let rembg_engine = if let Some(path) = resolved_rembg_path {
+            RembgEngine::new(path.to_string_lossy().as_ref()).ok().map(Arc::new)
         } else {
             None
         };
@@ -289,8 +306,9 @@ async fn run_task(
         TaskKind::Rembg => {
             if let Some(engine) = rembg {
                 if let Some(input_img) = task.input_path {
-                    let output_dir = "D:\\XitrumAI_Outputs";
-                    let _ = std::fs::create_dir_all(output_dir);
+                    let config = db.get_config().unwrap_or_default();
+                    let output_dir = config.output_dir;
+                    let _ = std::fs::create_dir_all(&output_dir);
                     let short_id = &task_id[..8.min(task_id.len())];
                     let out_path = format!("{}\\rembg_{}.png", output_dir, short_id);
 
@@ -328,10 +346,27 @@ async fn run_task(
             let chrome_profile = config.chrome_profile_dir.clone();
             let chrome_path = config.chrome_path.clone();
             let proxy_config = if let Some(proxy_id) = config.active_proxy_id {
-                db.get_proxy(proxy_id).ok().flatten().map(|p| crate::executors::muse_runner::ProxyConfig {
-                    server: format!("{}://{}:{}", p.scheme, p.host, p.port),
-                    username: p.username,
-                    password: p.encrypted_password, // Khi gửi sang runner trong tiến trình riêng
+                db.get_proxy(proxy_id).ok().flatten().map(|p| {
+                    // S4: Giải mã mật khẩu proxy trước khi đưa sang runner
+                    let decrypted_pass = p.encrypted_password.as_ref().map(|enc| {
+                        use base64::{engine::general_purpose, Engine as _};
+                        if let Ok(bytes) = general_purpose::STANDARD.decode(enc) {
+                            let salt = b"xitrum_secret_salt_2026";
+                            let mut unxored = Vec::new();
+                            for (i, b) in bytes.iter().enumerate() {
+                                unxored.push(b ^ salt[i % salt.len()]);
+                            }
+                            String::from_utf8_lossy(&unxored).to_string()
+                        } else {
+                            enc.clone()
+                        }
+                    });
+
+                    crate::executors::muse_runner::ProxyConfig {
+                        server: format!("{}://{}:{}", p.scheme, p.host, p.port),
+                        username: p.username,
+                        password: decrypted_pass,
+                    }
                 })
             } else {
                 None

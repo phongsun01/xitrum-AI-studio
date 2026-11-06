@@ -14,6 +14,7 @@
     "@tauri-apps/plugin-dialog": "^2.8.4",
     "@tauri-apps/plugin-opener": "^2",
     "lucide-react": "^1.69.0",
+    "playwright-core": "^1.65.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
@@ -26,4 +27,3 @@
     "vite": "^8.0.16"
   }
 }
-

@@ -45,34 +45,16 @@ def get_wav_duration(file_path):
 def generate_tts(text, voice_id, output_path, speed=1.0):
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     
-    # Kiểm tra xem máy có thư viện vieneu thật chưa
+    # S2: Kiểm tra thư viện vieneu thật, nếu chưa cài thì báo lỗi rõ thay vì tạo tiếng bíp giả
     try:
         from vieneu import VieNeuTTS
-        # Khởi tạo model VieNeu (ONNX CPU)
-        tts = VieNeuTTS()
-        tts.synthesize_to_file(text=text, voice=voice_id, output_path=output_path, speed=speed)
-        duration = get_wav_duration(output_path)
-        return duration
     except ImportError:
-        # Khi máy chưa chạy pip install vieneu, tạo file WAV chuẩn chứa tone thử nghiệm để test pipeline không bị crash
-        import math
-        sample_rate = 24000
-        # Tính độ dài câu theo số từ: trung bình tiếng Việt đọc ~3 từ / giây
-        words = len(text.strip().split())
-        duration = max(2.5, round(words / 3.0, 2))
-        num_frames = int(sample_rate * duration)
-        
-        with wave.open(output_path, 'w') as wav_file:
-            wav_file.setnchannels(1) # mono
-            wav_file.setsampwidth(2) # 16-bit
-            wav_file.setframerate(sample_rate)
-            # Tạo âm thanh mẫu thử
-            frames = bytearray()
-            for i in range(num_frames):
-                val = int(3000 * math.sin(2 * math.pi * 440 * (i / sample_rate)))
-                frames.extend(val.to_bytes(2, byteorder='little', signed=True))
-            wav_file.writeframes(frames)
-        return duration
+        raise RuntimeError("Chưa cài thư viện vieneu. Vui lòng chạy lệnh: pip install vieneu (hoặc pip install -r sidecar-tts/requirements.txt)")
+
+    tts = VieNeuTTS()
+    tts.synthesize_to_file(text=text, voice=voice_id, output_path=output_path, speed=speed)
+    duration = get_wav_duration(output_path)
+    return duration
 
 def main():
     send_json({"type": "ready", "message": "VieNeu-TTS Runner Ready (stdin/stdout JSON-RPC)"})

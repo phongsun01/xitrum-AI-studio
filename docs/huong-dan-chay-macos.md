@@ -2,7 +2,7 @@
 
 > **Tài liệu phân tích khả năng tương thích và hướng dẫn chuyển đổi Xitrum AI Studio sang macOS**  
 > **Thư mục dự án**: `D:\Antigravity\REA\REA-project\xitrum-AI-studio`  
-> **Phiên bản áp dụng**: v0.4.0+
+> **Phiên bản áp dụng**: v0.6.1+
 
 ---
 

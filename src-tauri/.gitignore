@@ -14,3 +14,4 @@
 /binaries/whisper-cli*
 /binaries/*.dll
 /resources/u2netp.onnx
+/resources/*.bin

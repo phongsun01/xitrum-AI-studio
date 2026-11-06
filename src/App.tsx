@@ -46,19 +46,19 @@ function App() {
   // Form states
   const [videoPrompt, setVideoPrompt] = useState("");
   const [videoRatio, setVideoRatio] = useState("16:9");
-  const [audioPath, setAudioPath] = useState("d:\\Antigravity\\REA\\project-docs\\poc-phase0\\jfk.wav");
-  const [imagePath, setImagePath] = useState("d:\\Antigravity\\REA\\project-docs\\poc-phase0\\poc_rembg\\input.png");
+  const [audioPath, setAudioPath] = useState("");
+  const [imagePath, setImagePath] = useState("");
 
   // Inline edit prompt modal/state (F4)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingPromptText, setEditingPromptText] = useState("");
 
-  // Settings
+  // Settings: Khởi tạo giá trị rỗng/mặc định an toàn, backend sẽ nạp cấu hình thực tế
   const [config, setConfig] = useState<AppConfig>({
-    output_dir: "D:\\XitrumAI_Outputs",
+    output_dir: "",
     default_ratio: "16:9",
     whisper_model: "ggml-tiny",
-    chrome_profile_dir: "D:\\Antigravity\\REA\\REA-project\\poc-phase0\\chrome-profile",
+    chrome_profile_dir: "",
     chrome_path: null,
     active_proxy_id: null,
     music_dir: null,
@@ -344,7 +344,7 @@ function App() {
         <header className="top-bar">
           <div className="title-section">
             <h1>Xitrum AI Studio</h1>
-            <span className="version-badge">v0.4.0 • Rust Multi-Lane • Offline Engine</span>
+            <span className="version-badge">v0.6.1 • Rust Multi-Lane • Offline Engine</span>
           </div>
 
           {/* F14: Multi-Lane Status Indicators */}

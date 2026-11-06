@@ -18,6 +18,8 @@ impl Database {
 
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, AppError> {
         let conn = Connection::open(path)?;
+        // S7: Kích hoạt PRAGMA foreign_keys = ON để cascading delete và quan hệ khóa ngoại có hiệu lực
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         let db = Self {
             conn: Mutex::new(conn),
         };
@@ -811,8 +813,13 @@ impl Database {
     }
 
     pub fn delete_script_project(&self, script_id: &str) -> Result<(), AppError> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM scripts WHERE id = ?1", params![script_id])?;
+        let mut conn = self.conn.lock().unwrap();
+        // S7: Xóa trong 1 giao dịch và dọn dẹp sạch cả 3 bảng
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM script_scenes WHERE script_id = ?1", params![script_id])?;
+        tx.execute("DELETE FROM characters WHERE script_id = ?1", params![script_id])?;
+        tx.execute("DELETE FROM scripts WHERE id = ?1", params![script_id])?;
+        tx.commit()?;
         Ok(())
     }
 

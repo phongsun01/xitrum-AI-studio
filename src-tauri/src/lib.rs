@@ -59,10 +59,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .setup(move |app| {
-            // Lưu database file vào temp_dir hoặc app_data để tránh kích hoạt file watcher của Tauri dev
-            let db_path = temp_dir.join("xitrum_ai.db");
+            // R3: Chuyển DB sang thư mục dữ liệu app bền vững (AppLocalData/AppData) thay vì Temp
+            let app_data_dir = app
+                .path()
+                .app_local_data_dir()
+                .unwrap_or_else(|_| temp_dir.join("XitrumAI"));
+            let _ = std::fs::create_dir_all(&app_data_dir);
+            let db_path = app_data_dir.join("xitrum_ai.db");
             let db_path_str = db_path.to_string_lossy().to_string();
-            tracing::info!("Database path: {}", db_path_str);
+            tracing::info!("Persistent Database path: {}", db_path_str);
 
             let app_state = AppState::new(&db_path_str, app.handle().clone());
             app.manage(app_state);
