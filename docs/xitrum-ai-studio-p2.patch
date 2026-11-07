@@ -1,0 +1,1965 @@
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/docs/whiteboard-project-format.md work/docs/whiteboard-project-format.md
+--- a/docs/whiteboard-project-format.md	1970-01-01 00:00:00.000000000 +0000
++++ b/docs/whiteboard-project-format.md	2026-11-07 15:15:44.693126266 +0000
+@@ -0,0 +1,34 @@
++# Định dạng dự án Whiteboard nhiều cảnh (schemaVersion 1)
++
++Tệp JSON do màn "Dự án nhiều cảnh" lưu/mở; runner Python (`scripts/project_export.py`) đọc đúng định dạng này.
++
++```json
++{
++  "schemaVersion": 1,
++  "id": "proj-abc", "name": "Bài giảng 01",
++  "fps": 30, "paperColor": "#F5EBD7", "hand": null,
++  "outputSize": { "width": 1920, "height": 1080 },
++  "masterAudio": { "path": "D:/audio/loi-doc.wav" },
++  "scenes": [
++    {
++      "id": "scene-01",
++      "imagePath": "D:/p/scene-01.png", "annotationPath": "D:/p/scene-01.annotation.json",
++      "durationMs": 30000, "timelineStartMs": 0,
++      "audio": { "mode": "auto" }, "enabled": true
++    }
++  ]
++}
++```
++
++- Thứ tự mảng `scenes` là thứ tự phát. `timelineStartMs` là vị trí đầu cảnh trong audio toàn bài (mặc định cộng dồn).
++- `audio.mode`: `auto` (theo audio toàn bài nếu có), `none` (im lặng), `file` (kèm `path`), `master`.
++- `durationMs` là nguồn sự thật: video mỗi cảnh có đúng `round(durationMs × fps / 1000)` khung hình. Annotation có vùng
++  kết thúc sau `durationMs` bị báo lỗi (chỉ rõ cảnh) trước khi render. Muốn dừng thêm sau khi vẽ xong, tăng `durationMs`.
++- Audio toàn bài dài hơn timeline thì cảnh cuối được kéo dài để giữ hết lời; ngắn hơn thì phần cuối im lặng (có cảnh báo).
++- Chuẩn hóa: ảnh khác kích thước/tỉ lệ được scale + pad bằng màu giấy về `outputSize` (mặc định theo cảnh đầu).
++- Audio mỗi cảnh được dựng đúng bằng thời lượng thật của video cảnh đó, nối PCM rồi mã hóa AAC một lần
++  → lệch A/V không tích lũy qua các cảnh.
++- Cache: cảnh đã render lưu ở `<thư mục đầu ra>/.whiteboard-cache/`, khóa theo hash ảnh/annotation/tay/fps/màu/thời lượng
++  và `ENGINE_VERSION`. Hủy giữa chừng vẫn giữ các cảnh đã xong. Đầu ra được ghi tạm rồi đổi tên sau khi kiểm tra,
++  kèm `<đầu ra>.manifest.json`.
++- Hủy dừng cả cây tiến trình (Python + ffmpeg).
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/sidecar-whiteboard/scripts/media_utils.py work/sidecar-whiteboard/scripts/media_utils.py
+--- a/sidecar-whiteboard/scripts/media_utils.py	1970-01-01 00:00:00.000000000 +0000
++++ b/sidecar-whiteboard/scripts/media_utils.py	2026-11-07 09:21:56.065180261 +0000
+@@ -0,0 +1,72 @@
++"""Tiện ích media dùng chung: tìm ffmpeg, đọc thông số tệp, chạy ffmpeg có kiểm lỗi."""
++from __future__ import annotations
++
++import os
++import shutil
++import subprocess
++import sys
++from pathlib import Path
++
++
++def find_ffmpeg() -> str | None:
++    """
++    Thứ tự: biến môi trường XITRUM_FFMPEG (app Tauri truyền đường dẫn ffmpeg đã đóng gói) →
++    ffmpeg trong PATH. Trả None nếu không có.
++    """
++    env = os.environ.get("XITRUM_FFMPEG")
++    if env and Path(env).is_file():
++        return env
++    return shutil.which("ffmpeg")
++
++
++def require_ffmpeg() -> str:
++    ff = find_ffmpeg()
++    if ff is None:
++        raise RuntimeError(
++            "Không tìm thấy ffmpeg (cần cho ghép cảnh và audio). "
++            "Cài ffmpeg hoặc đặt biến môi trường XITRUM_FFMPEG."
++        )
++    return ff
++
++
++def _no_window_kwargs() -> dict:
++    if sys.platform == "win32":
++        return {"creationflags": 0x08000000}  # CREATE_NO_WINDOW
++    return {}
++
++
++def run_ffmpeg(args: list[str], what: str) -> None:
++    """Chạy ffmpeg; lỗi thì ném RuntimeError kèm đoạn cuối stderr."""
++    cmd = [require_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-nostdin", *args]
++    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
++                         **_no_window_kwargs())
++    if res.returncode != 0:
++        tail = (res.stderr or "").strip().splitlines()[-6:]
++        raise RuntimeError(f"ffmpeg lỗi khi {what} (mã {res.returncode}): " + " | ".join(tail))
++
++
++def probe_media(path) -> dict:
++    """
++    Đọc thông số bằng PyAV (đã có trong venv; không cần ffprobe):
++    {duration_s, video: {width,height,fps,frames,codec,pix_fmt} | None, audio: {rate,channels,codec} | None}
++    """
++    import av
++
++    with av.open(str(path)) as c:
++        info = {"duration_s": float(c.duration) / 1_000_000 if c.duration else 0.0, "video": None, "audio": None}
++        if c.streams.video:
++            v = c.streams.video[0]
++            cc = v.codec_context
++            fps = float(v.average_rate) if v.average_rate else 0.0
++            frames = v.frames
++            if not frames and fps and c.duration:
++                frames = round(info["duration_s"] * fps)
++            info["video"] = {"width": cc.width, "height": cc.height, "fps": fps, "frames": int(frames or 0),
++                             "codec": cc.name, "pix_fmt": cc.pix_fmt}
++        if c.streams.audio:
++            a = c.streams.audio[0]
++            info["audio"] = {"rate": a.codec_context.rate, "channels": a.codec_context.channels,
++                             "codec": a.codec_context.name}
++            if not info["duration_s"] and a.duration and a.time_base:
++                info["duration_s"] = float(a.duration * a.time_base)
++        return info
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/sidecar-whiteboard/scripts/merge_scenes.py work/sidecar-whiteboard/scripts/merge_scenes.py
+--- a/sidecar-whiteboard/scripts/merge_scenes.py	2026-11-07 06:35:23.000000000 +0000
++++ b/sidecar-whiteboard/scripts/merge_scenes.py	2026-11-07 09:23:17.212890206 +0000
+@@ -17,9 +17,12 @@
+ import tempfile
+ from pathlib import Path
+ 
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++from media_utils import find_ffmpeg  # noqa: E402
++
+ 
+ def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
+-    ffmpeg = shutil.which("ffmpeg")
++    ffmpeg = find_ffmpeg()
+     if ffmpeg is None:
+         return False
+     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/sidecar-whiteboard/scripts/project_export.py work/sidecar-whiteboard/scripts/project_export.py
+--- a/sidecar-whiteboard/scripts/project_export.py	1970-01-01 00:00:00.000000000 +0000
++++ b/sidecar-whiteboard/scripts/project_export.py	2026-11-07 09:38:35.269006430 +0000
+@@ -0,0 +1,430 @@
++"""
++Xuất dự án whiteboard nhiều cảnh: kiểm tra dữ liệu → render từng cảnh (có cache) → chuẩn hóa →
++nối video → dựng audio theo cảnh → mux → kiểm tra → thay file đầu ra.
++
++Định dạng dự án (schemaVersion 1), trường tối thiểu:
++{
++  "schemaVersion": 1, "id": "...", "name": "...",
++  "fps": 30, "paperColor": "#F5EBD7", "hand": null,
++  "outputSize": {"width": 1920, "height": 1080},            # tùy chọn; mặc định theo cảnh đầu
++  "masterAudio": {"path": "loi-doc.wav"},                     # tùy chọn
++  "scenes": [{
++      "id": "scene-01", "imagePath": "...", "annotationPath": "...",
++      "durationMs": 30000, "timelineStartMs": 0,              # timelineStartMs: vị trí trong audio toàn bài
++      "audio": {"mode": "auto" | "none" | "file" | "master", "path": "..."},   # mặc định auto
++      "enabled": true
++  }]
++}
++Thứ tự mảng `scenes` là thứ tự phát. Audio toàn bài (master) được cắt theo [timelineStartMs,
++timelineStartMs + thời lượng thực của cảnh).
++
++Độ chính xác thời gian: video mỗi cảnh có đúng round(durationMs × fps / 1000) khung hình; audio mỗi cảnh
++được dựng (giải mã PCM, cắt/đệm chính xác) đúng bằng thời lượng thực của video cảnh đó, nối PCM rồi mã hóa
++AAC một lần, nên lệch A/V không tích lũy qua các cảnh.
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import math
++import os
++import re
++import shutil
++import sys
++import tempfile
++from datetime import datetime, timezone
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++import media_utils as mu  # noqa: E402
++
++SCHEMA_VERSION = 1
++# Tăng khi thuật toán render đổi hình ảnh đầu ra, để vô hiệu cache cũ.
++ENGINE_VERSION = "wb-render-1"
++AUDIO_RATE = 48000
++DEFAULT_HAND = Path(__file__).resolve().parent.parent / "assets" / "drawing-hand.png"
++
++
++# ─────────────────────────── tiện ích ───────────────────────────
++def frames_for(duration_ms, fps) -> int:
++    return max(1, int(round(float(duration_ms) * float(fps) / 1000.0)))
++
++
++def _sha256(path) -> str:
++    h = hashlib.sha256()
++    with open(path, "rb") as f:
++        for chunk in iter(lambda: f.read(1 << 20), b""):
++            h.update(chunk)
++    return h.hexdigest()
++
++
++def _safe(name: str) -> str:
++    return re.sub(r"[^\w.\-]", "_", str(name)) or "scene"
++
++
++def _finite(x) -> bool:
++    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
++
++
++def _norm_color(v) -> str:
++    v = (v or "#F5EBD7").strip()
++    if re.fullmatch(r"[0-9A-Fa-f]{6}", v):
++        v = "#" + v
++    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", v):
++        raise ValueError(f"Màu nền giấy không hợp lệ: {v!r} (cần dạng #RRGGBB)")
++    return v.upper()
++
++
++# ─────────────────────────── kiểm tra annotation ───────────────────────────
++def validate_annotation(ann, duration_ms):
++    """Trả (errors, warnings) dạng danh sách chuỗi cho một annotation và thời lượng cảnh."""
++    errors, warnings = [], []
++    if not isinstance(ann, dict) or not isinstance(ann.get("elements"), list) or not ann["elements"]:
++        return ["Annotation không có elements."], warnings
++    canvas = ann.get("canvas")
++    cw = ch = None
++    if canvas is not None:
++        cw, ch = (canvas or {}).get("width"), (canvas or {}).get("height")
++        if not (_finite(cw) and _finite(ch) and cw > 0 and ch > 0):
++            errors.append("canvas phải có width/height là số dương.")
++            cw = ch = None
++    windows = []
++    for i, el in enumerate(ann["elements"], start=1):
++        name = el.get("label") or el.get("id") or f"vùng {i}"
++        reg, rev = el.get("region") or {}, el.get("reveal") or {}
++        if not all(_finite(reg.get(k)) for k in ("x", "y", "width", "height")) or reg.get("width", 0) <= 0 or reg.get("height", 0) <= 0:
++            errors.append(f"Vùng '{name}': region không hợp lệ (cần x, y, width>0, height>0).")
++        elif cw and (reg["x"] < 0 or reg["y"] < 0 or reg["x"] + reg["width"] > cw + 1 or reg["y"] + reg["height"] > ch + 1):
++            warnings.append(f"Vùng '{name}' nằm ngoài canvas {int(cw)}x{int(ch)}.")
++        s, d = rev.get("startMs"), rev.get("durationMs")
++        if not (_finite(s) and _finite(d)) or s < 0 or d <= 0:
++            errors.append(f"Vùng '{name}': reveal.startMs phải ≥ 0 và durationMs > 0.")
++            continue
++        if s + d > duration_ms:
++            errors.append(
++                f"Vùng '{name}' kết thúc ở {int(s + d)}ms, vượt thời lượng cảnh {int(duration_ms)}ms; "
++                f"tăng thời lượng cảnh lên ít nhất {int(s + d)}ms hoặc rút ngắn thời gian vẽ.")
++        windows.append((s, s + d, name))
++    windows.sort()
++    for a, b in zip(windows, windows[1:]):
++        if b[0] < a[1] - 1:
++            warnings.append(f"Vùng '{a[2]}' và '{b[2]}' chồng thời gian; bút chỉ có một đầu nên có thể vẽ lẫn.")
++    return errors, warnings
++
++
++# ─────────────────────────── giải quyết dự án ───────────────────────────
++def _scene_audio(project, scene):
++    """Trả (mode, path|None) đã giải quyết: none | file | master."""
++    a = scene.get("audio")
++    mode = (a or {}).get("mode", "auto") if isinstance(a, dict) else "auto"
++    master = ((project.get("masterAudio") or {}).get("path")) or None
++    if mode == "auto":
++        return ("master", master) if master else ("none", None)
++    if mode == "master":
++        return "master", master
++    if mode == "file":
++        return "file", (a or {}).get("path")
++    return "none", None
++
++
++def resolve_scenes(project, scene_ids=None):
++    """Danh sách cảnh sẽ xuất theo thứ tự phát, kèm timelineStartMs đã điền."""
++    out, cursor = [], 0
++    for idx, sc in enumerate(project.get("scenes") or [], start=1):
++        dur = sc.get("durationMs")
++        start = sc.get("timelineStartMs")
++        if not _finite(start):
++            start = cursor
++        if _finite(dur):
++            cursor = start + dur
++        if sc.get("enabled", True) is False:
++            continue
++        if scene_ids is not None and sc.get("id") not in scene_ids:
++            continue
++        out.append({"index": idx, "scene": sc, "id": sc.get("id") or f"scene-{idx:02d}",
++                    "durationMs": dur, "timelineStartMs": start})
++    return out
++
++
++def validate_project(project, scene_ids=None):
++    """
++    Kiểm tra toàn bộ trước khi render. Trả {"errors": [...], "warnings": [...]} với mỗi mục
++    {"sceneId", "field", "message"} (sceneId=None nếu lỗi cấp dự án).
++    """
++    errors, warnings = [], []
++
++    def err(sid, field, msg):
++        errors.append({"sceneId": sid, "field": field, "message": msg})
++
++    def warn(sid, field, msg):
++        warnings.append({"sceneId": sid, "field": field, "message": msg})
++
++    if not isinstance(project, dict):
++        return {"errors": [{"sceneId": None, "field": "project", "message": "Dự án không hợp lệ."}], "warnings": []}
++    if project.get("schemaVersion", SCHEMA_VERSION) != SCHEMA_VERSION:
++        err(None, "schemaVersion", f"schemaVersion {project.get('schemaVersion')} chưa được hỗ trợ (cần {SCHEMA_VERSION}).")
++    fps = project.get("fps", 30)
++    if not (_finite(fps) and 1 <= fps <= 120):
++        err(None, "fps", f"FPS không hợp lệ: {fps} (cần từ 1 đến 120).")
++        fps = 30
++    try:
++        _norm_color(project.get("paperColor"))
++    except ValueError as e:
++        err(None, "paperColor", str(e))
++    master = (project.get("masterAudio") or {}).get("path")
++    if master and not os.path.isfile(master):
++        err(None, "masterAudio", f"Không tìm thấy audio toàn bài: {master}")
++    hand = project.get("hand")
++    if hand and not os.path.isfile(hand):
++        err(None, "hand", f"Không tìm thấy ảnh bàn tay: {hand}")
++
++    scenes = resolve_scenes(project, scene_ids)
++    if not scenes:
++        err(None, "scenes", "Không có cảnh nào để xuất (kiểm tra danh sách cảnh/cảnh được chọn).")
++    seen = set()
++    for r in scenes:
++        sc, sid = r["scene"], r["id"]
++        if sid in seen:
++            err(sid, "id", f"Trùng ID cảnh: {sid}")
++        seen.add(sid)
++        dur = r["durationMs"]
++        if not (_finite(dur) and dur > 0):
++            err(sid, "durationMs", "Thời lượng cảnh phải là số dương (ms).")
++            dur = None
++        img, ann_path = sc.get("imagePath"), sc.get("annotationPath")
++        if not img or not os.path.isfile(img):
++            err(sid, "imagePath", f"Cảnh {sid}: chưa chọn ảnh hoặc không tìm thấy: {img or '(trống)'}")
++        if not ann_path or not os.path.isfile(ann_path):
++            err(sid, "annotationPath", f"Cảnh {sid}: chưa có annotation hoặc không tìm thấy: {ann_path or '(trống)'}")
++        elif dur:
++            try:
++                ann = json.loads(Path(ann_path).read_text(encoding="utf-8"))
++            except (OSError, ValueError) as e:
++                err(sid, "annotationPath", f"Cảnh {sid}: không đọc được annotation: {e}")
++            else:
++                e_list, w_list = validate_annotation(ann, dur)
++                for m in e_list:
++                    err(sid, "annotation", f"Cảnh {sid}: {m}")
++                for m in w_list:
++                    warn(sid, "annotation", f"Cảnh {sid}: {m}")
++        mode, apath = _scene_audio(project, sc)
++        if mode == "master" and not master:
++            err(sid, "audio", f"Cảnh {sid}: chọn audio toàn bài nhưng dự án chưa có audio toàn bài.")
++        if mode == "file" and (not apath or not os.path.isfile(apath)):
++            err(sid, "audio", f"Cảnh {sid}: không tìm thấy audio riêng: {apath or '(trống)'}")
++    return {"errors": errors, "warnings": warnings}
++
++
++# ─────────────────────────── render từng cảnh ───────────────────────────
++def _scene_cache_key(project, r) -> str:
++    sc = r["scene"]
++    hand = project.get("hand") or str(DEFAULT_HAND)
++    parts = [ENGINE_VERSION, _sha256(sc["imagePath"]), _sha256(sc["annotationPath"]),
++             _sha256(hand) if os.path.isfile(hand) else "nohand",
++             str(project.get("fps", 30)), _norm_color(project.get("paperColor")), str(int(r["durationMs"]))]
++    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
++
++
++def _render_scene(project, r, dest: Path, on_frames):
++    """Render vào dest (ghi tạm rồi đổi tên); on_frames(done,total) báo số khung hình."""
++    import render_stream_whiteboard as rsw
++
++    sc = r["scene"]
++    tmp = dest.with_name(dest.stem + ".part.mp4")
++    args = [sc["imagePath"], sc["annotationPath"], str(tmp)]
++    hand = project.get("hand")
++    if hand and os.path.isfile(hand):
++        args.append(hand)
++    args += ["--fps", str(int(project.get("fps", 30))), "--paper-color", _norm_color(project.get("paperColor")),
++             "--total-ms", str(int(r["durationMs"]))]
++    rsw.PROGRESS_CALLBACK = on_frames
++    try:
++        code = rsw.main(args)
++    finally:
++        rsw.PROGRESS_CALLBACK = None
++    if code != 0 or not tmp.exists():
++        tmp.unlink(missing_ok=True)
++        raise RuntimeError(f"Render cảnh {r['id']} thất bại (mã {code}).")
++    os.replace(tmp, dest)
++
++
++# ─────────────────────────── xuất dự án ───────────────────────────
++def export_project(project, output_path, scene_ids=None, progress=None, keep_work=False) -> dict:
++    """
++    Xuất dự án ra output_path (MP4). `progress(percent, message)` tùy chọn.
++    Trả manifest (cũng được ghi cạnh output: <output>.manifest.json).
++    """
++    def report(pct, msg):
++        if progress:
++            progress(max(0.0, min(100.0, pct)), msg)
++
++    report(0, "Kiểm tra dự án")
++    v = validate_project(project, scene_ids)
++    if v["errors"]:
++        shown = "; ".join(e["message"] for e in v["errors"][:5])
++        more = f" (+{len(v['errors']) - 5} lỗi khác)" if len(v["errors"]) > 5 else ""
++        raise ValueError("Dự án chưa hợp lệ: " + shown + more)
++    warnings = [w["message"] for w in v["warnings"]]
++
++    fps = int(project.get("fps", 30))
++    scenes = resolve_scenes(project, scene_ids)
++    output = Path(output_path).resolve()
++    output.parent.mkdir(parents=True, exist_ok=True)
++    cache_dir = output.parent / ".whiteboard-cache"
++    cache_dir.mkdir(exist_ok=True)
++
++    # Audio toàn bài dài hơn timeline → kéo cảnh cuối (không cắt lời).
++    master = (project.get("masterAudio") or {}).get("path")
++    if master and scene_ids is None:
++        master_dur = mu.probe_media(master)["duration_s"]
++        master_scenes = [r for r in scenes if _scene_audio(project, r["scene"])[0] == "master"]
++        if master_scenes:
++            last = max(master_scenes, key=lambda r: r["timelineStartMs"] + r["durationMs"])
++            end_ms = last["timelineStartMs"] + last["durationMs"]
++            if master_dur * 1000 > end_ms + 1000.0 / fps:
++                extra = int(round(master_dur * 1000 - end_ms))
++                last["durationMs"] += extra
++                warnings.append(f"Audio toàn bài dài hơn timeline {extra}ms: đã kéo dài {last['id']} để giữ hết lời.")
++            elif master_dur * 1000 < end_ms - 1000.0 / fps:
++                warnings.append(
++                    f"Audio toàn bài ngắn hơn timeline {int(end_ms - master_dur * 1000)}ms: phần cuối sẽ im lặng.")
++
++    # Dọn rác của lần xuất trước bị hủy/dừng đột ngột (tiến trình bị kill nên `finally` không chạy).
++    # Runner chỉ xử lý một yêu cầu một lúc nên không có lần xuất nào khác đang dùng chúng.
++    for stale in output.parent.glob(".wb-work-*"):
++        shutil.rmtree(stale, ignore_errors=True)
++    for stale in cache_dir.glob("*.part.mp4"):
++        stale.unlink(missing_ok=True)
++    work = Path(tempfile.mkdtemp(prefix=".wb-work-", dir=output.parent))
++    try:
++        # 1) render từng cảnh (cache)
++        total_frames = sum(frames_for(r["durationMs"], fps) for r in scenes)
++        done_frames = 0
++        scene_videos, scene_info = [], []
++        for n, r in enumerate(scenes, start=1):
++            frames = frames_for(r["durationMs"], fps)
++            key = _scene_cache_key(project, r)
++            cached = cache_dir / f"{_safe(r['id'])}-{key}.mp4"
++            hit = False
++            if cached.exists():
++                try:
++                    hit = abs(mu.probe_media(cached)["video"]["frames"] - frames) <= 1
++                except Exception:
++                    hit = False
++            base_pct = 2 + 80.0 * done_frames / total_frames
++            if hit:
++                report(base_pct, f"Cảnh {n}/{len(scenes)} ({r['id']}): dùng lại bản đã render")
++            else:
++                def on_frames(done, total, _n=n, _r=r, _base=done_frames, _f=frames):
++                    report(2 + 80.0 * (_base + _f * done / max(1, total)) / total_frames,
++                           f"Cảnh {_n}/{len(scenes)} ({_r['id']}): khung {done}/{total}")
++                _render_scene(project, r, cached, on_frames)
++                info = mu.probe_media(cached)
++                if abs(info["video"]["frames"] - frames) > 1:
++                    raise RuntimeError(
++                        f"Cảnh {r['id']}: video có {info['video']['frames']} khung, mong đợi {frames} "
++                        f"({r['durationMs']}ms @ {fps}fps).")
++            info = mu.probe_media(cached)
++            done_frames += frames
++            scene_videos.append(cached)
++            scene_info.append({"id": r["id"], "durationMs": int(r["durationMs"]), "frames": info["video"]["frames"],
++                               "cached": hit, "video": str(cached)})
++
++        # 2) chuẩn hóa kích thước/fps/codec rồi nối
++        report(83, "Chuẩn hóa và nối video")
++        probes = [mu.probe_media(p)["video"] for p in scene_videos]
++        size = project.get("outputSize") or {}
++        tw = int(size.get("width") or probes[0]["width"]) // 2 * 2
++        th = int(size.get("height") or probes[0]["height"]) // 2 * 2
++        paper = _norm_color(project.get("paperColor")).lstrip("#")
++        norm = []
++        for i, (p, vi) in enumerate(zip(scene_videos, probes)):
++            same = (vi["width"] == tw and vi["height"] == th and abs(vi["fps"] - fps) < 0.01
++                    and vi["codec"] == "h264" and vi["pix_fmt"] == "yuv420p")
++            if same:
++                norm.append(p)
++                continue
++            dst = work / f"norm-{i:03d}.mp4"
++            mu.run_ffmpeg(["-i", str(p), "-vf",
++                           f"scale={tw}:{th}:force_original_aspect_ratio=decrease,"
++                           f"pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color=0x{paper},fps={fps},format=yuv420p",
++                           "-c:v", "libx264", "-crf", "20", "-an", str(dst)], f"chuẩn hóa cảnh {scenes[i]['id']}")
++            norm.append(dst)
++
++        expected_frames = sum(frames_for(r["durationMs"], fps) for r in scenes)
++        concat_video = work / "video.mp4"
++        if len(norm) == 1:
++            shutil.copyfile(norm[0], concat_video)
++        else:
++            lst = work / "video.txt"
++            lst.write_text("".join("file '" + str(p.resolve()).replace("\\", "/").replace("'", "'\\''") + "'\n"
++                                   for p in norm), encoding="utf-8")
++            mu.run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(concat_video)], "nối video")
++
++        # 3) audio theo cảnh → một luồng AAC
++        modes = [_scene_audio(project, r["scene"]) for r in scenes]
++        has_audio = any(m != "none" for m, _ in modes)
++        partial = output.with_name(output.stem + ".partial" + (output.suffix or ".mp4"))
++        if has_audio:
++            report(88, "Dựng audio theo cảnh")
++            wavs = []
++            for i, (r, (mode, apath)) in enumerate(zip(scenes, modes)):
++                d = scene_info[i]["frames"] / fps  # đúng bằng thời lượng thực của video cảnh
++                wav = work / f"a-{i:03d}.wav"
++                tail = ["-t", f"{d:.6f}", "-c:a", "pcm_s16le", "-ar", str(AUDIO_RATE), "-ac", "2", str(wav)]
++                if mode == "none":
++                    mu.run_ffmpeg(["-f", "lavfi", "-i", f"anullsrc=r={AUDIO_RATE}:cl=stereo", *tail], f"tạo im lặng cho {r['id']}")
++                else:
++                    s = r["timelineStartMs"] / 1000.0 if mode == "master" else 0.0
++                    af = (f"aresample={AUDIO_RATE},aformat=sample_fmts=s16:channel_layouts=stereo,"
++                          f"atrim=start={s:.6f}:end={s + d:.6f},asetpts=PTS-STARTPTS,apad=whole_dur={d:.6f}")
++                    mu.run_ffmpeg(["-i", str(apath), "-af", af, *tail], f"dựng audio cho {r['id']}")
++                wavs.append(wav)
++            alst = work / "audio.txt"
++            alst.write_text("".join("file '" + str(w.resolve()).replace("\\", "/").replace("'", "'\\''") + "'\n"
++                                    for w in wavs), encoding="utf-8")
++            all_wav = work / "audio.wav"
++            mu.run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(alst), "-c", "copy", str(all_wav)], "nối audio")
++            report(94, "Mux video + audio")
++            mu.run_ffmpeg(["-i", str(concat_video), "-i", str(all_wav), "-map", "0:v:0", "-map", "1:a:0",
++                           "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
++                           "-t", f"{expected_frames / fps:.6f}", str(partial)], "mux audio")
++        else:
++            shutil.copyfile(concat_video, partial)
++
++        # 4) kiểm tra trước khi thay file chính
++        report(97, "Kiểm tra đầu ra")
++        final = mu.probe_media(partial)
++        problems = []
++        if not final["video"]:
++            problems.append("thiếu luồng video")
++        elif abs(final["video"]["frames"] - expected_frames) > 1:
++            problems.append(f"số khung {final['video']['frames']} ≠ {expected_frames}")
++        if has_audio:
++            if not final["audio"]:
++                problems.append("mất luồng audio")
++            elif abs(final["duration_s"] - expected_frames / fps) > 0.15:
++                problems.append(f"độ dài {final['duration_s']:.3f}s lệch {expected_frames / fps:.3f}s")
++        if problems:
++            partial.unlink(missing_ok=True)
++            raise RuntimeError("Video xuất ra không đạt kiểm tra: " + "; ".join(problems))
++        os.replace(partial, output)
++
++        manifest = {
++            "schemaVersion": SCHEMA_VERSION, "engineVersion": ENGINE_VERSION,
++            "createdAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
++            "projectId": project.get("id"), "projectName": project.get("name"),
++            "output": str(output), "fps": fps, "size": {"width": tw, "height": th},
++            "totalFrames": expected_frames, "totalDurationMs": int(round(expected_frames * 1000 / fps)),
++            "hasAudio": has_audio, "scenes": scene_info, "warnings": warnings,
++            "ffmpeg": mu.find_ffmpeg(),
++        }
++        mpath = output.with_name(output.name + ".manifest.json")
++        tmpm = mpath.with_name(mpath.name + ".tmp")
++        tmpm.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
++        os.replace(tmpm, mpath)
++        report(100, "Hoàn tất")
++        return manifest
++    finally:
++        if not keep_work:
++            shutil.rmtree(work, ignore_errors=True)
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/sidecar-whiteboard/scripts/render_stream_whiteboard.py work/sidecar-whiteboard/scripts/render_stream_whiteboard.py
+--- a/sidecar-whiteboard/scripts/render_stream_whiteboard.py	2026-11-07 06:35:23.000000000 +0000
++++ b/sidecar-whiteboard/scripts/render_stream_whiteboard.py	2026-11-07 09:26:13.176317007 +0000
+@@ -45,15 +45,18 @@
+ class _CountingWriter:
+     """Bọc cv2.VideoWriter: đếm khung hình đã ghi và gọi PROGRESS_CALLBACK."""
+ 
+-    def __init__(self, writer, total_frames: int):
++    def __init__(self, writer, total_frames: float):
+         self._w = writer
+-        self._total = max(1, int(total_frames))
++        # Ngân sách khung hình = round(thời lượng × fps / 1000): thời lượng cảnh là nguồn sự thật.
++        self._total = max(1, int(round(total_frames)))
+         self._done = 0
+ 
+     def isOpened(self):
+         return self._w.isOpened()
+ 
+     def write(self, frame):
++        if self._done >= self._total:
++            return  # vượt ngân sách (vùng vẽ quá dài so với thời lượng cảnh): bỏ khung thừa
+         self._w.write(frame)
+         self._done += 1
+         cb = PROGRESS_CALLBACK
+@@ -372,7 +375,7 @@
+         return samples, pen_lifts, sample_cell
+ 
+     # ── 主渲染 ──
+-    def render_to(self, raw_path: Path, total_ms: int) -> Path:
++    def render_to(self, raw_path: Path, total_ms: int, min_hold_ms: int = 0) -> Path:
+         cfg = self.cfg
+         elements = sorted(self.ann["elements"], key=lambda e: e["reveal"]["startMs"])
+         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+@@ -440,8 +443,9 @@
+                     self._wash_brush(writer, color_frames, centers, allowed)
+                 cur_ms += color_frames * ms_per_frame
+ 
+-            # 凝视：补到 total_ms，并确保结尾至少停留 0.5s 完整原图
+-            gaze_until = max(total_ms, cur_ms + 500)
++            # Giữ hình cuối đầy đủ cho đến hết thời lượng cảnh. Thời lượng cảnh là nguồn sự thật nên
++            # không tự cộng thêm; muốn dừng tối thiểu sau khi vẽ xong thì truyền --min-hold-ms.
++            gaze_until = max(total_ms, cur_ms + min_hold_ms)
+             # 最终帧显示完整原图（凝视）
+             self.drawn[...] = self.color_img.astype(np.float32)
+             fill_static(gaze_until)
+@@ -498,6 +502,8 @@
+     p.add_argument("output", help="Đường dẫn MP4 đầu ra")
+     p.add_argument("hand", nargs="?", default=str(DEFAULT_HAND), help="PNG bàn tay (mặc định có sẵn)")
+     p.add_argument("--total-ms", type=int, default=None, help="Tổng thời lượng; nếu bỏ trống dùng sceneDurationMs trong annotation")
++    p.add_argument("--min-hold-ms", type=int, default=0,
++                   help="Dừng tối thiểu trên hình đầy đủ sau khi vẽ xong (mặc định 0: đúng thời lượng cảnh)")
+     p.add_argument("--bare-tip", action="store_true", help="Không chồng đầu bút/bàn tay")
+     p.add_argument("--ink-path", default="grid", choices=["grid", "skeleton"],
+                    help="Đường đi nét bút: grid lưới (mặc định); skeleton bám khung xương")
+@@ -570,7 +576,7 @@
+     print(f"  Số vùng: {len(annotation['elements'])}, tổng thời lượng: {total_ms}ms, "
+           f"nét bút: {cfg.ink_path_mode}, tô màu: {cfg.color_fill}")
+ 
+-    renderer.render_to(raw_path, total_ms)
++    renderer.render_to(raw_path, total_ms, args.min_hold_ms)
+     final = sr.transcode_h264(raw_path, out_path)
+ 
+     size_mb = final.stat().st_size / (1024 * 1024)
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/sidecar-whiteboard/scripts/stream_render.py work/sidecar-whiteboard/scripts/stream_render.py
+--- a/sidecar-whiteboard/scripts/stream_render.py	2026-11-07 06:35:23.000000000 +0000
++++ b/sidecar-whiteboard/scripts/stream_render.py	2026-11-07 09:23:17.212275665 +0000
+@@ -1616,7 +1616,8 @@
+       3. 两者都没有：保留原始 mp4v 编码并告警
+     """
+     # 路径1：系统 ffmpeg（推荐，体积最优）
+-    ffmpeg = shutil.which("ffmpeg")
++    from media_utils import find_ffmpeg  # ưu tiên ffmpeg đóng gói theo app (XITRUM_FFMPEG)
++    ffmpeg = find_ffmpeg()
+     if ffmpeg is not None:
+         cmd = [
+             ffmpeg, "-y", "-loglevel", "error",
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/sidecar-whiteboard/tests/test_project_export.py work/sidecar-whiteboard/tests/test_project_export.py
+--- a/sidecar-whiteboard/tests/test_project_export.py	1970-01-01 00:00:00.000000000 +0000
++++ b/sidecar-whiteboard/tests/test_project_export.py	2026-11-07 09:38:35.269266785 +0000
+@@ -0,0 +1,255 @@
++"""
++Kiểm thử xuất dự án nhiều cảnh bằng render thật + ffmpeg/PyAV thật (không mock):
++- audio toàn bài được cắt đúng theo từng cảnh (mỗi đoạn một tần số riêng, đo bằng FFT)
++- audio riêng, cảnh im lặng, xuất một cảnh giữa bài, audio dài hơn timeline
++- kích thước ảnh khác nhau được chuẩn hóa, cache được dùng lại, lỗi dữ liệu chỉ rõ cảnh
++"""
++
++import json
++import math
++import shutil
++import struct
++import sys
++import tempfile
++import unittest
++import wave
++from pathlib import Path
++
++try:
++    import av
++    import cv2
++    import numpy as np
++except ImportError:  # pragma: no cover
++    cv2 = None
++
++SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
++sys.path.insert(0, str(SCRIPTS))
++
++FPS = 10
++TONES = [440.0, 880.0, 1320.0]
++DURS = [1500, 2000, 1000]  # ms
++
++
++def _tone_wav(path: Path, segments, rate=22050):
++    """segments: [(freq|None, seconds)] → wav mono 16-bit."""
++    with wave.open(str(path), "wb") as w:
++        w.setnchannels(1)
++        w.setsampwidth(2)
++        w.setframerate(rate)
++        for freq, sec in segments:
++            n = int(rate * sec)
++            if freq is None:
++                w.writeframes(b"\x00\x00" * n)
++            else:
++                w.writeframes(b"".join(struct.pack("<h", int(12000 * math.sin(2 * math.pi * freq * i / rate)))
++                                       for i in range(n)))
++
++
++def _line_art(path: Path, w, h):
++    img = np.full((h, w, 3), (215, 235, 245), np.uint8)
++    cv2.circle(img, (w // 4, h // 2), h // 5, (60, 60, 60), 3)
++    cv2.rectangle(img, (w // 2, h // 4), (w // 2 + w // 5, h * 3 // 4), (60, 60, 60), 3)
++    cv2.imwrite(str(path), img)
++
++
++def _annotation(path: Path, w, h, duration_ms):
++    half = duration_ms // 2
++    els = []
++    for i, (x0, x1) in enumerate([(0, w // 2), (w // 2, w)]):
++        els.append({"id": f"e{i + 1}", "label": f"Vùng {i + 1}", "sequence": i + 1, "type": "object",
++                    "region": {"x": x0, "y": 0, "width": x1 - x0, "height": h},
++                    "reveal": {"direction": "left_to_right", "startMs": i * half + 50,
++                               "durationMs": half - 150, "maskPaddingPx": 8, "protectedRegions": []},
++                    "handPath": {"start": [x0, h // 2], "end": [x1, h // 2], "easing": "easeInOut"}})
++    path.write_text(json.dumps({"sceneId": "x", "canvas": {"width": w, "height": h},
++                                "sceneDurationMs": duration_ms, "elements": els}), encoding="utf-8")
++
++
++def _decode_mono(path: Path):
++    out = []
++    with av.open(str(path)) as c:
++        rs = av.AudioResampler(format="flt", layout="mono", rate=48000)
++        for fr in c.decode(audio=0):
++            for r in rs.resample(fr):
++                out.append(r.to_ndarray().reshape(-1))
++        for r in rs.resample(None):
++            out.append(r.to_ndarray().reshape(-1))
++    return np.concatenate(out)
++
++
++def _dominant(sig, rate=48000):
++    if len(sig) < 256:
++        return None
++    spec = np.abs(np.fft.rfft(sig * np.hanning(len(sig))))
++    return float(np.argmax(spec) * rate / len(sig))
++
++
++def _rms(sig):
++    return float(np.sqrt(np.mean(sig ** 2)))
++
++
++@unittest.skipIf(cv2 is None or shutil.which("ffmpeg") is None, "cần opencv, PyAV, numpy và ffmpeg")
++class ProjectExportTest(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        import project_export as pe
++        cls.pe = pe
++        cls.tmp = Path(tempfile.mkdtemp(prefix="wb_proj_"))
++        sizes = [(320, 180), (400, 300), (320, 180)]  # cảnh 2 khác kích thước → phải chuẩn hóa
++        cls.scenes = []
++        t = 0
++        for i, ((w, h), d) in enumerate(zip(sizes, DURS), start=1):
++            img, ann = cls.tmp / f"s{i}.png", cls.tmp / f"s{i}.annotation.json"
++            _line_art(img, w, h)
++            _annotation(ann, w, h, d)
++            cls.scenes.append({"id": f"s{i}", "imagePath": str(img), "annotationPath": str(ann),
++                               "durationMs": d, "timelineStartMs": t})
++            t += d
++        cls.master = cls.tmp / "master.wav"
++        _tone_wav(cls.master, [(TONES[0], 1.5), (TONES[1], 2.0), (TONES[2], 1.0)])
++
++    @classmethod
++    def tearDownClass(cls):
++        shutil.rmtree(cls.tmp, ignore_errors=True)
++
++    def project(self, **over):
++        p = {"schemaVersion": 1, "id": "p", "name": "demo", "fps": FPS, "paperColor": "#F5EBD7",
++             "masterAudio": {"path": str(self.master)},
++             "scenes": [dict(s) for s in self.scenes]}
++        p.update(over)
++        return p
++
++    def window(self, sig, start_ms, dur_ms):
++        a, b = int(48000 * (start_ms + dur_ms * 0.2) / 1000), int(48000 * (start_ms + dur_ms * 0.8) / 1000)
++        return sig[a:b]
++
++    # ── xuất đầy đủ với audio toàn bài ──
++    def test_01_full_export_master_audio_matches_each_scene(self):
++        out = self.tmp / "full.mp4"
++        prog = []
++        m = self.pe.export_project(self.project(), str(out), progress=lambda p, s: prog.append(p))
++        info = self.pe.mu.probe_media(out)
++        self.assertEqual(info["video"]["frames"], 45)
++        self.assertIsNotNone(info["audio"])
++        self.assertAlmostEqual(info["duration_s"], 4.5, delta=0.1)
++        self.assertEqual(len({(s["id"]) for s in m["scenes"]}), 3)
++        self.assertEqual(prog, sorted(prog))
++        self.assertEqual(prog[-1], 100.0)
++        # tần số trội của từng cảnh khớp đoạn audio toàn bài tương ứng
++        sig = _decode_mono(out)
++        start = 0
++        for tone, d in zip(TONES, DURS):
++            f = _dominant(self.window(sig, start, d))
++            self.assertAlmostEqual(f, tone, delta=40, msg=f"cảnh tại {start}ms: {f}Hz ≠ {tone}Hz")
++            start += d
++        # cả ba cảnh cùng kích thước dù ảnh cảnh 2 khác tỉ lệ
++        self.assertEqual(len({(s["width"], s["height"]) for s in
++                              [self.pe.mu.probe_media(Path(x["video"]))["video"] for x in m["scenes"]]}), 2)
++        self.assertEqual((info["video"]["width"], info["video"]["height"]), (m["size"]["width"], m["size"]["height"]))
++        self.assertTrue((self.tmp / "full.mp4.manifest.json").exists())
++        self.assertFalse(list(self.tmp.glob(".wb-work-*")), "thư mục tạm phải được dọn")
++        self.assertFalse((self.tmp / "full.partial.mp4").exists())
++
++    def test_02_cache_is_reused(self):
++        out = self.tmp / "cache.mp4"
++        self.pe.export_project(self.project(), str(out))
++        m2 = self.pe.export_project(self.project(), str(out))
++        self.assertTrue(all(s["cached"] for s in m2["scenes"]), m2["scenes"])
++        # đổi thời lượng một cảnh chỉ vô hiệu cache cảnh đó
++        p = self.project()
++        p["scenes"][2]["durationMs"] = 1200
++        m3 = self.pe.export_project(p, str(out))
++        self.assertEqual([s["cached"] for s in m3["scenes"]], [True, True, False])
++
++    # ── audio riêng, im lặng ──
++    def test_03_per_scene_file_none_and_master(self):
++        own = self.tmp / "own.wav"
++        _tone_wav(own, [(660.0, 3.0)])
++        p = self.project()
++        p["scenes"][0]["audio"] = {"mode": "file", "path": str(own)}
++        p["scenes"][1]["audio"] = {"mode": "none"}
++        out = self.tmp / "mix.mp4"
++        self.pe.export_project(p, str(out))
++        sig = _decode_mono(out)
++        self.assertAlmostEqual(_dominant(self.window(sig, 0, 1500)), 660.0, delta=40)
++        self.assertLess(_rms(self.window(sig, 1500, 2000)), 0.01, "cảnh 'none' phải im lặng")
++        self.assertAlmostEqual(_dominant(self.window(sig, 3500, 1000)), 1320.0, delta=40)
++
++    def test_04_no_audio_project_has_no_audio_stream(self):
++        p = self.project()
++        del p["masterAudio"]
++        out = self.tmp / "silent.mp4"
++        self.pe.export_project(p, str(out))
++        info = self.pe.mu.probe_media(out)
++        self.assertIsNone(info["audio"])
++        self.assertEqual(info["video"]["frames"], 45)
++
++    # ── xuất một cảnh giữa bài ──
++    def test_05_export_single_middle_scene(self):
++        out = self.tmp / "middle.mp4"
++        self.pe.export_project(self.project(), str(out), scene_ids=["s2"])
++        info = self.pe.mu.probe_media(out)
++        self.assertEqual(info["video"]["frames"], 20)
++        self.assertAlmostEqual(_dominant(self.window(_decode_mono(out), 0, 2000)), 880.0, delta=40)
++
++    # ── audio dài hơn timeline ──
++    def test_06_longer_master_extends_last_scene(self):
++        long_master = self.tmp / "long.wav"
++        _tone_wav(long_master, [(440.0, 1.5), (880.0, 2.0), (1320.0, 3.0)])  # 6.5s > 4.5s
++        out = self.tmp / "long.mp4"
++        m = self.pe.export_project(self.project(masterAudio={"path": str(long_master)}), str(out))
++        info = self.pe.mu.probe_media(out)
++        self.assertEqual(info["video"]["frames"], 65)
++        self.assertAlmostEqual(info["duration_s"], 6.5, delta=0.1)
++        self.assertEqual(m["scenes"][2]["durationMs"], 3000)
++        self.assertTrue(any("kéo dài" in w for w in m["warnings"]))
++        sig = _decode_mono(out)
++        self.assertAlmostEqual(_dominant(self.window(sig, 4500, 2000)), 1320.0, delta=40, msg="phần lời cuối không được cắt")
++
++    # ── lỗi dữ liệu ──
++    def test_07_annotation_beyond_duration_is_reported_for_scene(self):
++        p = self.project()
++        p["scenes"][1]["durationMs"] = 800  # annotation cảnh 2 cần ~2000ms
++        with self.assertRaises(ValueError) as cm:
++            self.pe.export_project(p, str(self.tmp / "bad.mp4"))
++        self.assertIn("s2", str(cm.exception))
++        self.assertIn("vượt thời lượng", str(cm.exception))
++
++    def test_08_validate_reports_missing_files_per_scene(self):
++        p = self.project()
++        p["scenes"][0]["imagePath"] = str(self.tmp / "khong-co.png")
++        p["scenes"][2]["annotationPath"] = ""
++        p["scenes"][1]["audio"] = {"mode": "file", "path": "/khong/co.wav"}
++        v = self.pe.validate_project(p)
++        got = {(e["sceneId"], e["field"]) for e in v["errors"]}
++        self.assertEqual(got, {("s1", "imagePath"), ("s3", "annotationPath"), ("s2", "audio")})
++
++    def test_09_validate_rejects_bad_scalars(self):
++        v = self.pe.validate_project(self.project(fps=0, paperColor="xanh"))
++        fields = {e["field"] for e in v["errors"]}
++        self.assertTrue({"fps", "paperColor"} <= fields)
++        v = self.pe.validate_project(self.project(scenes=[]))
++        self.assertTrue(v["errors"])
++
++    def test_11_stale_temp_files_from_cancelled_export_are_cleaned(self):
++        out = self.tmp / "clean" / "o.mp4"
++        (out.parent / ".whiteboard-cache").mkdir(parents=True)
++        stale_dir = out.parent / ".wb-work-dangdo"
++        stale_dir.mkdir()
++        (stale_dir / "x.wav").write_bytes(b"x")
++        stale_part = out.parent / ".whiteboard-cache" / "s9-abc.part.mp4"
++        stale_part.write_bytes(b"x")
++        self.pe.export_project(self.project(), str(out), scene_ids=["s1"])
++        self.assertFalse(stale_dir.exists())
++        self.assertFalse(stale_part.exists())
++
++    def test_10_disabled_scene_is_skipped(self):
++        p = self.project()
++        p["scenes"][1]["enabled"] = False
++        out = self.tmp / "skip.mp4"
++        self.pe.export_project(p, str(out))
++        self.assertEqual(self.pe.mu.probe_media(out)["video"]["frames"], 25)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/sidecar-whiteboard/tests/test_runner_smoke.py work/sidecar-whiteboard/tests/test_runner_smoke.py
+--- a/sidecar-whiteboard/tests/test_runner_smoke.py	2026-11-07 06:35:23.000000000 +0000
++++ b/sidecar-whiteboard/tests/test_runner_smoke.py	2026-11-07 09:28:00.573794249 +0000
+@@ -181,6 +181,38 @@
+         self.assertEqual(resp["type"], "error")
+         self.assertEqual(self.rpc(action="ping")["type"], "pong", "runner phải còn sống sau các lỗi")
+ 
++    def test_09_validate_and_render_project_over_rpc(self):
++        ann = self.tmp / "proj.annotation.json"
++        resp = self.rpc(action="generate_annotation", image_path=str(self.image), scene_id="s1",
++                        duration_ms=2000, output_path=str(ann), overwrite=True)
++        self.assertEqual(resp["type"], "done", resp)
++        project = {"schemaVersion": 1, "id": "p", "fps": 8, "paperColor": "#FFF2CC",
++                   "scenes": [{"id": "s1", "imagePath": str(self.image), "annotationPath": str(ann),
++                               "durationMs": 2000}]}
++        v = self.rpc(action="validate_project", project=project)
++        self.assertEqual(v["type"], "done", v)
++        self.assertEqual(v["data"]["errors"], [])
++        bad = json.loads(json.dumps(project))
++        bad["scenes"][0]["imagePath"] = str(self.tmp / "khong-co.png")
++        v = self.rpc(action="validate_project", project=bad)
++        self.assertEqual(v["data"]["errors"][0]["sceneId"], "s1")
++
++        out = self.tmp / "project.mp4"
++        resp = self.rpc(action="render_project", task_id="rp", project=project, output_path=str(out))
++        self.assertEqual(resp["type"], "done", resp)
++        self.assertEqual(resp["data"]["totalFrames"], 16)
++        pcts = [m["percent"] for m in self.progress]
++        self.assertEqual(pcts, sorted(pcts))
++        self.assertEqual(pcts[-1], 100.0)
++        self.assertTrue(all(m["task_id"] == "rp" for m in self.progress))
++        self.assertTrue(out.exists() and out.stat().st_size > 0)
++
++        # dữ liệu sai trả lỗi rõ ràng, runner vẫn sống
++        resp = self.rpc(action="render_project", task_id="rp2", project=bad, output_path=str(self.tmp / "x.mp4"))
++        self.assertEqual(resp["type"], "error")
++        self.assertIn("s1", resp["message"])
++        self.assertEqual(self.rpc(action="ping")["type"], "pong")
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/sidecar-whiteboard/whiteboard_runner.py work/sidecar-whiteboard/whiteboard_runner.py
+--- a/sidecar-whiteboard/whiteboard_runner.py	2026-11-07 06:35:23.000000000 +0000
++++ b/sidecar-whiteboard/whiteboard_runner.py	2026-11-07 09:23:17.221185085 +0000
+@@ -8,6 +8,7 @@
+ - generate_annotation: Tách vùng từ ảnh line-art và sinh annotation.json (có thể ghi ra tệp)
+ - render_scene: Render hoạt hình bảng trắng vẽ tay từ ảnh line-art + annotation
+ - merge_scenes: Nối các video phân cảnh thành video MP4 hoàn chỉnh
++- validate_project / render_project: kiểm tra và xuất dự án nhiều cảnh (audio, cache, manifest)
+ 
+ Giao thức: mỗi yêu cầu là một dòng JSON trên stdin, mỗi phản hồi là đúng một dòng JSON trên
+ kênh giao thức. Kênh này là bản sao của stdout gốc (xem _isolate_protocol_channel); mọi thứ
+@@ -454,18 +455,53 @@
+ 
+ def handle_check_env(req):
+     import importlib.util
+-    import shutil
++    import media_utils
+     missing = [pip for mod, pip in ENV_DEPS.items() if importlib.util.find_spec(mod) is None]
+     return {
+         "ok": not missing,
+         "python": sys.executable,
+         "pythonVersion": sys.version.split()[0],
+         "missing": missing,
+-        "ffmpeg": shutil.which("ffmpeg"),
++        "ffmpeg": media_utils.find_ffmpeg(),
+     }
+ 
+ 
++# ──────────────────────────────────────────────────────────────
++# Dự án nhiều cảnh: kiểm tra và xuất
++# ──────────────────────────────────────────────────────────────
++def handle_validate_project(req):
++    import project_export
++    project = req.get("project")
++    if not isinstance(project, dict):
++        raise ValueError("Thiếu dữ liệu dự án (project).")
++    return project_export.validate_project(project, req.get("scene_ids"))
++
++
++def handle_render_project(req):
++    import time
++    import project_export
++
++    project = req.get("project")
++    output_path = req.get("output_path")
++    if not isinstance(project, dict):
++        raise ValueError("Thiếu dữ liệu dự án (project).")
++    if not output_path:
++        raise ValueError("Chưa chỉ định output_path cho video xuất.")
++    task_id = req.get("task_id", "")
++    state = {"pct": -1.0, "msg": "", "t": 0.0}
++
++    def on_progress(pct, msg):
++        now = time.monotonic()
++        if pct >= 100 or msg != state["msg"] or (pct - state["pct"] >= 0.5 and now - state["t"] >= 0.2):
++            state.update(pct=pct, msg=msg, t=now)
++            send_progress(task_id, pct, msg)
++
++    return project_export.export_project(project, output_path, req.get("scene_ids"), on_progress)
++
++
+ HANDLERS = {
++    "validate_project": handle_validate_project,
++    "render_project": handle_render_project,
+     "check_env": handle_check_env,
+     "parse_srt": handle_parse_srt,
+     "generate_annotation": handle_generate_annotation,
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/src/api.ts work/src/api.ts
+--- a/src/api.ts	2026-11-07 06:35:23.000000000 +0000
++++ b/src/api.ts	2026-11-07 15:13:13.190976942 +0000
+@@ -1,5 +1,5 @@
+ import { invoke } from "@tauri-apps/api/core";
+-import { open } from "@tauri-apps/plugin-dialog";
++import { open, save } from "@tauri-apps/plugin-dialog";
+ 
+ export interface TaskItem {
+   id: string;
+@@ -133,6 +133,52 @@
+   scenes: ScriptSceneItem[];
+ }
+ 
++export interface WhiteboardScene {
++  id: string;
++  imagePath: string;
++  annotationPath: string;
++  durationMs: number;
++  /** Vị trí đầu cảnh trong audio toàn bài (ms). */
++  timelineStartMs?: number;
++  /** auto = theo audio toàn bài nếu có; none = im lặng; file = audio riêng; master = ép dùng audio toàn bài */
++  audio?: { mode: "auto" | "none" | "file" | "master"; path?: string };
++  enabled?: boolean;
++}
++
++export interface WhiteboardProject {
++  schemaVersion: 1;
++  id: string;
++  name: string;
++  fps: number;
++  paperColor: string;
++  hand?: string | null;
++  outputSize?: { width: number; height: number };
++  masterAudio?: { path: string } | null;
++  scenes: WhiteboardScene[];
++}
++
++export interface WhiteboardProblem {
++  sceneId: string | null;
++  field: string;
++  message: string;
++}
++
++export interface WhiteboardValidation {
++  errors: WhiteboardProblem[];
++  warnings: WhiteboardProblem[];
++}
++
++export interface WhiteboardManifest {
++  output: string;
++  fps: number;
++  size: { width: number; height: number };
++  totalFrames: number;
++  totalDurationMs: number;
++  hasAudio: boolean;
++  scenes: { id: string; durationMs: number; frames: number; cached: boolean }[];
++  warnings: string[];
++}
++
+ export const api = {
+   // Lấy danh sách tasks
+   listTasks: () => invoke<TaskItem[]>("list_tasks"),
+@@ -326,6 +372,12 @@
+     return selected as string | null;
+   },
+ 
++  // Hộp thoại "Lưu thành" (trả đường dẫn đích hoặc null nếu hủy)
++  pickSaveFile: async (defaultPath?: string, filters?: { name: string; extensions: string[] }[]) => {
++    const selected = await save({ defaultPath, filters });
++    return selected as string | null;
++  },
++
+   // Mở hộp thoại chọn thư mục
+   pickDirectory: async () => {
+     const selected = await open({
+@@ -415,6 +467,20 @@
+   installWhiteboardEnv: () =>
+     invoke<{ python: string; venvDir: string }>("install_whiteboard_env"),
+ 
++  // ── Dự án whiteboard nhiều cảnh (schemaVersion 1) ──
++  validateWhiteboardProject: (project: WhiteboardProject, sceneIds?: string[]) =>
++    invoke<WhiteboardValidation>("validate_whiteboard_project", { project, sceneIds }),
++
++  /** Xuất dự án ra MP4; tiến độ qua sự kiện `whiteboard-progress`. */
++  renderWhiteboardProject: (project: WhiteboardProject, outputPath: string, sceneIds?: string[]) =>
++    invoke<WhiteboardManifest>("render_whiteboard_project", { project, outputPath, sceneIds }),
++
++  saveWhiteboardProject: (path: string, project: WhiteboardProject) =>
++    invoke<void>("save_whiteboard_project", { path, project }),
++
++  loadWhiteboardProject: (path: string) =>
++    invoke<WhiteboardProject>("load_whiteboard_project", { path }),
++
+   // G0: Diagnostics & Secret Store
+   checkSystemDependencies: () =>
+     invoke<{
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/src/components/WhiteboardEditor.tsx work/src/components/WhiteboardEditor.tsx
+--- a/src/components/WhiteboardEditor.tsx	2026-11-07 06:35:23.000000000 +0000
++++ b/src/components/WhiteboardEditor.tsx	2026-11-07 15:13:56.021930229 +0000
+@@ -1,6 +1,7 @@
+ import { useEffect, useState } from "react";
+ import { listen } from "@tauri-apps/api/event";
+ import { api } from "../api";
++import { WhiteboardProject } from "./WhiteboardProject";
+ import {
+   PenTool,
+   FileText,
+@@ -263,6 +264,7 @@
+   };
+ 
+   return (
++    <>
+     <div className="panel-card" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+       {/* Tiêu đề & Giới thiệu */}
+       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+@@ -507,5 +509,8 @@
+         </div>
+       </div>
+     </div>
++
++      <WhiteboardProject srtScenes={srtData?.scenes} />
++    </>
+   );
+ }
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/src/components/WhiteboardProject.tsx work/src/components/WhiteboardProject.tsx
+--- a/src/components/WhiteboardProject.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/src/components/WhiteboardProject.tsx	2026-11-07 15:13:55.996729325 +0000
+@@ -0,0 +1,390 @@
++import { useEffect, useMemo, useState } from "react";
++import { listen } from "@tauri-apps/api/event";
++import {
++  api,
++  WhiteboardManifest,
++  WhiteboardProblem,
++  WhiteboardProject as Project,
++  WhiteboardScene,
++} from "../api";
++import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Film, FolderOpen, Plus, Save, Trash2, XCircle } from "lucide-react";
++
++const errText = (e: any): string => String(e?.message ?? e);
++const isCancelled = (e: any): boolean => errText(e).startsWith("CANCELLED");
++const baseName = (p?: string | null) => (p ? p.split(/[\\/]/).pop() || p : "(chưa chọn)");
++const stem = (p: string) => p.replace(/\.[^/.\\]+$/, "");
++const newProject = (): Project => ({
++  schemaVersion: 1,
++  id: `proj-${Date.now().toString(36)}`,
++  name: "Dự án mới",
++  fps: 30,
++  paperColor: "#F5EBD7",
++  hand: null,
++  masterAudio: null,
++  scenes: [],
++});
++const sceneId = (n: number) => `scene-${String(n).padStart(2, "0")}`;
++
++const input: React.CSSProperties = {
++  padding: "6px 10px",
++  borderRadius: "8px",
++  border: "1px solid #cbd5e1",
++  background: "#ffffff",
++  color: "var(--text-main)",
++};
++
++interface Props {
++  /** Cảnh gợi ý từ bước phân tích SRT (nếu có) để tạo nhanh danh sách cảnh. */
++  srtScenes?: { sceneIndex: number; sceneDurationMs: number; timelineStartMs: number }[];
++}
++
++export function WhiteboardProject({ srtScenes }: Props) {
++  const [project, setProject] = useState<Project>(newProject);
++  const [projectPath, setProjectPath] = useState<string | null>(null);
++  const [dirty, setDirty] = useState(false);
++  const [outputPath, setOutputPath] = useState("");
++  const [busy, setBusy] = useState(false);
++  const [progress, setProgress] = useState<{ percent: number; message: string } | null>(null);
++  const [problems, setProblems] = useState<{ errors: WhiteboardProblem[]; warnings: WhiteboardProblem[] } | null>(null);
++  const [manifest, setManifest] = useState<WhiteboardManifest | null>(null);
++  const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
++
++  useEffect(() => {
++    let un: (() => void) | null = null;
++    let disposed = false;
++    listen<any>("whiteboard-progress", (ev) =>
++      setProgress({ percent: Number(ev.payload?.percent) || 0, message: ev.payload?.message || "" })
++    )
++      .then((u) => (disposed ? u() : (un = u)))
++      .catch(() => {});
++    return () => {
++      disposed = true;
++      un?.();
++    };
++  }, []);
++
++  const problemsByScene = useMemo(() => {
++    const m = new Map<string, { errors: string[]; warnings: string[] }>();
++    const get = (id: string | null) => {
++      const k = id ?? "";
++      if (!m.has(k)) m.set(k, { errors: [], warnings: [] });
++      return m.get(k)!;
++    };
++    problems?.errors.forEach((p) => get(p.sceneId).errors.push(p.message));
++    problems?.warnings.forEach((p) => get(p.sceneId).warnings.push(p.message));
++    return m;
++  }, [problems]);
++
++  const update = (patch: Partial<Project>) => {
++    setProject((p) => ({ ...p, ...patch }));
++    setDirty(true);
++    setProblems(null);
++  };
++  const updateScene = (i: number, patch: Partial<WhiteboardScene>) =>
++    update({ scenes: project.scenes.map((s, k) => (k === i ? { ...s, ...patch } : s)) });
++
++  const confirmDiscard = () => !dirty || confirm("Dự án có thay đổi chưa lưu. Bỏ các thay đổi này?");
++
++  const handleNew = () => {
++    if (!confirmDiscard()) return;
++    setProject(newProject());
++    setProjectPath(null);
++    setDirty(false);
++    setProblems(null);
++    setManifest(null);
++    setStatus(null);
++  };
++
++  const handleOpen = async () => {
++    if (!confirmDiscard()) return;
++    try {
++      const path = await api.pickFile([{ name: "Dự án Whiteboard", extensions: ["json"] }]);
++      if (!path) return;
++      const p = await api.loadWhiteboardProject(path);
++      setProject(p);
++      setProjectPath(path);
++      setDirty(false);
++      setManifest(null);
++      const v = await api.validateWhiteboardProject(p).catch(() => null);
++      setProblems(v);
++      setStatus({ text: `Đã mở dự án: ${path}`, ok: true });
++    } catch (e: any) {
++      setStatus({ text: `Không mở được dự án: ${errText(e)}`, ok: false });
++    }
++  };
++
++  const handleSave = async (asNew: boolean) => {
++    try {
++      let path = projectPath;
++      if (asNew || !path) {
++        path = await api.pickSaveFile(`${project.name || "du-an"}.wbproj.json`, [
++          { name: "Dự án Whiteboard", extensions: ["json"] },
++        ]);
++        if (!path) return;
++      }
++      await api.saveWhiteboardProject(path, project);
++      setProjectPath(path);
++      setDirty(false);
++      setStatus({ text: `Đã lưu dự án: ${path}`, ok: true });
++    } catch (e: any) {
++      setStatus({ text: `Lỗi lưu dự án: ${errText(e)}`, ok: false });
++    }
++  };
++
++  const addScene = () => {
++    const n = project.scenes.length + 1;
++    update({ scenes: [...project.scenes, { id: sceneId(n), imagePath: "", annotationPath: "", durationMs: 10000, audio: { mode: "auto" }, enabled: true }] });
++  };
++
++  const fromSrt = () => {
++    if (!srtScenes?.length) return;
++    if (project.scenes.length && !confirm("Thay danh sách cảnh hiện có bằng các cảnh từ SRT? (ảnh/annotation đã chọn cho cảnh trùng ID được giữ lại)")) return;
++    const old = new Map(project.scenes.map((s) => [s.id, s]));
++    update({
++      scenes: srtScenes.map((s) => {
++        const id = sceneId(s.sceneIndex);
++        const prev = old.get(id);
++        return {
++          id,
++          imagePath: prev?.imagePath ?? "",
++          annotationPath: prev?.annotationPath ?? "",
++          durationMs: s.sceneDurationMs,
++          timelineStartMs: s.timelineStartMs,
++          audio: prev?.audio ?? { mode: "auto" },
++          enabled: true,
++        };
++      }),
++    });
++  };
++
++  const move = (i: number, d: number) => {
++    const j = i + d;
++    if (j < 0 || j >= project.scenes.length) return;
++    const s = [...project.scenes];
++    [s[i], s[j]] = [s[j], s[i]];
++    update({ scenes: s });
++  };
++
++  const pickImage = async (i: number) => {
++    const path = await api.pickFile([{ name: "Ảnh", extensions: ["png", "jpg", "jpeg"] }]);
++    if (!path) return;
++    const cur = project.scenes[i];
++    updateScene(i, { imagePath: path, annotationPath: cur.annotationPath || stem(path) + ".annotation.json" });
++  };
++  const pickAnnotation = async (i: number) => {
++    const path = await api.pickFile([{ name: "Annotation", extensions: ["json"] }]);
++    if (path) updateScene(i, { annotationPath: path });
++  };
++  const pickSceneAudio = async (i: number) => {
++    const path = await api.pickFile([{ name: "Audio", extensions: ["wav", "mp3", "m4a", "aac", "flac", "ogg"] }]);
++    if (path) updateScene(i, { audio: { mode: "file", path } });
++  };
++  const pickMaster = async () => {
++    const path = await api.pickFile([{ name: "Audio", extensions: ["wav", "mp3", "m4a", "aac", "flac", "ogg"] }]);
++    if (path) update({ masterAudio: { path } });
++  };
++  const pickOutput = async () => {
++    const path = await api.pickSaveFile(outputPath || `${project.name || "video"}.mp4`, [{ name: "MP4", extensions: ["mp4"] }]);
++    if (path) setOutputPath(path);
++  };
++
++  const check = async (ids?: string[]) => {
++    const v = await api.validateWhiteboardProject(project, ids);
++    setProblems(v);
++    return v;
++  };
++
++  const handleCheck = async () => {
++    setBusy(true);
++    try {
++      const v = await check();
++      setStatus(
++        v.errors.length
++          ? { text: `Có ${v.errors.length} lỗi cần sửa trước khi xuất.`, ok: false }
++          : { text: v.warnings.length ? `Hợp lệ, ${v.warnings.length} cảnh báo.` : "Dự án hợp lệ.", ok: true }
++      );
++    } catch (e: any) {
++      setStatus({ text: `Lỗi kiểm tra: ${errText(e)}`, ok: false });
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  const handleExport = async (ids?: string[]) => {
++    if (!outputPath) {
++      setStatus({ text: "Hãy chọn nơi lưu file MP4 đầu ra.", ok: false });
++      return;
++    }
++    setBusy(true);
++    setManifest(null);
++    setStatus(null);
++    setProgress({ percent: 0, message: "Kiểm tra dự án" });
++    try {
++      const v = await check(ids);
++      if (v.errors.length) {
++        setStatus({ text: `Có ${v.errors.length} lỗi cần sửa trước khi xuất.`, ok: false });
++        return;
++      }
++      const m = await api.renderWhiteboardProject(project, outputPath, ids);
++      setManifest(m);
++      setStatus({ text: `Đã xuất ${(m.totalDurationMs / 1000).toFixed(1)}s${m.hasAudio ? " (có audio)" : ""}: ${m.output}`, ok: true });
++    } catch (e: any) {
++      setStatus({
++        text: isCancelled(e)
++          ? "Đã hủy xuất. Các cảnh đã render xong được giữ lại để lần sau chạy nhanh hơn."
++          : `Lỗi xuất dự án: ${errText(e)}`,
++        ok: false,
++      });
++    } finally {
++      setBusy(false);
++      setProgress(null);
++    }
++  };
++
++  const totalMs = project.scenes.filter((s) => s.enabled !== false).reduce((a, s) => a + (Number(s.durationMs) || 0), 0);
++
++  return (
++    <div className="panel-card" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
++      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
++        <div>
++          <h3 style={{ margin: 0 }}>Dự án nhiều cảnh{dirty ? " •" : ""}</h3>
++          <p className="panel-desc" style={{ margin: 0 }}>
++            Ghép nhiều cảnh thành một video, có audio toàn bài hoặc audio riêng từng cảnh. {projectPath ? baseName(projectPath) : "Chưa lưu"}
++          </p>
++        </div>
++        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
++          <button className="secondary-btn" onClick={handleNew} disabled={busy}>Mới</button>
++          <button className="secondary-btn" onClick={handleOpen} disabled={busy} style={{ display: "flex", alignItems: "center", gap: "4px" }}><FolderOpen size={14} /> Mở</button>
++          <button className="secondary-btn" onClick={() => handleSave(false)} disabled={busy} style={{ display: "flex", alignItems: "center", gap: "4px" }}><Save size={14} /> Lưu</button>
++          <button className="secondary-btn" onClick={() => handleSave(true)} disabled={busy}>Lưu thành…</button>
++        </div>
++      </div>
++
++      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "10px" }}>
++        <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.85rem" }}>
++          Tên dự án
++          <input style={input} value={project.name} onChange={(e) => update({ name: e.target.value })} />
++        </label>
++        <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.85rem" }}>
++          FPS
++          <input style={input} type="number" min={1} max={120} value={project.fps} onChange={(e) => update({ fps: Number(e.target.value) })} />
++        </label>
++        <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.85rem" }}>
++          Màu giấy
++          <input style={input} value={project.paperColor} onChange={(e) => update({ paperColor: e.target.value })} />
++        </label>
++      </div>
++
++      <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem" }}>
++        <span style={{ minWidth: "110px" }}>Audio toàn bài:</span>
++        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{baseName(project.masterAudio?.path)}</span>
++        <button className="secondary-btn" onClick={pickMaster} disabled={busy}>Chọn…</button>
++        {project.masterAudio && <button className="secondary-btn" onClick={() => update({ masterAudio: null })} disabled={busy}>Bỏ</button>}
++      </div>
++
++      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
++        <button className="secondary-btn" onClick={addScene} disabled={busy} style={{ display: "flex", alignItems: "center", gap: "4px" }}><Plus size={14} /> Thêm cảnh</button>
++        <button className="secondary-btn" onClick={fromSrt} disabled={busy || !srtScenes?.length} title={srtScenes?.length ? "" : "Hãy phân tích SRT ở phần trên trước"}>
++          Tạo cảnh từ SRT ({srtScenes?.length ?? 0})
++        </button>
++        <span style={{ fontSize: "0.85rem", opacity: 0.7 }}>{project.scenes.length} cảnh · tổng {(totalMs / 1000).toFixed(1)}s</span>
++      </div>
++
++      {project.scenes.map((s, i) => {
++        const pr = problemsByScene.get(s.id);
++        return (
++          <div key={i} style={{ border: `1px solid ${pr?.errors.length ? "#ef4444" : "#e2e8f0"}`, borderRadius: "10px", padding: "10px", opacity: s.enabled === false ? 0.55 : 1, display: "flex", flexDirection: "column", gap: "8px" }}>
++            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
++              <input type="checkbox" checked={s.enabled !== false} onChange={(e) => updateScene(i, { enabled: e.target.checked })} title="Đưa vào bản xuất" />
++              <input style={{ ...input, width: "110px" }} value={s.id} onChange={(e) => updateScene(i, { id: e.target.value })} />
++              <label style={{ fontSize: "0.85rem" }}>
++                Thời lượng (ms){" "}
++                <input style={{ ...input, width: "100px" }} type="number" min={1} value={s.durationMs} onChange={(e) => updateScene(i, { durationMs: Number(e.target.value) })} />
++              </label>
++              <label style={{ fontSize: "0.85rem" }}>
++                Âm thanh{" "}
++                <select style={input} value={s.audio?.mode ?? "auto"} onChange={(e) => updateScene(i, { audio: { mode: e.target.value as any, path: s.audio?.path } })}>
++                  <option value="auto">Tự động (theo audio toàn bài)</option>
++                  <option value="none">Im lặng</option>
++                  <option value="file">Audio riêng</option>
++                </select>
++              </label>
++              {s.audio?.mode === "file" && (
++                <button className="secondary-btn" onClick={() => pickSceneAudio(i)}>{baseName(s.audio?.path)}</button>
++              )}
++              <span style={{ flex: 1 }} />
++              <button className="secondary-btn" onClick={() => move(i, -1)} disabled={i === 0} title="Lên"><ChevronUp size={14} /></button>
++              <button className="secondary-btn" onClick={() => move(i, 1)} disabled={i === project.scenes.length - 1} title="Xuống"><ChevronDown size={14} /></button>
++              <button className="secondary-btn" onClick={() => handleExport([s.id])} disabled={busy || !outputPath} title="Xuất riêng cảnh này ra file đầu ra">Xuất riêng</button>
++              <button className="secondary-btn" onClick={() => { if (confirm(`Xóa cảnh ${s.id}?`)) update({ scenes: project.scenes.filter((_, k) => k !== i) }); }} disabled={busy} title="Xóa cảnh"><Trash2 size={14} /></button>
++            </div>
++            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", flexWrap: "wrap" }}>
++              <button className="secondary-btn" onClick={() => pickImage(i)}>Ảnh: {baseName(s.imagePath)}</button>
++              <button className="secondary-btn" onClick={() => pickAnnotation(i)}>Annotation: {baseName(s.annotationPath)}</button>
++            </div>
++            {pr?.errors.map((m, k) => (
++              <div key={"e" + k} style={{ color: "#dc2626", fontSize: "0.8rem", display: "flex", gap: "6px", alignItems: "flex-start" }}><AlertCircle size={14} style={{ flexShrink: 0, marginTop: "2px" }} />{m}</div>
++            ))}
++            {pr?.warnings.map((m, k) => (
++              <div key={"w" + k} style={{ color: "#b45309", fontSize: "0.8rem" }}>⚠ {m}</div>
++            ))}
++          </div>
++        );
++      })}
++
++      {problemsByScene.get("") && (
++        <div style={{ fontSize: "0.85rem" }}>
++          {problemsByScene.get("")!.errors.map((m, k) => (
++            <div key={"pe" + k} style={{ color: "#dc2626" }}>✖ {m}</div>
++          ))}
++          {problemsByScene.get("")!.warnings.map((m, k) => (
++            <div key={"pw" + k} style={{ color: "#b45309" }}>⚠ {m}</div>
++          ))}
++        </div>
++      )}
++
++      <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem" }}>
++        <span style={{ minWidth: "110px" }}>File xuất MP4:</span>
++        <input style={{ ...input, flex: 1 }} value={outputPath} onChange={(e) => setOutputPath(e.target.value)} placeholder="Đường dẫn video đầu ra..." />
++        <button className="secondary-btn" onClick={pickOutput} disabled={busy}>Chọn…</button>
++      </div>
++
++      <div style={{ display: "flex", gap: "8px" }}>
++        <button className="secondary-btn" onClick={handleCheck} disabled={busy || !project.scenes.length}>Kiểm tra dự án</button>
++        <button
++          className="primary-btn"
++          onClick={() => handleExport()}
++          disabled={busy || !project.scenes.length || !outputPath}
++          style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
++        >
++          <Film size={14} /> Xuất toàn bộ dự án
++        </button>
++      </div>
++
++      {busy && progress && (
++        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
++          <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: "#e2e8f0", overflow: "hidden" }}>
++            <div style={{ width: `${progress.percent}%`, height: "100%", background: "#3b82f6", transition: "width 0.2s" }} />
++          </div>
++          <span style={{ fontSize: "0.8rem", minWidth: "260px" }}>{progress.percent.toFixed(0)}% · {progress.message}</span>
++          <button className="secondary-btn" onClick={() => api.cancelWhiteboard().catch(() => {})} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
++            <XCircle size={14} /> Hủy
++          </button>
++        </div>
++      )}
++
++      {status && (
++        <div style={{ display: "flex", gap: "6px", alignItems: "flex-start", color: status.ok ? "#16a34a" : "#dc2626", fontSize: "0.9rem" }}>
++          {status.ok ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
++          <span style={{ wordBreak: "break-word" }}>{status.text}</span>
++        </div>
++      )}
++
++      {manifest && manifest.warnings.length > 0 && (
++        <div style={{ fontSize: "0.8rem", color: "#b45309" }}>
++          {manifest.warnings.map((w, k) => <div key={k}>⚠ {w}</div>)}
++        </div>
++      )}
++    </div>
++  );
++}
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/src-tauri/src/commands.rs work/src-tauri/src/commands.rs
+--- a/src-tauri/src/commands.rs	2026-11-07 06:35:23.000000000 +0000
++++ b/src-tauri/src/commands.rs	2026-11-07 09:30:43.679846867 +0000
+@@ -1700,6 +1700,54 @@
+ // G0: SYSTEM DIAGNOSTICS & SECRET MANAGEMENT
+ // ==========================================
+ 
++/// Kiểm tra dự án nhiều cảnh trước khi xuất: `{ errors: [{sceneId, field, message}], warnings }`.
++#[tauri::command]
++pub async fn validate_whiteboard_project(
++    project: serde_json::Value,
++    scene_ids: Option<Vec<String>>,
++    state: tauri::State<'_, AppState>,
++) -> Result<serde_json::Value, AppError> {
++    let wb = Arc::clone(&state.whiteboard);
++    whiteboard_blocking(move || wb.validate_project(project, scene_ids)).await
++}
++
++/// Xuất dự án nhiều cảnh ra MP4 (render từng cảnh có cache, nối, dựng audio, mux, kiểm tra).
++/// Tiến độ qua sự kiện `whiteboard-progress`; trả manifest. `scene_ids` để xuất riêng một số cảnh.
++#[tauri::command]
++pub async fn render_whiteboard_project(
++    project: serde_json::Value,
++    output_path: String,
++    scene_ids: Option<Vec<String>>,
++    app: tauri::AppHandle,
++    state: tauri::State<'_, AppState>,
++) -> Result<serde_json::Value, AppError> {
++    let wb = Arc::clone(&state.whiteboard);
++    whiteboard_blocking(move || {
++        wb.render_project(project, output_path, scene_ids, &|p| {
++            let _ = app.emit("whiteboard-progress", p.clone());
++        })
++    })
++    .await
++}
++
++/// Lưu dự án whiteboard (JSON, ghi nguyên tử).
++#[tauri::command]
++pub async fn save_whiteboard_project(path: String, project: serde_json::Value) -> Result<(), AppError> {
++    tauri::async_runtime::spawn_blocking(move || crate::executors::whiteboard::save_project_file(Path::new(&path), &project))
++        .await
++        .map_err(|e| AppError::Other(format!("Luồng lưu dự án bị lỗi: {}", e)))?
++        .map_err(|e| AppError::Other(e.to_string()))
++}
++
++/// Mở dự án whiteboard; từ chối tệp không phải dự án hoặc có schemaVersion mới hơn app.
++#[tauri::command]
++pub async fn load_whiteboard_project(path: String) -> Result<serde_json::Value, AppError> {
++    tauri::async_runtime::spawn_blocking(move || crate::executors::whiteboard::load_project_file(Path::new(&path)))
++        .await
++        .map_err(|e| AppError::Other(format!("Luồng mở dự án bị lỗi: {}", e)))?
++        .map_err(|e| AppError::Other(e.to_string()))
++}
++
+ #[tauri::command]
+ pub fn check_system_dependencies(app: tauri::AppHandle) -> crate::diagnostics::SystemDiagnostics {
+     crate::diagnostics::DiagnosticsManager::run_diagnostics(&app)
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/src-tauri/src/executors/whiteboard.rs work/src-tauri/src/executors/whiteboard.rs
+--- a/src-tauri/src/executors/whiteboard.rs	2026-11-07 06:35:23.000000000 +0000
++++ b/src-tauri/src/executors/whiteboard.rs	2026-11-07 09:38:15.281424149 +0000
+@@ -70,6 +70,23 @@
+         video_paths: Vec<String>,
+         output_path: String,
+     },
++    #[serde(rename = "validate_project")]
++    ValidateProject {
++        #[serde(default)]
++        task_id: String,
++        project: serde_json::Value,
++        #[serde(default, skip_serializing_if = "Option::is_none")]
++        scene_ids: Option<Vec<String>>,
++    },
++    #[serde(rename = "render_project")]
++    RenderProject {
++        #[serde(default)]
++        task_id: String,
++        project: serde_json::Value,
++        output_path: String,
++        #[serde(default, skip_serializing_if = "Option::is_none")]
++        scene_ids: Option<Vec<String>>,
++    },
+     #[serde(rename = "check_env")]
+     CheckEnv {
+         #[serde(default)]
+@@ -119,6 +136,8 @@
+     pub generate: Duration,
+     pub render: Duration,
+     pub merge: Duration,
++    /// Xuất cả dự án nhiều cảnh (render từng cảnh + nối + audio).
++    pub project: Duration,
+     pub install: Duration,
+ }
+ 
+@@ -130,6 +149,7 @@
+             generate: Duration::from_secs(120),
+             render: Duration::from_secs(30 * 60),
+             merge: Duration::from_secs(10 * 60),
++            project: Duration::from_secs(3 * 60 * 60),
+             install: Duration::from_secs(20 * 60),
+         }
+     }
+@@ -143,10 +163,46 @@
+     rx: Receiver<String>,
+ }
+ 
++/// Dừng cả cây tiến trình: runner Python và các tiến trình con của nó (ffmpeg, pip...).
++/// Unix: runner chạy trong nhóm tiến trình riêng (pgid == pid) nên kill cả nhóm.
++/// Windows: `taskkill /T /F`. Chỉ kill mỗi Python sẽ để ffmpeg chạy ngầm đến khi tự xong.
++fn kill_tree(child: &mut Child) {
++    let pid = child.id();
++    #[cfg(unix)]
++    {
++        let _ = Command::new("kill")
++            .args(["-KILL", "--", &format!("-{}", pid)])
++            .stdout(Stdio::null())
++            .stderr(Stdio::null())
++            .status();
++    }
++    #[cfg(windows)]
++    {
++        let mut c = Command::new("taskkill");
++        c.args(["/PID", &pid.to_string(), "/T", "/F"]).stdout(Stdio::null()).stderr(Stdio::null());
++        apply_no_window(&mut c);
++        let _ = c.status();
++    }
++    let _ = child.kill();
++}
++
++/// Đặt tiến trình con vào nhóm riêng để `kill_tree` dừng được cả nhóm (Unix).
++fn isolate_process_group(cmd: &mut Command) {
++    #[cfg(unix)]
++    {
++        use std::os::unix::process::CommandExt;
++        cmd.process_group(0);
++    }
++    #[cfg(not(unix))]
++    {
++        let _ = cmd;
++    }
++}
++
+ impl Proc {
+     fn kill(&self) {
+         if let Ok(mut c) = self.child.lock() {
+-            let _ = c.kill();
++            kill_tree(&mut c);
+             let _ = c.wait();
+         }
+     }
+@@ -193,10 +249,82 @@
+     }
+ }
+ 
++/// Tìm ffmpeg đi kèm app: cạnh file thực thi (bản cài đặt: Tauri đặt externalBin ở đây, bỏ hậu tố
++/// target-triple), hoặc `src-tauri/binaries/ffmpeg-<triple>` khi chạy dev. Không thấy thì Python dùng PATH.
++fn resolve_bundled_ffmpeg() -> Option<PathBuf> {
++    let exe_name = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
++    let mut dirs: Vec<PathBuf> = Vec::new();
++    if let Ok(exe) = std::env::current_exe() {
++        if let Some(d) = exe.parent() {
++            dirs.push(d.to_path_buf());
++        }
++    }
++    for d in &dirs {
++        let p = d.join(exe_name);
++        if p.is_file() {
++            return Some(p);
++        }
++    }
++    let mut dev: Vec<PathBuf> = Vec::new();
++    if let Ok(m) = std::env::var("CARGO_MANIFEST_DIR") {
++        dev.push(PathBuf::from(m).join("binaries"));
++    }
++    if let Ok(cwd) = std::env::current_dir() {
++        dev.push(cwd.join("binaries"));
++        dev.push(cwd.join("src-tauri").join("binaries"));
++    }
++    for d in dev {
++        if let Ok(rd) = std::fs::read_dir(&d) {
++            for e in rd.flatten() {
++                let name = e.file_name().to_string_lossy().to_string();
++                if name.starts_with("ffmpeg-") && !name.ends_with(".d") && e.path().is_file() {
++                    return Some(e.path());
++                }
++            }
++        }
++    }
++    None
++}
++
++/// Ghi dự án ra tệp JSON nguyên tử (ghi tệp tạm cạnh đích rồi đổi tên) để không bao giờ để lại tệp dở.
++pub fn save_project_file(path: &Path, project: &serde_json::Value) -> Result<()> {
++    if !project.is_object() {
++        return Err(anyhow!("Dự án phải là một đối tượng JSON"));
++    }
++    if let Some(parent) = path.parent() {
++        std::fs::create_dir_all(parent).with_context(|| format!("Không tạo được thư mục {:?}", parent))?;
++    }
++    let tmp = path.with_extension("json.tmp");
++    let text = serde_json::to_string_pretty(project)?;
++    std::fs::write(&tmp, text).with_context(|| format!("Không ghi được {:?}", tmp))?;
++    std::fs::rename(&tmp, path).with_context(|| format!("Không thay được {:?}", path))?;
++    Ok(())
++}
++
++/// Đọc dự án; từ chối tệp không phải dự án hoặc có schemaVersion mới hơn bản app hiểu.
++pub fn load_project_file(path: &Path) -> Result<serde_json::Value> {
++    let text = std::fs::read_to_string(path).with_context(|| format!("Không đọc được {:?}", path))?;
++    let v: serde_json::Value = serde_json::from_str(&text).with_context(|| format!("{:?} không phải JSON hợp lệ", path))?;
++    let ver = v.get("schemaVersion").and_then(|x| x.as_i64());
++    match ver {
++        None => Err(anyhow!("Tệp không phải dự án Whiteboard (thiếu schemaVersion)")),
++        Some(n) if n > PROJECT_SCHEMA_VERSION => Err(anyhow!(
++            "Dự án dùng schemaVersion {} mới hơn bản app này hiểu ({}); hãy cập nhật app",
++            n,
++            PROJECT_SCHEMA_VERSION
++        )),
++        Some(_) => Ok(v),
++    }
++}
++
++pub const PROJECT_SCHEMA_VERSION: i64 = 1;
++
+ pub struct WhiteboardPipeline {
+     runner_path: PathBuf,
+     skill_dir: PathBuf,
+     data_dir: Option<PathBuf>,
++    /// ffmpeg đi kèm app (externalBin) nếu tìm thấy; truyền cho runner qua XITRUM_FFMPEG.
++    ffmpeg_path: Option<PathBuf>,
+     timeouts: Timeouts,
+     /// Trình thông dịch ép dùng (đặt sau khi cài môi trường, hoặc trong kiểm thử).
+     python_override: Mutex<Option<PathBuf>>,
+@@ -254,6 +382,7 @@
+             runner_path,
+             skill_dir,
+             data_dir,
++            ffmpeg_path: resolve_bundled_ffmpeg(),
+             timeouts,
+             python_override: Mutex::new(python),
+             process: Mutex::new(None),
+@@ -289,7 +418,11 @@
+             .stdin(Stdio::piped())
+             .stdout(Stdio::piped())
+             .stderr(Stdio::inherit());
++        if let Some(ff) = &self.ffmpeg_path {
++            cmd.env("XITRUM_FFMPEG", ff); // runner dùng đúng ffmpeg đi kèm app thay vì chỉ dựa vào PATH
++        }
+         apply_no_window(&mut cmd);
++        isolate_process_group(&mut cmd);
+         let mut child = cmd.spawn().with_context(|| {
+             format!(
+                 "Không thể khởi động Whiteboard Python runner (python: {:?}, runner: {:?}). Đã cài Python chưa?",
+@@ -353,7 +486,7 @@
+         let child = lock(&self.current).clone();
+         if let Some(c) = child {
+             if let Ok(mut c) = c.lock() {
+-                let _ = c.kill();
++                kill_tree(&mut c);
+             }
+         }
+     }
+@@ -572,6 +705,33 @@
+         self.call(req, self.timeouts.merge, "ghép cảnh", on_progress)
+     }
+ 
++    /// Kiểm tra dự án (thiếu tệp, annotation vượt thời lượng, audio...). Trả `{errors, warnings}`.
++    pub fn validate_project(&self, project: serde_json::Value, scene_ids: Option<Vec<String>>) -> Result<serde_json::Value> {
++        let req = WhiteboardRequest::ValidateProject {
++            task_id: uuid::Uuid::new_v4().to_string(),
++            project,
++            scene_ids,
++        };
++        self.call(req, self.timeouts.quick, "kiểm tra dự án", &|_| {})
++    }
++
++    /// Xuất dự án nhiều cảnh ra MP4 (có audio nếu dự án có). Trả manifest.
++    pub fn render_project(
++        &self,
++        project: serde_json::Value,
++        output_path: String,
++        scene_ids: Option<Vec<String>>,
++        on_progress: &dyn Fn(&serde_json::Value),
++    ) -> Result<serde_json::Value> {
++        let req = WhiteboardRequest::RenderProject {
++            task_id: uuid::Uuid::new_v4().to_string(),
++            project,
++            output_path,
++            scene_ids,
++        };
++        self.call(req, self.timeouts.project, "xuất dự án", on_progress)
++    }
++
+     /// Kiểm tra môi trường Python. Không bao giờ trả lỗi: sự cố được mô tả trong `ok:false` + `error`
+     /// để giao diện hiện banner hướng dẫn cài đặt.
+     pub fn check_env(&self) -> serde_json::Value {
+@@ -624,6 +784,7 @@
+             .stdout(Stdio::piped())
+             .stderr(Stdio::piped());
+         apply_no_window(&mut cmd);
++        isolate_process_group(&mut cmd);
+         let mut child = cmd
+             .spawn()
+             .context("Không chạy được Python hệ thống để cài môi trường (đã cài Python 3 và thêm vào PATH chưa?)")?;
+@@ -671,12 +832,12 @@
+                 }
+             }
+             if self.cancelled.load(Ordering::SeqCst) {
+-                let _ = child.kill();
++                kill_tree(&mut child);
+                 let _ = child.wait();
+                 return Err(anyhow!("CANCELLED: Đã hủy cài đặt môi trường"));
+             }
+             if Instant::now() >= deadline {
+-                let _ = child.kill();
++                kill_tree(&mut child);
+                 let _ = child.wait();
+                 return Err(anyhow!("Cài môi trường quá {} giây; đã dừng", self.timeouts.install.as_secs()));
+             }
+@@ -735,6 +896,11 @@
+         send({"type": "done", "task_id": tid, "action": a, "data": {"pid": os.getpid()}})
+         send({"type": "done", "task_id": "tre-muon", "action": a, "data": {"stray": True}})
+     elif mode == "hang": time.sleep(3600)
++    elif mode == "spawn-child":
++        import subprocess
++        ch = subprocess.Popen(["sleep", "300"])
++        with open(mark + ".child", "w") as f: f.write(str(ch.pid))
++        time.sleep(3600)
+     elif mode == "die": os._exit(1)
+     elif mode == "quit-after":
+         send({"type": "done", "task_id": tid, "action": a, "data": {"pid": os.getpid()}}); os._exit(0)
+@@ -782,7 +948,11 @@
+     fn pid_alive(pid: i64) -> bool {
+         #[cfg(target_os = "linux")]
+         {
+-            Path::new(&format!("/proc/{}", pid)).exists()
++            // Zombie (đã chết, chưa được tiến trình cha thu dọn) không tính là còn sống.
++            match std::fs::read_to_string(format!("/proc/{}/stat", pid)) {
++                Ok(s) => s.rsplit(')').next().map(|r| !r.trim_start().starts_with('Z')).unwrap_or(false),
++                Err(_) => false,
++            }
+         }
+         #[cfg(not(target_os = "linux"))]
+         {
+@@ -846,6 +1016,78 @@
+     }
+ 
+     #[test]
++    fn cancel_kills_child_processes_of_the_runner() {
++        // Python (runner) sinh tiến trình con như ffmpeg; hủy phải dừng cả cây, không chỉ Python.
++        let f = Arc::new(fixture(quick()));
++        let f2 = Arc::clone(&f);
++        let h = std::thread::spawn(move || render(&f2, "spawn-child", "t1", &|_| {}, Duration::from_secs(60)));
++        let child_file = f.dir.join("marks.txt.child");
++        let t0 = Instant::now();
++        while !child_file.exists() && t0.elapsed() < Duration::from_secs(10) {
++            std::thread::sleep(Duration::from_millis(50));
++        }
++        let child_pid: i64 = std::fs::read_to_string(&child_file).unwrap().trim().parse().unwrap();
++        assert!(pid_alive(child_pid), "tiến trình con phải đang chạy trước khi hủy");
++        f.pipe.cancel();
++        assert!(h.join().unwrap().unwrap_err().to_string().starts_with("CANCELLED"));
++        std::thread::sleep(Duration::from_millis(300));
++        assert!(!pid_alive(child_pid), "tiến trình con (ffmpeg) của runner không được chạy ngầm sau khi hủy");
++    }
++
++    #[test]
++    fn timeout_also_kills_child_processes() {
++        let f = fixture(quick());
++        let _ = render(&f, "spawn-child", "t1", &|_| {}, Duration::from_millis(1500)).unwrap_err();
++        let child_pid: i64 = std::fs::read_to_string(f.dir.join("marks.txt.child")).unwrap().trim().parse().unwrap();
++        std::thread::sleep(Duration::from_millis(300));
++        assert!(!pid_alive(child_pid));
++    }
++
++    #[test]
++    fn project_requests_have_expected_wire_shape() {
++        let v = serde_json::to_value(WhiteboardRequest::RenderProject {
++            task_id: "t".into(),
++            project: serde_json::json!({"schemaVersion": 1}),
++            output_path: "/o.mp4".into(),
++            scene_ids: Some(vec!["s2".into()]),
++        })
++        .unwrap();
++        assert_eq!(v["action"], "render_project");
++        assert_eq!(v["output_path"], "/o.mp4");
++        assert_eq!(v["scene_ids"][0], "s2");
++        let v = serde_json::to_value(WhiteboardRequest::ValidateProject {
++            task_id: "t".into(),
++            project: serde_json::json!({}),
++            scene_ids: None,
++        })
++        .unwrap();
++        assert_eq!(v["action"], "validate_project");
++        assert!(v.get("scene_ids").is_none());
++    }
++
++    #[test]
++    fn project_file_roundtrip_and_guards() {
++        let dir = std::env::temp_dir().join(format!("wb_rs_proj_{}", std::process::id()));
++        let _ = std::fs::remove_dir_all(&dir);
++        let path = dir.join("sub").join("demo.wbproj.json");
++        let project = serde_json::json!({"schemaVersion": 1, "id": "p", "scenes": [{"id": "s1", "tên": "Cảnh đầu"}]});
++        save_project_file(&path, &project).unwrap();
++        assert!(!path.with_extension("json.tmp").exists(), "không để lại tệp tạm");
++        assert_eq!(load_project_file(&path).unwrap(), project);
++        let project2 = serde_json::json!({"schemaVersion": 1, "id": "p2", "scenes": []});
++        save_project_file(&path, &project2).unwrap();
++        assert_eq!(load_project_file(&path).unwrap()["id"], "p2");
++        std::fs::write(&path, "{\"a\":1}").unwrap();
++        assert!(load_project_file(&path).unwrap_err().to_string().contains("schemaVersion"));
++        std::fs::write(&path, "{\"schemaVersion\": 99}").unwrap();
++        assert!(load_project_file(&path).unwrap_err().to_string().contains("mới hơn"));
++        std::fs::write(&path, "khong phai json").unwrap();
++        assert!(load_project_file(&path).is_err());
++        assert!(save_project_file(&path, &serde_json::json!([1, 2])).is_err());
++        let _ = std::fs::remove_dir_all(&dir);
++    }
++
++    #[test]
+     fn crash_mid_request_is_not_retried() {
+         let f = fixture(quick());
+         let err = render(&f, "die", "t1", &|_| {}, Duration::from_secs(20)).unwrap_err().to_string();
+diff -ruN -x node_modules -x dist -x binaries -x __pycache__ -x target -x .git orig/src-tauri/src/lib.rs work/src-tauri/src/lib.rs
+--- a/src-tauri/src/lib.rs	2026-11-07 06:35:23.000000000 +0000
++++ b/src-tauri/src/lib.rs	2026-11-07 09:30:43.680220279 +0000
+@@ -128,6 +128,10 @@
+             cancel_whiteboard,
+             check_whiteboard_env,
+             install_whiteboard_env,
++            validate_whiteboard_project,
++            render_whiteboard_project,
++            save_whiteboard_project,
++            load_whiteboard_project,
+             check_system_dependencies,
+             save_os_secret,
+             delete_os_secret,

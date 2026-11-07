@@ -68,6 +68,7 @@ impl PathResolver {
     pub fn resolve_whiteboard_runner(app: &AppHandle) -> Option<PathBuf> {
         let candidates = vec![
             app.path().resource_dir().ok().map(|d| d.join("sidecar-whiteboard").join("whiteboard_runner.py")),
+            app.path().resource_dir().ok().map(|d| d.join("_up_").join("sidecar-whiteboard").join("whiteboard_runner.py")),
             app.path().resource_dir().ok().map(|d| d.join("resources").join("sidecar-whiteboard").join("whiteboard_runner.py")),
             std::env::var("CARGO_MANIFEST_DIR").ok().map(|d| PathBuf::from(d).join("..").join("sidecar-whiteboard").join("whiteboard_runner.py")),
             std::env::current_dir().ok().map(|d| d.join("sidecar-whiteboard").join("whiteboard_runner.py")),

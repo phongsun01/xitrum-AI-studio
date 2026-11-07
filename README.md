@@ -5,7 +5,24 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.7.6 (Whiteboard Pen Preset Selector & Project Metadata Roundtrip)
+## 📦 Phiên Bản Hiện Tại: v0.7.7 (Audio-Driven Compact Timeline, Rich Thumbnail Generator & Character Bible Expansion)
+
+Nâng cấp quan trọng phân hệ **Whiteboard Explainer Animation** với cơ chế căn chỉnh timeline theo giọng đọc và tạo thumbnail chuyên nghiệp:
+
+### ⏱️ 1. Căn Chỉnh Timeline Theo Giọng Đọc Thực Tế (Audio-Driven Compact Timeline)
+- **Tự Động Nén Thời Gian Cảnh (Compact Scene Windows)**: Tự động căn chỉnh và co giãn thời lượng cảnh khớp chính xác theo tốc độ đọc TTS thực tế, tránh các khoảng lặng thừa và giữ trọn vẹn lời thoại.
+- **Bảo Vệ Mapping Cảnh & SRT Nguồn**: Giữ nguyên liên kết ảnh/cảnh với từng nhóm câu phụ đề, không làm lệch hay ghi đè file SRT gốc.
+
+### 🖼️ 2. Trình Tạo Thumbnail Bắt Mắt (Rich Thumbnail Generator & Typography)
+- **Thumbnail Khởi Đầu 2 Giây Tự Động**: Tự động render và ghép ảnh bìa (thumbnail) vào 2 giây đầu video thành phẩm.
+- **Hệ Thống Phông Chữ Đa Dạng & Stroke/Shadow Hiệu Ứng**: Hỗ trợ 9 phông chữ Việt hóa ấn tượng (Bungee, Montserrat, Bangers, Playfair...) với hiệu ứng viền chữ (stroke), bóng đổ (drop shadow), badge nhãn nổi bật và overlay tương phản cao.
+
+### 👥 3. Mở Rộng Thư Viện Nhân Vật Lịch Sử (Character Bible)
+- Bổ sung bộ ảnh minh họa nhân vật lịch sử Tam Quốc chất lượng cao cho kịch bản và hoạt họa bảng trắng.
+
+---
+
+## 📦 Lịch Sử Phiên Bản: v0.7.6 (Whiteboard Pen Preset Selector & Project Metadata Roundtrip)
 
 Cập nhật giao diện và cơ chế quản lý preset bút vẽ cho phân hệ **Whiteboard Explainer Animation**:
 

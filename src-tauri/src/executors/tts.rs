@@ -29,6 +29,8 @@ pub enum TtsRequest {
         srt_path: String,
         voice_id: String,
         output_path: String,
+        auto_timing: bool,
+        scene_cue_ranges: Vec<[usize; 2]>,
     },
     Exit,
 }
@@ -47,6 +49,9 @@ pub enum TtsResponse {
         output_path: String,
         duration_sec: f32,
         voice_id: Option<String>,
+        aligned_srt_path: Option<String>,
+        cues: Option<serde_json::Value>,
+        scenes: Option<serde_json::Value>,
     },
     Error {
         task_id: Option<String>,
@@ -239,7 +244,9 @@ impl TtsPipeline {
         srt_path: &Path,
         voice_id: &str,
         output_path: &Path,
-    ) -> Result<(String, f32)> {
+        auto_timing: bool,
+        scene_cue_ranges: Vec<[usize; 2]>,
+    ) -> Result<serde_json::Value> {
         let (mut child, mut stdin, mut reader) = self.spawn_runner().await?;
 
         let req = TtsRequest::GenerateSrtTts {
@@ -247,6 +254,8 @@ impl TtsPipeline {
             srt_path: srt_path.to_string_lossy().to_string(),
             voice_id: voice_id.to_string(),
             output_path: output_path.to_string_lossy().to_string(),
+            auto_timing,
+            scene_cue_ranges,
         };
 
         let line = serde_json::to_string(&req)? + "\n";
@@ -263,7 +272,9 @@ impl TtsPipeline {
         let _ = child.kill().await;
 
         match resp {
-            TtsResponse::Done { output_path, duration_sec, .. } => Ok((output_path, duration_sec)),
+            TtsResponse::Done { output_path, duration_sec, aligned_srt_path, cues, scenes, .. } =>
+                Ok(serde_json::json!({ "audio_path": output_path, "duration_sec": duration_sec,
+                    "aligned_srt_path": aligned_srt_path, "cues": cues, "scenes": scenes })),
             TtsResponse::Error { message, .. } => Err(anyhow!("Lỗi tạo SRT TTS: {}", message)),
             _ => Err(anyhow!("Phản hồi không mong muốn khi sinh giọng đọc từ SRT")),
         }

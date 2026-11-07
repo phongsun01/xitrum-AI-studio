@@ -11,6 +11,7 @@ export interface WhiteboardRegion {
 }
 
 export interface WhiteboardReveal {
+  mode?: "draw" | "instant" | "fade";
   startMs: number;
   durationMs: number;
   direction: "left_to_right" | "top_to_bottom" | "right_to_left" | "bottom_to_top" | string;
@@ -45,10 +46,28 @@ export interface WhiteboardAnnotation {
   elements: WhiteboardElement[];
 }
 
+export interface WhiteboardAlignedScene {
+  sceneIndex: number;
+  timelineStartMs: number;
+  timelineEndMs: number;
+  sceneDurationMs: number;
+  speechEndMs: number;
+  cueRange: [number, number];
+}
+
+export interface WhiteboardSrtTtsResponse {
+  audio_path: string;
+  duration_sec: number;
+  aligned_srt_path?: string | null;
+  cues?: WhiteboardSrtCue[] | null;
+  scenes?: WhiteboardAlignedScene[] | null;
+}
+
 export interface WhiteboardSrtCue {
   index: number;
   startMs: number;
   endMs: number;
+  speechEndMs?: number;
   durMs: number;
   text: string;
 }
@@ -130,6 +149,7 @@ export interface WhiteboardSceneItem {
   timelineStartMs: number;
   timelineEndMs: number;
   durationMs: number;
+  speechEndMs?: number;
   cues: WhiteboardSrtCue[];
   status: WhiteboardSceneStatus;
   audioPath?: string;
@@ -179,6 +199,22 @@ export const WHITEBOARD_PEN_OPTIONS: WhiteboardPenOption[] = [
   { id: "wand", name: "Bút đũa phép thuật", filename: "wand-pen.png", desc: "Đũa thần kỳ ảo đính ngọc phép" },
 ];
 
+export type WhiteboardFontId = "charm" | "mali" | "bitter" | "grenzegotisch" | "chakrapetch" | "bevietnampro";
+export type WhiteboardFontChoice = "auto" | WhiteboardFontId;
+
+export interface WhiteboardThumbnailDraft {
+  fontChoice?: WhiteboardFontChoice;
+  title: string;
+  imagePath: string;
+}
+
+export interface WhiteboardThumbnail extends WhiteboardThumbnailDraft {
+  penType: WhiteboardPenType;
+  pngDataUrl: string;
+  layout?: "full-bleed-top";
+  typographyVersion?: number;
+}
+
 export interface WhiteboardProject {
   id: string;
   schemaVersion: number;
@@ -187,7 +223,10 @@ export interface WhiteboardProject {
   fps: number;
   paperColor: string;
   handPath?: string;
+  thumbnail?: WhiteboardThumbnail;
+  thumbnailDraft?: WhiteboardThumbnailDraft;
   scenes: WhiteboardSceneItem[];
+  sourceSrtPath?: string;
   masterAudioPath?: string;
   outputVideoPath?: string;
 }

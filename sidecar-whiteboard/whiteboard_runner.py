@@ -263,30 +263,45 @@ def _has_timing(c):
             and isinstance(c.get("endMs"), (int, float)))
 
 
-def _plan_timing(k, cue_chunks, duration_ms):
+def _plan_timing(k, cue_chunks, duration_ms, weights=None):
+    """Finish drawing before speech ends; fall back to a weighted scene budget.
+
+    A short scene must never be extended merely to satisfy a minimum stroke time.
+    Weights approximate complexity by region size, not equal time per rectangle.
     """
-    Trả về [(startMs, durationMs)] cho k phần tử, vẽ lần lượt (stream chỉ có một đầu bút).
-    Dùng mốc thời gian của phụ đề khi hợp lệ và nằm trong thời lượng cảnh; nếu không thì chia đều.
-    Mốc phụ đề được hiểu là tương đối theo cảnh (0 = đầu cảnh) khi chúng đã nằm trọn trong
-    [0, duration_ms]; ngược lại coi là mốc tuyệt đối trên timeline SRT và dịch về câu đầu tiên.
-    """
-    if cue_chunks and all(_has_timing(c) for chunk in cue_chunks for c in chunk):
+    if k <= 0:
+        return []
+    duration_ms = max(1, int(duration_ms))
+    timed = bool(cue_chunks) and all(chunk and all(_has_timing(c) for c in chunk) for chunk in cue_chunks)
+    if timed:
         first = cue_chunks[0][0]["startMs"]
         last = max(c["endMs"] for chunk in cue_chunks for c in chunk)
-        base = 0 if (first >= 0 and last <= duration_ms) else first
-        spans = [(int(ch[0]["startMs"] - base), int(ch[-1]["endMs"] - base)) for ch in cue_chunks]
-        in_order = all(spans[i][1] <= spans[i + 1][0] + 1 for i in range(k - 1))
-        if in_order and all(e > s for s, e in spans) and spans[-1][1] <= duration_ms:
-            return [(s, max(e - s - 100, 600)) for s, e in spans]
-
-    lead, tail = 200, 500
-    step = max(duration_ms - lead - tail, 1000) / k
-    return [(int(lead + i * step), max(int(step * 0.9), 500)) for i in range(k)]
+        base = 0 if first >= 0 and last <= duration_ms else first
+        spans = [(int(ch[0]["startMs"]-base),
+                  int((ch[-1].get("speechEndMs") if ch[-1].get("speechEndMs") is not None else ch[-1]["endMs"]-1000)-base)) for ch in cue_chunks]
+        if (len(spans) == k and all(0 <= start < end <= duration_ms for start,end in spans)
+                and all(spans[i][1] <= spans[i+1][0] for i in range(k-1))):
+            return [(start, max(1, end-start-min(500, max(0, (end-start)//4)))) for start,end in spans]
+    lead = min(100, duration_ms//10)
+    # No measured speech: reserve one second reaction + half second ahead of speech end.
+    end = max(lead+1, duration_ms-min(1500, duration_ms//4))
+    usable = end-lead
+    ws = weights if weights and len(weights) == k else [1]*k
+    ws = [max(0.001, float(w)) for w in ws]
+    total = sum(ws)
+    starts, cumulative = [], 0.0
+    for w in ws:
+        start = lead+int(usable*cumulative/total)
+        cumulative += w
+        stop = min(duration_ms, lead+int(usable*cumulative/total))
+        starts.append((min(start,duration_ms-1), max(1,stop-start)))
+    return starts
 
 
 def _build_elements(boxes, width, height, cue_chunks, duration_ms):
     k = len(boxes)
-    timing = _plan_timing(k, cue_chunks, duration_ms)
+    timing = _plan_timing(k, cue_chunks, duration_ms,
+                          [math.sqrt(max(1, (x1-x0)*(y1-y0))) for x0,y0,x1,y1 in boxes])
     elements = []
     for i, box in enumerate(boxes):
         x0, y0, x1, y1 = box
@@ -563,26 +578,26 @@ def handle_merge_scenes(req):
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-    target_video_out = output_path
-    temp_concat_video = None
-    if master_audio_path and os.path.exists(master_audio_path):
-        temp_concat_video = output_path + ".v_concat.mp4"
-        target_video_out = temp_concat_video
-
-    # Khớp với CLI của merge_scenes.py: --inputs ... --output ...
-    cmd_args = ["--inputs", *video_paths, "--output", target_video_out]
-    ret_code = merge_scenes.main(cmd_args)
-    if ret_code != 0:
-        raise RuntimeError(f"Ghép các phân cảnh thất bại, exit code: {ret_code}")
-
-    if temp_concat_video and os.path.exists(temp_concat_video):
-        ok = whiteboard_audio.mux_video_and_audio(temp_concat_video, master_audio_path, output_path)
-        try:
-            os.remove(temp_concat_video)
-        except Exception:
-            pass
-        if not ok:
-            raise RuntimeError(f"Gắn master audio thất bại cho video hoàn chỉnh: {output_path}")
+    import tempfile
+    cover_png = req.get("thumbnail_png")
+    # Mux master before prepending the cover so BOTH master and per-scene audio shift 2s.
+    with tempfile.TemporaryDirectory(prefix="wb-merge-", dir=os.path.dirname(os.path.abspath(output_path))) as tmp:
+        concat_out = os.path.join(tmp, "concat.mp4")
+        cmd_args = ["--inputs", *video_paths, "--output", concat_out]
+        ret_code = merge_scenes.main(cmd_args)
+        if ret_code != 0:
+            raise RuntimeError(f"Ghép các phân cảnh thất bại, exit code: {ret_code}")
+        body_out = concat_out
+        if master_audio_path:
+            body_out = os.path.join(tmp, "body.mp4")
+            if not whiteboard_audio.mux_video_and_audio(concat_out, master_audio_path, body_out):
+                raise RuntimeError(f"Gắn master audio thất bại: {output_path}")
+        if cover_png:
+            from whiteboard_thumbnail import prepend_thumbnail
+            send_progress(req.get("task_id", ""), 97, "Đang chèn thumbnail 2 giây đầu...")
+            prepend_thumbnail(body_out, cover_png, output_path)
+        else:
+            os.replace(body_out, output_path)
 
     return {
         "output_path": output_path,

@@ -727,6 +727,8 @@ pub async fn preview_tts_voice(
 pub async fn generate_whiteboard_srt_tts(
     srt_path: String,
     voice_id: String,
+    auto_timing: Option<bool>,
+    scene_cue_ranges: Option<Vec<[usize; 2]>>,
     _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
     let srt_p = std::path::Path::new(&srt_path);
@@ -737,18 +739,14 @@ pub async fn generate_whiteboard_srt_tts(
     // Đặt file audio cùng thư mục với SRT hoặc trong output_dir
     let parent = srt_p.parent().unwrap_or(std::path::Path::new("."));
     let stem = srt_p.file_stem().and_then(|s| s.to_str()).unwrap_or("whiteboard_master");
-    let output_file = parent.join(format!("{}_{}.wav", stem, voice_id.replace(' ', "_")));
+    let output_file = parent.join(format!("{}_{}_{}.wav", stem, voice_id.replace(' ', "_"), uuid::Uuid::new_v4()));
 
     let pipeline = crate::executors::tts::TtsPipeline::new();
-    let (audio_path, duration_sec) = pipeline
-        .synthesize_srt("whiteboard_srt_tts", srt_p, &voice_id, &output_file)
+    pipeline
+        .synthesize_srt("whiteboard_srt_tts", srt_p, &voice_id, &output_file,
+                        auto_timing.unwrap_or(false), scene_cue_ranges.unwrap_or_default())
         .await
-        .map_err(|e| AppError::Other(e.to_string()))?;
-
-    Ok(serde_json::json!({
-        "audio_path": audio_path,
-        "duration_sec": duration_sec
-    }))
+        .map_err(|e| AppError::Other(e.to_string()))
 }
 
 // ==========================================
@@ -1730,7 +1728,7 @@ pub async fn merge_whiteboard_scenes(
 ) -> Result<serde_json::Value, AppError> {
     let wb = Arc::clone(&state.whiteboard);
     whiteboard_blocking(move || {
-        wb.merge_scenes(video_paths, output_path, master_audio_path, &|p| {
+        wb.merge_scenes(video_paths, output_path, master_audio_path, None, &|p| {
             let _ = app.emit("whiteboard-progress", p.clone());
         })
     })
@@ -1759,6 +1757,8 @@ pub struct WhiteboardSceneItem {
     pub timeline_end_ms: i64,
     #[serde(rename = "durationMs")]
     pub duration_ms: i64,
+    #[serde(rename = "speechEndMs", default, skip_serializing_if = "Option::is_none")]
+    pub speech_end_ms: Option<i64>,
     #[serde(default)]
     pub cues: Vec<serde_json::Value>,
     pub status: String,
@@ -1789,6 +1789,69 @@ pub struct WhiteboardSceneItem {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhiteboardThumbnailDraft {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_choice: Option<String>,
+    pub title: String,
+    pub image_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhiteboardThumbnail {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_choice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typography_version: Option<u32>,
+    pub title: String,
+    pub image_path: String,
+    pub pen_type: String,
+    pub png_data_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<String>,
+}
+
+fn thumbnail_png(thumbnail: &WhiteboardThumbnail) -> anyhow::Result<String> {
+    use base64::{engine::general_purpose, Engine as _};
+    anyhow::ensure!(!thumbnail.title.trim().is_empty(), "Thumbnail thiếu tiêu đề");
+    let encoded = thumbnail.png_data_url.strip_prefix("data:image/png;base64,")
+        .ok_or_else(|| anyhow::anyhow!("Thumbnail phải là PNG"))?;
+    anyhow::ensure!(encoded.len() <= 24 * 1024 * 1024, "Thumbnail quá lớn");
+    let bytes = general_purpose::STANDARD.decode(encoded)?;
+    let reader = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format()?;
+    anyhow::ensure!(reader.format() == Some(image::ImageFormat::Png)
+        && reader.into_dimensions()? == (1280, 720), "Thumbnail phải là PNG 1280×720");
+    Ok(encoded.to_string())
+}
+
+/// Read local cover/scene images through IPC rather than relying on asset:// canvas CORS.
+#[tauri::command]
+pub async fn read_whiteboard_cover_image(image_path: String, app: tauri::AppHandle) -> Result<String, AppError> {
+    whiteboard_blocking(move || {
+        use base64::{engine::general_purpose, Engine as _};
+        let mut path = PathBuf::from(&image_path);
+        if !path.is_absolute() {
+            anyhow::ensure!(path.components().count() == 1, "Tên asset bút không hợp lệ");
+            let runner = crate::paths::PathResolver::resolve_whiteboard_runner(&app)
+                .ok_or_else(|| anyhow::anyhow!("Không tìm thấy tài nguyên whiteboard"))?;
+            path = runner.parent().unwrap().join("assets").join(path);
+        }
+        anyhow::ensure!(std::fs::metadata(&path)?.len() <= 32 * 1024 * 1024, "Ảnh bìa vượt 32 MB");
+        let mut reader = image::ImageReader::open(&path)?.with_guessed_format()?;
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(16384);
+        limits.max_image_height = Some(16384);
+        limits.max_alloc = Some(256 * 1024 * 1024);
+        reader.limits(limits);
+        let image = reader.decode()?.thumbnail(1600, 1600);
+        let mut png = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut png, image::ImageFormat::Png)?;
+        Ok(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(png.into_inner())))
+    }).await
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct WhiteboardProject {
     pub id: String,
     #[serde(rename = "schemaVersion")]
@@ -1800,7 +1863,13 @@ pub struct WhiteboardProject {
     pub paper_color: String,
     #[serde(rename = "handPath", skip_serializing_if = "Option::is_none")]
     pub hand_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<WhiteboardThumbnail>,
+    #[serde(rename = "thumbnailDraft", default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail_draft: Option<WhiteboardThumbnailDraft>,
     pub scenes: Vec<WhiteboardSceneItem>,
+    #[serde(rename = "sourceSrtPath", default, skip_serializing_if = "Option::is_none")]
+    pub source_srt_path: Option<String>,
     #[serde(rename = "masterAudioPath", skip_serializing_if = "Option::is_none")]
     pub master_audio_path: Option<String>,
     #[serde(rename = "outputVideoPath", skip_serializing_if = "Option::is_none")]
@@ -1857,6 +1926,43 @@ pub async fn save_whiteboard_project(
         .map_err(|e| AppError::Other(format!("Lỗi lưu tệp dự án nguyên tử: {}", e)))?;
 
     Ok(serde_json::json!({ "success": true, "filePath": file_path }))
+}
+
+#[tauri::command]
+pub async fn retime_whiteboard_annotation(
+    file_path: String,
+    duration_ms: u64,
+    speech_end_ms: u64,
+) -> Result<serde_json::Value, AppError> {
+    if duration_ms == 0 || speech_end_ms == 0 || speech_end_ms > duration_ms {
+        return Err(AppError::Other("Thời lượng TTS không hợp lệ".into()));
+    }
+    let path = std::path::Path::new(&file_path);
+    let mut annotation: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(path).map_err(|e| AppError::Other(e.to_string()))?
+    ).map_err(|e| AppError::Other(e.to_string()))?;
+    // Preserve hand-edited geometry, order, protected regions and source canvas.
+    let elements = annotation.get_mut("elements").and_then(|v| v.as_array_mut())
+        .ok_or_else(|| AppError::Other("Annotation thiếu elements".into()))?;
+    let old_end = elements.iter().map(|e| {
+        e["reveal"]["startMs"].as_f64().unwrap_or(0.0) + e["reveal"]["durationMs"].as_f64().unwrap_or(1.0)
+    }).fold(1.0_f64, f64::max);
+    let draw_end = speech_end_ms.saturating_sub(500).max(1);
+    for e in elements.iter_mut() {
+        let old_start = e["reveal"]["startMs"].as_f64().unwrap_or(0.0).max(0.0);
+        let old_duration = e["reveal"]["durationMs"].as_f64().unwrap_or(1.0).max(1.0);
+        let start = ((old_start / old_end * draw_end as f64).floor() as u64).min(draw_end-1);
+        let end = (((old_start+old_duration) / old_end * draw_end as f64).floor() as u64).max(start+1).min(draw_end);
+        e["reveal"]["startMs"] = serde_json::json!(start);
+        e["reveal"]["durationMs"] = serde_json::json!(end-start);
+    }
+    annotation["sceneDurationMs"] = serde_json::json!(duration_ms);
+    annotation["speechEndMs"] = serde_json::json!(speech_end_ms);
+    let output = path.with_file_name(format!("{}.tts-{}.json",
+        path.file_stem().and_then(|v| v.to_str()).unwrap_or("annotation"), uuid::Uuid::new_v4()));
+    let data = serde_json::to_string_pretty(&annotation).map_err(|e| AppError::Other(e.to_string()))?;
+    std::fs::write(&output, data).map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(serde_json::json!({"annotation_path": output.to_string_lossy(), "elements": annotation["elements"]}))
 }
 
 #[tauri::command]
@@ -1923,6 +2029,9 @@ pub async fn render_whiteboard_project(
     let should_resume = resume.unwrap_or(false);
     whiteboard_blocking(move || {
         validate_whiteboard_project_timeline(&project)?;
+        let cover = project.thumbnail.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Hãy tạo thumbnail và xem trước trước khi xuất dự án"))?;
+        let cover_png = thumbnail_png(cover)?;
         let out_dir = std::path::Path::new(&output_video_path)
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."));
@@ -2047,6 +2156,7 @@ pub async fn render_whiteboard_project(
             rendered_videos,
             final_tmp_out.clone(),
             project.master_audio_path.clone(),
+            Some(cover_png),
             &|p| {
                 let _ = app.emit("whiteboard-progress", p.clone());
             },
@@ -2156,6 +2266,39 @@ mod whiteboard_review_regression_tests {
     }
 
     #[test]
+    fn whiteboard_thumbnail_roundtrip_and_png_validation() {
+        use base64::{engine::general_purpose, Engine as _};
+        let mut p = project(); // Old projects without a cover still open.
+        assert!(p.thumbnail.is_none());
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(1280, 720).write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let encoded = general_purpose::STANDARD.encode(png.into_inner());
+        p.thumbnail = Some(WhiteboardThumbnail {
+            font_choice: Some("grenzegotisch".into()), typography_version: Some(1),
+            title: "Tam Anh Chiến Lữ Bố".into(), image_path: "cover.png".into(),
+            layout: Some("full-bleed-top".into()),
+            pen_type: "quill".into(), png_data_url: format!("data:image/png;base64,{}", encoded),
+        });
+        p.thumbnail_draft = Some(WhiteboardThumbnailDraft { title: "Bản nháp mới".into(), image_path: "other.png".into(), font_choice: Some("auto".into()) });
+        let path = std::env::temp_dir().join(format!("wb-thumbnail-{}.json", uuid::Uuid::new_v4()));
+        let name = path.to_string_lossy().to_string();
+        tauri::async_runtime::block_on(save_whiteboard_project(name.clone(), p)).unwrap();
+        let mut reopened = tauri::async_runtime::block_on(load_whiteboard_project(name)).unwrap();
+        let cover = reopened.thumbnail.as_mut().unwrap();
+        assert_eq!(cover.title, "Tam Anh Chiến Lữ Bố");
+        assert_eq!(cover.pen_type, "quill");
+        assert_eq!(cover.font_choice.as_deref(), Some("grenzegotisch"));
+        assert_eq!(cover.typography_version, Some(1));
+        assert_eq!(cover.layout.as_deref(), Some("full-bleed-top"));
+        assert_eq!(thumbnail_png(cover).unwrap(), encoded);
+        assert_eq!(reopened.thumbnail_draft.as_ref().unwrap().title, "Bản nháp mới");
+        assert_eq!(reopened.thumbnail_draft.as_ref().unwrap().font_choice.as_deref(), Some("auto"));
+        cover.png_data_url = "data:image/png;base64,broken".into();
+        assert!(thumbnail_png(cover).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn whiteboard_master_timeline_rejects_reorder_and_retime() {
         let mut p = project();
         assert!(validate_whiteboard_project_timeline(&p).is_ok());
@@ -2216,5 +2359,40 @@ mod whiteboard_review_regression_tests {
         publish_whiteboard_scene(&part, &final_path).unwrap();
         assert!(!std::path::Path::new(&format!("{}.manifest.json",final_path)).exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod audio_timing_regression_tests {
+    use super::*;
+
+    #[test]
+    fn retime_preserves_manual_geometry_and_source_annotation() {
+        let dir = std::env::temp_dir().join(format!("wb-timing-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("source.json");
+        let original = serde_json::json!({"schemaVersion":1,"canvas":{"width":2752,"height":1536},
+            "storyBasis":"manual","sceneDurationMs":50000,
+            "elements":[{"id":"manual","sequence":1,"region":{"x":7,"y":8,"width":90,"height":80},
+                "reveal":{"mode":"fade","startMs":1000,"durationMs":39000,"direction":"top_to_bottom"}}]});
+        std::fs::write(&input, serde_json::to_string(&original).unwrap()).unwrap();
+        let result = tauri::async_runtime::block_on(retime_whiteboard_annotation(
+            input.to_string_lossy().to_string(),23000,22000)).unwrap();
+        let output = result["annotation_path"].as_str().unwrap();
+        assert_ne!(output,input.to_string_lossy());
+        let retimed: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(output).unwrap()).unwrap();
+        assert_eq!(retimed["canvas"],original["canvas"]);
+        assert_eq!(retimed["elements"][0]["region"],original["elements"][0]["region"]);
+        assert_eq!(retimed["elements"][0]["reveal"]["mode"],"fade");
+        let reveal=&retimed["elements"][0]["reveal"];
+        assert_eq!(reveal["startMs"].as_u64().unwrap()+reveal["durationMs"].as_u64().unwrap(),21500);
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&input).unwrap()).unwrap(),original);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn invalid_speech_window_is_rejected_before_reading_annotation() {
+        let result = tauri::async_runtime::block_on(retime_whiteboard_annotation("missing.json".into(),1000,2000));
+        assert!(result.unwrap_err().to_string().contains("Thời lượng TTS"));
     }
 }

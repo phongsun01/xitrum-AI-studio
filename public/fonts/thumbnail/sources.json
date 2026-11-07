@@ -1,0 +1,41 @@
+{
+  "commit": "86aced91de05cd4f96a06838124cca45be337b2b",
+  "fonts": [
+    {
+      "id": "charm",
+      "file": "charm.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/charm/Charm-Bold.ttf",
+      "license": "OFL-1.1"
+    },
+    {
+      "id": "mali",
+      "file": "mali.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/mali/Mali-SemiBold.ttf",
+      "license": "OFL-1.1"
+    },
+    {
+      "id": "grenzegotisch",
+      "file": "grenzegotisch.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/grenzegotisch/GrenzeGotisch%5Bwght%5D.ttf",
+      "license": "OFL-1.1"
+    },
+    {
+      "id": "bitter",
+      "file": "bitter.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/bitter/Bitter%5Bwght%5D.ttf",
+      "license": "OFL-1.1"
+    },
+    {
+      "id": "bevietnampro",
+      "file": "bevietnampro.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/bevietnampro/BeVietnamPro-Bold.ttf",
+      "license": "OFL-1.1"
+    },
+    {
+      "id": "chakrapetch",
+      "file": "chakrapetch.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/chakrapetch/ChakraPetch-Bold.ttf",
+      "license": "OFL-1.1"
+    }
+  ]
+}

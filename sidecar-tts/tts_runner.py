@@ -203,6 +203,90 @@ def generate_srt_tts(srt_path, voice_id, output_path):
     return round(duration_sec, 2)
 
 
+def generate_srt_tts_aligned(srt_path, voice_id, output_path, scene_cue_ranges=None):
+    """Synthesize first, then compact scene windows without stretching the voice.
+
+    Source SRT is never overwritten. Group ranges preserve the editor's scene/image mapping.
+    """
+    import re
+    import math
+    raw = Path(srt_path).read_text(encoding="utf-8-sig")
+    cues = []
+    for block in re.split(r"\n\s*\n", raw.strip()):
+        lines = block.splitlines()
+        ti = next((i for i, line in enumerate(lines) if "-->" in line), None)
+        if ti is None:
+            continue
+        text = " ".join(line.strip() for line in lines[ti + 1:]).strip()
+        if not text:
+            raise ValueError("SRT_EMPTY_CUE: Mục SRT không có lời đọc")
+        # Validate even though the source times are not reused in compact mode.
+        matches = re.findall(r"(\d+):(\d{2}):(\d{2})[,.](\d{1,3})", lines[ti])
+        if len(matches) != 2:
+            raise ValueError("SRT_INVALID_TIME: Mốc thời gian không hợp lệ")
+        def millis(t):
+            h, m, s, ms = t
+            return ((int(h)*60+int(m))*60+int(s))*1000+int(ms.ljust(3, "0"))
+        if millis(matches[1]) <= millis(matches[0]):
+            raise ValueError("SRT_INVALID_TIME: Thời gian kết thúc phải sau bắt đầu")
+        cues.append(text)
+    if not cues:
+        raise ValueError("File SRT không có câu phụ đề hợp lệ")
+    ranges = scene_cue_ranges or [[i, i] for i in range(1, len(cues)+1)]
+    cursor = 1
+    for pair in ranges:
+        if (len(pair) != 2 or any(type(x) is not int for x in pair)
+                or pair[0] != cursor or pair[1] < pair[0] or pair[1] > len(cues)):
+            raise ValueError("SRT_SCENE_RANGES: Các cảnh phải phủ đủ cue theo thứ tự, không trùng")
+        cursor = pair[1]+1
+    if cursor != len(cues)+1:
+        raise ValueError("SRT_SCENE_RANGES: Thiếu cue trong phân cảnh")
+
+    tts = get_tts()
+    target = voice_id
+    if target not in tts._preset_voices:
+        target = next((k for k in tts._preset_voices if k.lower() in target.lower() or target.lower() in k.lower()), tts._default_voice)
+    sr = tts.sample_rate
+    chunks, aligned, scenes = [], [], []
+    samples = 0
+    for scene_index, (first, last) in enumerate(ranges, 1):
+        scene_start = round(samples*1000/sr)
+        for i in range(first, last+1):
+            wav = np.asarray(tts.infer(cues[i-1], voice=target), dtype=np.float32).reshape(-1)
+            if not len(wav) or not np.isfinite(wav).all():
+                raise ValueError("TTS_INVALID_AUDIO: Audio rỗng hoặc không hữu hạn")
+            start = round(samples*1000/sr)
+            chunks.append(wav); samples += len(wav)
+            speech_end = math.ceil(samples*1000/sr)
+            pause_ms = 1000 if i == last else 150
+            silence = np.zeros(math.ceil(pause_ms*sr/1000), dtype=np.float32)
+            chunks.append(silence); samples += len(silence)
+            end = round(samples*1000/sr)
+            aligned.append(dict(index=i, startMs=start, endMs=end, durMs=end-start,
+                                speechEndMs=speech_end, text=cues[i-1]))
+        scenes.append(dict(sceneIndex=scene_index, timelineStartMs=scene_start,
+                           timelineEndMs=end, sceneDurationMs=end-scene_start,
+                           speechEndMs=speech_end-scene_start, cueRange=[first,last]))
+    audio = np.concatenate(chunks)
+    peak = float(np.max(np.abs(audio)))
+    if peak > 1:
+        audio *= 0.98/peak
+    def stamp(ms):
+        h, ms = divmod(ms, 3600000); m, ms = divmod(ms, 60000); s, ms = divmod(ms,1000)
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+    target_path = Path(output_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    aligned_path = target_path.with_suffix('.aligned.srt')
+    if aligned_path.resolve() == Path(srt_path).resolve():
+        raise ValueError("SRT_OUTPUT_CONFLICT: Không ghi đè SRT nguồn")
+    srt = "\n\n".join(f"{c['index']}\n{stamp(c['startMs'])} --> {stamp(c['endMs'])}\n{c['text']}" for c in aligned)+"\n"
+    import soundfile as sf
+    sf.write(str(target_path), audio, sr)
+    temp = aligned_path.with_suffix('.srt.tmp')
+    temp.write_text(srt, encoding='utf-8'); os.replace(temp, aligned_path)
+    return dict(duration_sec=round(samples/sr, 3), aligned_srt_path=str(aligned_path), cues=aligned, scenes=scenes)
+
+
 def main():
     send_json({"type": "ready", "message": "VieNeu-TTS Runner Ready (stdin/stdout JSON-RPC)"})
 
@@ -247,12 +331,14 @@ def main():
                     send_json({"type": "error", "task_id": task_id, "message": "Thiếu srt_path hoặc output_path"})
                     continue
 
-                duration = generate_srt_tts(srt_path, voice_id, output_path)
+                result = (generate_srt_tts_aligned(srt_path, voice_id, output_path, req.get("scene_cue_ranges"))
+                          if req.get("auto_timing", False) else
+                          {"duration_sec": generate_srt_tts(srt_path, voice_id, output_path)})
                 send_json({
                     "type": "done",
                     "task_id": task_id,
                     "output_path": output_path,
-                    "duration_sec": duration,
+                    **result,
                     "voice_id": voice_id
                 })
 

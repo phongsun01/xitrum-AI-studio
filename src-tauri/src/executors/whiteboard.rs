@@ -133,6 +133,8 @@ pub enum WhiteboardRequest {
         output_path: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         master_audio_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thumbnail_png: Option<String>,
     },
     #[serde(rename = "check_env")]
     CheckEnv {
@@ -740,6 +742,7 @@ impl WhiteboardPipeline {
         video_paths: Vec<String>,
         output_path: String,
         master_audio_path: Option<String>,
+        thumbnail_png: Option<String>,
         on_progress: &dyn Fn(&serde_json::Value),
     ) -> Result<serde_json::Value> {
         let req = WhiteboardRequest::MergeScenes {
@@ -747,6 +750,7 @@ impl WhiteboardPipeline {
             video_paths,
             output_path,
             master_audio_path,
+            thumbnail_png,
         };
         self.call(req, self.timeouts.merge, "ghép cảnh", on_progress)
     }

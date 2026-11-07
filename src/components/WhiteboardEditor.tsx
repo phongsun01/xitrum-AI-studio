@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
 import {
   WhiteboardProject,
+  WhiteboardThumbnail,
+  WhiteboardFontChoice,
   WhiteboardSceneItem,
   WhiteboardEnvCheck,
   WhiteboardPenType,
@@ -30,7 +32,14 @@ import {
   Volume2,
   VolumeX,
   Eye,
+  Image as ImageIcon,
+  Sparkles,
 } from "lucide-react";
+
+import { applyAlignedTiming } from "../lib/whiteboardTiming";
+import { COVER_LAYOUT, COVER_TYPOGRAPHY_VERSION, createWhiteboardThumbnail } from "../lib/whiteboardThumbnail";
+
+import { THUMBNAIL_FONTS, loadCoverFont, resolveCoverFont, normalizeCoverFontChoice } from "../lib/whiteboardFonts";
 
 const errText = (e: any): string => String(e?.message ?? e);
 const isCancelled = (e: any): boolean => errText(e).startsWith("CANCELLED");
@@ -48,6 +57,11 @@ export function WhiteboardEditor() {
 
   const [fps, setFps] = useState(30);
   const [paperColor, setPaperColor] = useState("#F5EBD7");
+  const [thumbnailTitle, setThumbnailTitle] = useState("");
+  const [thumbnailImagePath, setThumbnailImagePath] = useState("");
+  const [thumbnailFontChoice, setThumbnailFontChoice] = useState<WhiteboardFontChoice>("auto");
+  const [thumbnailFontError, setThumbnailFontError] = useState("");
+  const [thumbnail, setThumbnail] = useState<WhiteboardThumbnail>();
   const [penType, setPenType] = useState<WhiteboardPenType>("pen");
 
   const resolveHandFilename = (type: WhiteboardPenType): string => {
@@ -57,8 +71,9 @@ export function WhiteboardEditor() {
 
   const resolvePenTypeFromPath = (handPath?: string): WhiteboardPenType => {
     if (!handPath) return "pen";
+    const basename = handPath.split(/[/\\]/).pop();
     const found = WHITEBOARD_PEN_OPTIONS.find(
-      (opt) => opt.filename === handPath || handPath.includes(opt.id) || handPath.includes(opt.filename.replace(".png", ""))
+      (opt) => opt.filename === basename || opt.id === handPath
     );
     return found ? found.id : "pen";
   };
@@ -82,6 +97,11 @@ export function WhiteboardEditor() {
   const [generatingTts, setGeneratingTts] = useState(false);
   const [ttsSuccess, setTtsSuccess] = useState(false);
   const [exactCues, setExactCues] = useState(true);
+  const [autoTiming, setAutoTiming] = useState(true);
+  const scenesRef = useRef(scenes);
+  scenesRef.current = scenes;
+  const ttsInputRef = useRef("");
+  ttsInputRef.current = JSON.stringify([srtPath, selectedVoice]);
 
   // Modal xác nhận xuất video
   const [showAudioConfirmModal, setShowAudioConfirmModal] = useState(false);
@@ -89,6 +109,58 @@ export function WhiteboardEditor() {
   const [existingScenesCount, setExistingScenesCount] = useState(0);
 
   const activeScene = scenes[selectedSceneIndex] || null;
+  const coverSource = thumbnailImagePath || scenes.find((scene) => scene.imagePath)?.imagePath || "";
+  const coverFont = resolveCoverFont(penType, thumbnailFontChoice);
+  const thumbnailReady = Boolean(
+    thumbnail &&
+      thumbnail.title === thumbnailTitle.trim() &&
+      thumbnail.imagePath === coverSource &&
+      thumbnail.penType === penType &&
+      thumbnail.layout === COVER_LAYOUT &&
+      thumbnail.typographyVersion === COVER_TYPOGRAPHY_VERSION &&
+      (thumbnail.fontChoice ?? "auto") === thumbnailFontChoice
+  );
+
+  useEffect(() => {
+    let active = true;
+    setThumbnailFontError("");
+    loadCoverFont(coverFont.id).catch((error) => {
+      if (active) setThumbnailFontError(errText(error));
+    });
+    return () => { active = false; };
+  }, [coverFont.id]);
+
+  const handleCreateThumbnail = async () => {
+    if (!thumbnailTitle.trim() || !coverSource) {
+      setStatusMsg({ text: "Nhập tiêu đề và chọn ảnh minh họa trước khi tạo thumbnail.", ok: false });
+      return;
+    }
+    setLoading(true);
+    setProgress({ percent: 0, message: "Đang tạo thumbnail..." });
+    try {
+      const title = thumbnailTitle.trim();
+      const illustration = await api.readWhiteboardCoverImage(coverSource);
+      const pngDataUrl = await createWhiteboardThumbnail(title, penType, illustration, thumbnailFontChoice);
+      setThumbnail({ title, imagePath: coverSource, penType, pngDataUrl, layout: COVER_LAYOUT,
+        fontChoice: thumbnailFontChoice, typographyVersion: COVER_TYPOGRAPHY_VERSION });
+      setThumbnailImagePath(coverSource);
+      setStatusMsg({ text: "Đã tạo thumbnail. Lưu dự án để giữ ảnh bìa này; khi xuất sẽ chèn đúng 2 giây đầu.", ok: true });
+    } catch (e) {
+      setStatusMsg({ text: `Lỗi tạo thumbnail: ${errText(e)}`, ok: false });
+    } finally {
+      setLoading(false);
+      setProgress(null);
+    }
+  };
+
+  const handlePickCoverImage = async () => {
+    try {
+      const path = await api.pickFile([{ name: "Ảnh bìa", extensions: ["png", "jpg", "jpeg"] }]);
+      if (path) setThumbnailImagePath(path);
+    } catch (e) {
+      setStatusMsg({ text: `Lỗi chọn ảnh bìa: ${errText(e)}`, ok: false });
+    }
+  };
 
   const refreshEnv = async () => {
     try {
@@ -252,22 +324,46 @@ export function WhiteboardEditor() {
       setStatusMsg({ text: "Vui lòng chọn tệp SRT trước khi tạo giọng đọc.", ok: false });
       return;
     }
+    if (autoTiming && (!scenes.length || scenes.some(s => !s.cues.length))) {
+      setStatusMsg({ text: "Hãy Chia Cảnh từ SRT trước để giữ đúng cảnh và ảnh khi căn TTS.", ok: false });
+      return;
+    }
+    const snapshot = JSON.stringify(scenes);
+    const originalScenes = scenes;
+    const inputSnapshot = ttsInputRef.current;
+    setLoading(true);
     setGeneratingTts(true);
     setTtsSuccess(false);
     setStatusMsg(null);
     try {
-      const res = await api.generateWhiteboardSrtTts(srtPath, selectedVoice);
+      await annotationSaveQueue.current;
+      const ranges = originalScenes.map(s => [s.cues[0]?.index, s.cues[s.cues.length - 1]?.index]);
+      const res = await api.generateWhiteboardSrtTts(srtPath, selectedVoice, autoTiming, autoTiming ? ranges : []);
+      if (JSON.stringify(scenesRef.current) !== snapshot || ttsInputRef.current !== inputSnapshot) throw new Error("Cảnh đã thay đổi khi tạo TTS. Hãy tạo lại với phân cảnh mới.");
+      if (autoTiming) {
+        const next = applyAlignedTiming(originalScenes, res);
+        for (const scene of next) {
+          if (scene.annotationPath) {
+            const retimed = await api.retimeWhiteboardAnnotation(scene.annotationPath, scene.durationMs, scene.speechEndMs!);
+            scene.annotationPath = retimed.annotation_path;
+            scene.elements = retimed.elements;
+          }
+        }
+        if (JSON.stringify(scenesRef.current) !== snapshot || ttsInputRef.current !== inputSnapshot) throw new Error("Cảnh đã thay đổi. Timeline cũ được giữ nguyên; hãy tạo lại TTS.");
+        setScenes(next);
+        setSrtPath(res.aligned_srt_path!);
+        setOutputVideoPath("");
+        setProjectRevision(v => v + 1);
+      }
       setMasterAudioPath(res.audio_path);
       setTtsSuccess(true);
-      setStatusMsg({
-        text: `Đã tạo giọng đọc VieNeu Master Audio (${res.duration_sec}s): ${res.audio_path}`,
-        ok: true,
-      });
+      setStatusMsg({ text: `Đã tạo TTS (${res.duration_sec}s)${autoTiming ? ", căn lại cảnh và lịch vẽ; cần render lại" : ", giữ mốc SRT"}: ${res.audio_path}`, ok: true });
     } catch (e: any) {
       setTtsSuccess(false);
       setStatusMsg({ text: `Lỗi tạo giọng đọc từ SRT: ${errText(e)}`, ok: false });
     } finally {
       setGeneratingTts(false);
+      setLoading(false);
     }
   };
 
@@ -412,7 +508,11 @@ export function WhiteboardEditor() {
         activeScene.id,
         "Hoạt hình phân cảnh",
         activeScene.durationMs,
-        activeScene.cues,
+        activeScene.cues.map(c => ({ ...c,
+          startMs: c.startMs - activeScene.timelineStartMs,
+          endMs: c.endMs - activeScene.timelineStartMs,
+          speechEndMs: c.speechEndMs === undefined ? undefined : c.speechEndMs - activeScene.timelineStartMs,
+        })),
         targetPath,
         true
       );
@@ -452,6 +552,13 @@ export function WhiteboardEditor() {
   };
 
   // R6: Chỉnh sửa trực quan các vùng vẽ (Elements Editor)
+  const handleUpdateElementMode = async (index: number, mode: "draw" | "instant" | "fade") => {
+    if (!activeScene?.elements) return;
+    const elements = activeScene.elements.map((e, i) => i === index ? { ...e, reveal: { ...e.reveal, mode } } : e);
+    updateActiveScene({ elements, status: "idle", outputPath: undefined });
+    await syncAnnotationElements(elements);
+  };
+
   const handleUpdateElementDirection = async (elIndex: number, newDirection: string) => {
     if (!activeScene || !activeScene.elements) return;
     const updatedElements = [...activeScene.elements];
@@ -664,6 +771,7 @@ export function WhiteboardEditor() {
       }
     }
 
+    projectTitle = thumbnailTitle.trim() || projectTitle;
     const nextRevision = projectRevision + 1;
     const project: WhiteboardProject = {
       id: projectId,
@@ -673,7 +781,10 @@ export function WhiteboardEditor() {
       fps,
       paperColor,
       handPath: resolveHandFilename(penType),
+      thumbnail,
+      thumbnailDraft: { title: thumbnailTitle, imagePath: thumbnailImagePath, fontChoice: thumbnailFontChoice },
       scenes,
+      sourceSrtPath: srtPath || undefined,
       masterAudioPath: masterAudioPath || undefined,
       outputVideoPath,
     };
@@ -698,7 +809,12 @@ export function WhiteboardEditor() {
       setFps(proj.fps || 30);
       setPaperColor(proj.paperColor || "#F5EBD7");
       setPenType(resolvePenTypeFromPath(proj.handPath));
+      setThumbnail(proj.thumbnail);
+      setThumbnailFontChoice(normalizeCoverFontChoice(proj.thumbnailDraft?.fontChoice ?? proj.thumbnail?.fontChoice));
+      setThumbnailTitle(proj.thumbnailDraft?.title ?? proj.thumbnail?.title ?? proj.title ?? "");
+      setThumbnailImagePath(proj.thumbnailDraft?.imagePath ?? proj.thumbnail?.imagePath ?? "");
       setScenes(proj.scenes || []);
+      setSrtPath(proj.sourceSrtPath || "");
       setMasterAudioPath(proj.masterAudioPath || "");
       setOutputVideoPath(proj.outputVideoPath || "");
       setSelectedSceneIndex(0);
@@ -712,15 +828,22 @@ export function WhiteboardEditor() {
   const executeRenderProject = async (targetOut: string, resumeMode: boolean) => {
     try { await annotationSaveQueue.current; }
     catch (e) { setStatusMsg({ text: `Chưa lưu được annotation: ${errText(e)}`, ok: false }); return; }
+    if (!thumbnailReady) {
+      setStatusMsg({ text: "Hãy tạo hoặc tạo lại thumbnail và xem trước trước khi xuất dự án.", ok: false });
+      return;
+    }
     const project: WhiteboardProject = {
       id: projectId,
       schemaVersion: 1,
       revision: projectRevision,
-      title: "Whiteboard Project",
+      title: thumbnailTitle.trim() || "Whiteboard Project",
       fps,
       paperColor,
       handPath: resolveHandFilename(penType),
+      thumbnail,
+      thumbnailDraft: { title: thumbnailTitle, imagePath: thumbnailImagePath, fontChoice: thumbnailFontChoice },
       scenes: exportWithoutAudio.current ? scenes.map((scene) => ({ ...scene, audioPath: undefined })) : scenes,
+      sourceSrtPath: srtPath || undefined,
       masterAudioPath: exportWithoutAudio.current ? undefined : masterAudioPath || undefined,
       outputVideoPath: targetOut,
     };
@@ -748,6 +871,10 @@ export function WhiteboardEditor() {
   // Xuất toàn bộ dự án (có kiểm tra audio và resume các cảnh đã có)
   const handleRenderFullProject = async (forceNoAudio: boolean = false) => {
     exportWithoutAudio.current = forceNoAudio;
+    if (!thumbnailReady) {
+      setStatusMsg({ text: "Hãy tạo hoặc tạo lại thumbnail và xem trước trước khi xuất dự án.", ok: false });
+      return;
+    }
     if (scenes.length === 0) {
       setStatusMsg({ text: "Dự án chưa có phân cảnh nào.", ok: false });
       return;
@@ -907,7 +1034,7 @@ export function WhiteboardEditor() {
       )}
 
       {/* Bố cục 2 Cột: Quản lý Phân Cảnh & Chi Tiết Cảnh */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(380px, 420px) minmax(0, 1fr)", gap: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(460px, 500px) minmax(0, 1fr)", gap: "16px" }}>
         {/* Cột 1: Danh sách Phân Cảnh */}
         <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column", gap: "10px", minWidth: 0, boxSizing: "border-box" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -918,6 +1045,33 @@ export function WhiteboardEditor() {
             <button className="secondary-btn" onClick={handleAddScene} style={{ padding: "4px 8px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
               <Plus size={12} /> Thêm Cảnh
             </button>
+          </div>
+
+          {/* Chọn Loại bút vẽ chung cho toàn bộ dự án & thumbnail */}
+          <div style={{ background: "#ffffff", padding: "8px 10px", borderRadius: "6px", border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", gap: "4px" }}>
+            <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-main)", display: "flex", alignItems: "center", gap: "5px" }}>
+              <PenTool size={13} color="var(--primary)" /> Loại bút vẽ toàn dự án:
+            </label>
+            <select
+              aria-label="Loại bút vẽ toàn dự án"
+              value={penType}
+              onChange={(e) => setPenType(e.target.value as WhiteboardPenType)}
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                fontSize: "12px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                background: "#ffffff",
+                fontWeight: 500,
+              }}
+            >
+              {WHITEBOARD_PEN_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.name} ({opt.desc})
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Phân tích SRT & Tạo TTS */}
@@ -951,6 +1105,11 @@ export function WhiteboardEditor() {
               </label>
             </div>
 
+            <label style={{ fontSize: "12px" }}>
+              <input type="checkbox" checked={autoTiming} disabled={loading || generatingTts}
+                onChange={e => setAutoTiming(e.target.checked)} />
+              Tự căn thời lượng theo TTS (giữ nguyên cảnh và ảnh)
+            </label>
             {/* Tạo giọng đọc VieNeu-TTS 1 chạm từ file SRT */}
             <div style={{ display: "flex", gap: "6px", alignItems: "center", width: "100%", boxSizing: "border-box" }}>
               <select
@@ -1341,6 +1500,13 @@ export function WhiteboardEditor() {
                           <option value="bottom_to_top">Dưới lên trên (B↑T)</option>
                         </select>
 
+                        <select value={el.reveal.mode || "draw"} disabled={loading}
+                          onChange={e => handleUpdateElementMode(idx, e.target.value as "draw" | "instant" | "fade")}
+                          title="Cách hiện vùng: nền có thể hiện ngay, chỉ vẽ chi tiết quan trọng">
+                          <option value="draw">Vẽ nét</option>
+                          <option value="instant">Hiện ngay</option>
+                          <option value="fade">Hiện nhanh</option>
+                        </select>
                         <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
                           <input
                             type="number"
@@ -1367,10 +1533,10 @@ export function WhiteboardEditor() {
               </div>
             )}
 
-            {/* Thời lượng & Cấu hình */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+            {/* Thời lượng & Cấu hình cảnh */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
               <div>
-                <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>Thời lượng (ms)</label>
+                <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>Thời lượng cảnh (ms)</label>
                 <input
                   type="number"
                   value={activeScene.durationMs}
@@ -1386,20 +1552,6 @@ export function WhiteboardEditor() {
                   onChange={(e) => setPaperColor(e.target.value)}
                   style={{ width: "100%", padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
                 />
-              </div>
-              <div>
-                <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>Loại bút vẽ</label>
-                <select
-                  value={penType}
-                  onChange={(e) => setPenType(e.target.value as WhiteboardPenType)}
-                  style={{ width: "100%", padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
-                >
-                  {WHITEBOARD_PEN_OPTIONS.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.name} ({opt.desc})
-                    </option>
-                  ))}
-                </select>
               </div>
             </div>
 
@@ -1424,6 +1576,303 @@ export function WhiteboardEditor() {
             Chọn hoặc thêm một phân cảnh để bắt đầu cấu hình.
           </div>
         )}
+      </div>
+
+      {/* Phần Ảnh Bìa / Thumbnail (2 giây đầu) - Đặt dưới phần phân cảnh, chia 2 cột thẳng hàng đồng bộ */}
+      <div
+        style={{
+          background: "#ffffff",
+          border: "1px solid var(--border-color)",
+          borderRadius: "10px",
+          padding: "16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "12px",
+          boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+          opacity: loading ? 0.7 : 1,
+          pointerEvents: loading ? "none" : "auto",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div
+              style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "6px",
+                background: "#eff6ff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--primary)",
+              }}
+            >
+              <ImageIcon size={16} />
+            </div>
+            <div>
+              <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600, color: "var(--text-main)" }}>
+                Ảnh Bìa Dự Án (Thumbnail · 2 giây mở đầu)
+              </h4>
+              <p style={{ margin: 0, fontSize: "11px", color: "var(--text-muted)" }}>
+                Ảnh tràn khung, tiêu đề phía trên. Font tiếng Việt offline, hiệu ứng theo bút và watermark xitrum-AI-studio. Thoại phân cảnh bắt đầu sau 2s ảnh bìa.
+              </p>
+            </div>
+          </div>
+          {thumbnail && (
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              {thumbnailReady ? (
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: "#166534",
+                    background: "#f0fdf4",
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    border: "1px solid #bbf7d0",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <CheckCircle2 size={12} /> Thumbnail sẵn sàng
+                </span>
+              ) : (
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: "#b45309",
+                    background: "#fffbeb",
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    border: "1px solid #fde68a",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <AlertCircle size={12} /> Bìa cần cập nhật · Nhấn tạo lại
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(460px, 500px) minmax(0, 1fr)",
+            gap: "16px",
+            alignItems: "start",
+          }}
+        >
+          {/* Cột trái: Cấu hình thông số bìa (thẳng hàng chuẩn với Cột 1 Phân Cảnh) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "4px" }}>
+                Tiêu đề ảnh bìa <span style={{ color: "#ef4444" }}>*</span>
+              </label>
+              <input
+                type="text"
+                maxLength={160}
+                aria-label="Tiêu đề ảnh bìa"
+                value={thumbnailTitle}
+                onChange={(e) => setThumbnailTitle(e.target.value)}
+                placeholder="VD: Tam Anh Chiến Lữ Bố · Hồi 5 Tam Quốc Diễn Nghĩa"
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "7px 10px",
+                  fontSize: "13px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                }}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="wb-cover-font" style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>Font tiêu đề</label>
+              <select id="wb-cover-font" value={thumbnailFontChoice} disabled={loading}
+                onChange={(e) => setThumbnailFontChoice(e.target.value as WhiteboardFontChoice)}
+                style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}>
+                <option value="auto">Tự động theo bút ({resolveCoverFont(penType).label})</option>
+                {THUMBNAIL_FONTS.map((font) => <option key={font.id} value={font.id}>{font.label}</option>)}
+              </select>
+              <div style={{ fontFamily: coverFont.family, fontWeight: coverFont.weight, fontSize: 24, padding: "8px 0", lineHeight: 1.5 }}>
+                {thumbnailTitle.trim() || "Tiếng Việt · Trường Giang · Lữ Bố"}
+              </div>
+              <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)" }}>
+                Font dùng offline, đủ dấu tiếng Việt. Hiệu ứng theo bút; chọn “Tự động theo bút” để font đổi cùng bút. Nhấn tạo lại thumbnail để áp dụng.
+              </p>
+              {thumbnailFontError && <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>{thumbnailFontError}</span>}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div style={{ background: "#f8fafc", padding: "6px 10px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block" }}>
+                  Bút vẽ theo dự án:
+                </span>
+                <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--primary)" }}>
+                  {WHITEBOARD_PEN_OPTIONS.find((opt) => opt.id === penType)?.name || "Bút tiêu chuẩn"}
+                </span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "4px" }}>
+                  Nguồn ảnh minh họa bìa
+                </label>
+                <div style={{ display: "flex", gap: "4px" }}>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={handlePickCoverImage}
+                    style={{ flex: 1, padding: "5px 8px", fontSize: "11px", justifyContent: "center", whiteSpace: "nowrap" }}
+                  >
+                    Chọn ảnh riêng
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={() => setThumbnailImagePath("")}
+                    title="Dùng ảnh của phân cảnh đầu tiên làm minh họa bìa"
+                    style={{ flex: 1, padding: "5px 8px", fontSize: "11px", justifyContent: "center", whiteSpace: "nowrap" }}
+                  >
+                    Cảnh đầu
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                fontSize: "11px",
+                color: "#64748b",
+                background: "#f8fafc",
+                padding: "6px 10px",
+                borderRadius: "6px",
+                border: "1px solid #e2e8f0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+              }}
+            >
+              <span style={{ fontWeight: 500, color: "#475569" }}>Ảnh đang dùng:</span>
+              <span
+                style={{
+                  fontFamily: "monospace",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  color: coverSource ? "#1e293b" : "#94a3b8",
+                }}
+                title={coverSource || "Chưa có ảnh minh họa"}
+              >
+                {coverSource ? coverSource.split(/[/\\]/).pop() : "Chưa chọn (sẽ lấy cảnh #1)"}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "2px" }}>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={handleCreateThumbnail}
+                disabled={loading || !thumbnailTitle.trim() || !coverSource}
+                style={{
+                  padding: "7px 14px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <Sparkles size={14} />
+                {thumbnail ? "Tạo lại Thumbnail" : "Tạo Thumbnail"}
+              </button>
+              {thumbnail && (
+                <a
+                  href={thumbnail.pngDataUrl}
+                  download="thumbnail.png"
+                  className="secondary-btn"
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: "12px",
+                    textDecoration: "none",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <Download size={13} /> Tải ảnh PNG
+                </a>
+              )}
+            </div>
+          </div>
+
+          {/* Cột phải: Khung hiển thị xem trước trực quan Thumbnail (thẳng hàng với Cột 2 Chi Tiết Cảnh) */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "6px",
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: "8px",
+              padding: "10px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "11px", fontWeight: 600, color: "#64748b" }}>Xem trước (Ảnh tràn khung · Tiêu đề phía trên)</span>
+              {thumbnail && (
+                <span style={{ fontSize: "10px", color: "#059669", background: "#dcfce7", padding: "1px 6px", borderRadius: "3px", fontWeight: 600 }}>
+                  HD 720p
+                </span>
+              )}
+            </div>
+
+            {thumbnail ? (
+              <div
+                style={{
+                  width: "100%",
+                  aspectRatio: "16 / 9",
+                  borderRadius: "6px",
+                  overflow: "hidden",
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.06)",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                }}
+              >
+                <img
+                  src={thumbnail.pngDataUrl}
+                  alt="Xem trước thumbnail đã tạo"
+                  style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+                />
+              </div>
+            ) : (
+              <div
+                style={{
+                  width: "100%",
+                  aspectRatio: "16 / 9",
+                  borderRadius: "6px",
+                  border: "1px dashed #cbd5e1",
+                  background: "#ffffff",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px",
+                  color: "var(--text-muted)",
+                }}
+              >
+                <ImageIcon size={28} color="#94a3b8" />
+                <span style={{ fontSize: "12px" }}>Nhấn “Tạo Thumbnail” để xem trước</span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Modal 1: Cảnh báo chưa có file âm thanh khi Xuất toàn bộ */}

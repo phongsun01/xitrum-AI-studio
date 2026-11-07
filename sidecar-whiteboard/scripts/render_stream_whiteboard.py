@@ -541,6 +541,16 @@ class RegionStreamRenderer:
                 target_end_frame = min(target_total_frames, int(round((start_ms + dur_ms) * cfg.fps / 1000.0)))
                 region_total_frames = max(1, target_end_frame - target_start_frame)
 
+                mode = reveal.get("mode", "draw")
+                if mode in ("instant", "fade"):
+                    before = self.drawn.copy()
+                    fade_frames = 1 if mode == "instant" else max(1, min(region_total_frames, round(cfg.fps * 0.2)))
+                    for frame in range(fade_frames):
+                        alpha = (frame+1)/fade_frames
+                        self.drawn[allowed] = before[allowed]*(1-alpha) + self.color_img[allowed]*alpha
+                        write_frame(self.drawn.clip(0,255).astype(np.uint8))
+                    continue
+
                 # Cải tiến W5: Trích xuất strokes nét vẽ trước để tính độ dài thực tế
                 strokes = None
                 samples: list[tuple[int, int]] = []

@@ -54,6 +54,22 @@ Vào tab **Whiteboard** trên thanh điều hướng ứng dụng:
 
 ---
 
+## Ảnh bìa thumbnail và đoạn mở đầu 2 giây
+
+Trong khung **Ảnh bìa · 2 giây đầu**, nhập tiêu đề, chọn một trong 10 mẫu bút và chọn ảnh PNG/JPG riêng hoặc **Dùng ảnh cảnh đầu**. Bấm **Tạo thumbnail** để dựng ảnh bìa bằng Fabric.js và xem trước ngay trên giao diện. Ảnh minh họa phủ kín khung 16:9, tiêu đề căn giữa trong khoảng trống 30% phía trên. Nên chuẩn bị tranh có vùng trời/giấy thoáng ở phía trên và nhân vật ở phía dưới. Mỗi mẫu bút có preset kiểu chữ và màu chữ riêng; ảnh minh họa gốc không được AI chuyển phong cách. Watermark nhỏ `xitrum-AI-studio` luôn có trên bìa.
+
+**Font tiêu đề** mặc định là **Tự động theo bút**: bút lông dùng Charm, bút tre dùng Mali, bút lông vũ/vintage dùng Bitter, bút kỹ thuật/cyberpunk dùng Chakra Petch, bút digital/bút dạ dùng Be Vietnam Pro, bút pha lê dùng Charm và wand dùng Grenze Gotisch (Gothic fantasy). Hiệu ứng đi theo bút: mực thư pháp, nét cổ điển, neon, ánh pha lê hoặc chữ vàng với quầng sáng tím cho wand. Đây là font fantasy độc lập, không phải font thương hiệu Harry Potter.
+
+Có thể chọn riêng một trong 6 font; lúc đó đổi bút chỉ đổi hiệu ứng, giữ nguyên font đã chọn. Chọn lại **Tự động theo bút** để khôi phục đổi font tự động. Cả 6 font hỗ trợ đầy đủ chữ và dấu tiếng Việt, được đóng gói trong app tại `public/fonts/thumbnail/` kèm giấy phép OFL. Không tải font từ CDN và không yêu cầu cài font hệ điều hành. Nếu font không tải được, app báo lỗi thay vì xuất bằng font thay thế.
+
+Font của ảnh đã tạo và font bản nháp được lưu riêng trong dự án. Bìa cũ cần tạo lại để áp dụng font/hiệu ứng mới.
+
+Bấm **Tạo lại thumbnail** sau khi đổi tiêu đề, font, mẫu bút hoặc ảnh nguồn. Bìa cũ theo bố cục chữ bên cạnh ảnh cũng cần tạo lại để chuyển sang ảnh tràn khung. Ứng dụng cảnh báo nếu bản xem trước không còn khớp cấu hình, và yêu cầu tạo lại trước khi xuất. Có thể tải ảnh PNG từ liên kết dưới bản xem trước.
+
+**Lưu Dự Án** lưu cả ảnh PNG 1280×720 và cấu hình vào tệp `.whiteboard.json`. Mở lại dự án sẽ khôi phục nguyên ảnh bìa, không cần ảnh nguồn để xem hoặc xuất lại. Dự án cũ vẫn mở được; hãy tạo thumbnail trước khi xuất toàn bộ.
+
+**Xuất Toàn Bộ Dự Án** dùng đúng ảnh đã xem trước, chèn tĩnh **2.000 ms** ở đầu video, giữ im lặng trong đoạn bìa. Tất cả audio (master hoặc audio riêng từng cảnh) và nội dung cảnh bắt đầu sau đoạn bìa. Render thử từng cảnh không có bìa; xuất tiếp/resume chỉ chèn bìa một lần trong bước ghép cuối. Thời gian trong editor/SRT nguồn vẫn tính theo nội dung, không cộng bìa vào từng cảnh.
+
 ## 3. Quy Trình Thao Tác Từng Bước
 
 ### Bước 1: Nhập phụ đề, âm thanh và chia cảnh

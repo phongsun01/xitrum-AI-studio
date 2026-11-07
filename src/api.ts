@@ -6,6 +6,8 @@ import {
   WhiteboardMergeResponse,
   WhiteboardEnvCheck,
   WhiteboardSrtCue,
+  WhiteboardSrtTtsResponse,
+  WhiteboardElement,
   WhiteboardProject,
   WhiteboardImageAnalysis,
 } from "./types/whiteboard";
@@ -289,10 +291,16 @@ export const api = {
       voiceId,
       speed: speed ?? 1.0,
     }),
-  generateWhiteboardSrtTts: (srtPath: string, voiceId: string) =>
-    invoke<{ audio_path: string; duration_sec: number }>("generate_whiteboard_srt_tts", {
+  generateWhiteboardSrtTts: (srtPath: string, voiceId: string, autoTiming = false, sceneCueRanges: number[][] = []) =>
+    invoke<WhiteboardSrtTtsResponse>("generate_whiteboard_srt_tts", {
       srtPath,
       voiceId,
+      autoTiming,
+      sceneCueRanges,
+    }),
+  retimeWhiteboardAnnotation: (filePath: string, durationMs: number, speechEndMs: number) =>
+    invoke<{ annotation_path: string; elements: WhiteboardElement[] }>("retime_whiteboard_annotation", {
+      filePath, durationMs, speechEndMs,
     }),
   previewTtsVoice: (voiceId: string, text?: string) =>
     invoke<string>("preview_tts_voice", { voiceId, text: text ?? null }),
@@ -444,6 +452,9 @@ export const api = {
       outputPath,
       masterAudioPath,
     }),
+
+  readWhiteboardCoverImage: (imagePath: string) =>
+    invoke<string>("read_whiteboard_cover_image", { imagePath }),
 
   saveWhiteboardProject: (filePath: string, project: WhiteboardProject) =>
     invoke<{ success: boolean; filePath: string }>("save_whiteboard_project", {

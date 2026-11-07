@@ -112,7 +112,11 @@ def validate_reveal(
     if direction not in ("left_to_right", "top_to_bottom", "right_to_left", "bottom_to_top"):
         warnings.append(f"{prefix}direction '{direction}' chưa hỗ trợ đầy đủ, dùng mặc định")
 
+    mode = reveal.get("mode", "draw")
+    if mode not in ("draw", "instant", "fade"):
+        raise ValidationError(f"{prefix}reveal.mode không hợp lệ: {mode}")
     clean_reveal = {
+        "mode": mode,
         "startMs": start_ms,
         "durationMs": dur_ms,
         "direction": direction,
