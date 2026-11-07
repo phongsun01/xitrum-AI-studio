@@ -54,6 +54,15 @@ pub enum RunnerMessage {
         percent: u32,
         message: Option<String>,
     },
+    Submitted {
+        #[serde(alias = "taskId")]
+        task_id: Option<String>,
+        #[serde(alias = "remoteJobId")]
+        remote_job_id: Option<String>,
+        #[serde(alias = "sessionId")]
+        session_id: Option<String>,
+        message: Option<String>,
+    },
     #[serde(alias = "task_complete")]
     Success {
         #[serde(alias = "taskId")]
@@ -256,6 +265,10 @@ impl MuseRunner {
                                 match msg {
                                     RunnerMessage::Progress { percent, message, .. } => {
                                         progress_cb(percent, message);
+                                    }
+                                    RunnerMessage::Submitted { remote_job_id, session_id, message, .. } => {
+                                        tracing::info!("Task {} remote submitted: remote_job_id={:?}, session_id={:?}", task_id, remote_job_id, session_id);
+                                        progress_cb(65, message.or_else(|| Some("Đã gửi kịch bản lên Muse.ai".into())));
                                     }
                                     RunnerMessage::Success { output_path, .. } => {
                                         return Ok(PathBuf::from(output_path));

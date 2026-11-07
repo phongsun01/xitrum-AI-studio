@@ -175,6 +175,16 @@ impl MigrationManager {
                     );
                 "#,
             },
+            Migration {
+                version: 3,
+                description: "G1 Index cho generation_key và trạng thái tasks",
+                sql: r#"
+                    -- Index hỗ trợ tra cứu nhanh generation_key tránh dispatch trùng lặp
+                    CREATE INDEX IF NOT EXISTS idx_tasks_generation_key ON tasks(generation_key);
+                    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+                    CREATE INDEX IF NOT EXISTS idx_task_attempts_task_id ON task_attempts(task_id);
+                "#,
+            },
         ]
     }
 
@@ -287,7 +297,7 @@ mod tests {
         MigrationManager::migrate(&mut conn, dummy_path).expect("First migration should succeed");
 
         let v1: i32 = conn.query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r.get(0)).unwrap();
-        assert_eq!(v1, 2);
+        assert_eq!(v1, 3);
 
         // Kiểm tra cấu trúc các bảng đã tạo
         let count: i64 = conn.query_row("SELECT count(*) FROM tasks", [], |r| r.get(0)).unwrap();
@@ -302,7 +312,7 @@ mod tests {
         MigrationManager::migrate(&mut conn, dummy_path).expect("Second migration run should be idempotent");
 
         let v2: i32 = conn.query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r.get(0)).unwrap();
-        assert_eq!(v2, 2);
+        assert_eq!(v2, 3);
 
         let count2: i64 = conn.query_row("SELECT count(*) FROM tasks", [], |r| r.get(0)).unwrap();
         assert_eq!(count2, 1);

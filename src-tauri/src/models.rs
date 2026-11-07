@@ -33,6 +33,26 @@ pub struct TaskItem {
     pub error_msg: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    pub provider: Option<String>,
+    pub connection_mode: Option<String>,
+    pub requested_model: Option<String>,
+    pub observed_model: Option<String>,
+    pub generation_key: Option<String>,
+    pub scene_revision: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskAttemptItem {
+    pub id: String,
+    pub task_id: String,
+    pub attempt_num: i32,
+    pub phase: String, // "dispatching", "submitting", "submitted", "polling", "downloading", "reconciling", "completed", "failed", "cancelled"
+    pub remote_job_id: Option<String>,
+    pub session_id: Option<String>,
+    pub error_code: Option<String>,
+    pub error_msg: Option<String>,
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

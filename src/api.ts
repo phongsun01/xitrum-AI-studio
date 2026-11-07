@@ -13,6 +13,12 @@ export interface TaskItem {
   error_msg: string | null;
   created_at: number;
   updated_at: number;
+  provider?: string | null;
+  connection_mode?: string | null;
+  requested_model?: string | null;
+  observed_model?: string | null;
+  generation_key?: string | null;
+  scene_revision?: number | null;
 }
 
 export interface ProxyItem {
@@ -131,18 +137,26 @@ export const api = {
   // Lấy danh sách tasks
   listTasks: () => invoke<TaskItem[]>("list_tasks"),
 
-  // Thêm task vào hàng đợi
+  // Thêm task vào hàng đợi (hỗ trợ G1 generation key & deduplication)
   enqueueTask: (
     kind: TaskItem["kind"],
     prompt?: string | null,
     ratio?: string | null,
-    inputPath?: string | null
+    inputPath?: string | null,
+    provider?: string | null,
+    requestedModel?: string | null,
+    sceneRevision?: number | null,
+    forceNewGeneration?: boolean
   ) =>
     invoke<TaskItem>("enqueue_task", {
       kind,
       prompt: prompt ?? null,
       ratio: ratio ?? null,
       inputPath: inputPath ?? null,
+      provider: provider ?? null,
+      requestedModel: requestedModel ?? null,
+      sceneRevision: sceneRevision ?? null,
+      forceNewGeneration: forceNewGeneration ?? false,
     }),
 
   // Hủy task

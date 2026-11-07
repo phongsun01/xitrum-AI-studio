@@ -104,8 +104,8 @@ impl Database {
         let status_str = serde_json::to_string(&task.status)?;
 
         conn.execute(
-            "INSERT INTO tasks (id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO tasks (id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 task.id,
                 kind_str.trim_matches('"'),
@@ -118,9 +118,142 @@ impl Database {
                 task.error_msg,
                 task.created_at,
                 task.updated_at,
+                task.provider.as_deref().unwrap_or("muse"),
+                task.connection_mode.as_deref().unwrap_or("muse_web"),
+                task.requested_model,
+                task.observed_model,
+                task.generation_key,
+                task.scene_revision.unwrap_or(1),
             ],
         )?;
         Ok(())
+    }
+
+    pub fn find_task_by_generation_key(&self, generation_key: &str) -> Result<Option<TaskItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision
+             FROM tasks WHERE generation_key = ?1 ORDER BY created_at DESC LIMIT 1",
+        )?;
+
+        let mut rows = stmt.query(params![generation_key])?;
+        if let Some(row) = rows.next()? {
+            let kind_raw: String = row.get(1)?;
+            let status_raw: String = row.get(2)?;
+            let kind = serde_json::from_str(&format!("\"{}\"", kind_raw)).unwrap_or(TaskKind::MuseVideo);
+            let status = serde_json::from_str(&format!("\"{}\"", status_raw)).unwrap_or(TaskStatus::Queued);
+
+            Ok(Some(TaskItem {
+                id: row.get(0)?,
+                kind,
+                status,
+                prompt: row.get(3)?,
+                ratio: row.get(4)?,
+                input_path: row.get(5)?,
+                output_path: row.get(6)?,
+                progress: row.get(7)?,
+                error_msg: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+                provider: row.get(11)?,
+                connection_mode: row.get(12)?,
+                requested_model: row.get(13)?,
+                observed_model: row.get(14)?,
+                generation_key: row.get(15)?,
+                scene_revision: row.get(16)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn list_pending_tasks(&self) -> Result<Vec<TaskItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision
+             FROM tasks WHERE status = 'queued' ORDER BY created_at ASC",
+        )?;
+
+        let task_iter = stmt.query_map([], |row| {
+            let kind_raw: String = row.get(1)?;
+            let status_raw: String = row.get(2)?;
+
+            let kind = serde_json::from_str(&format!("\"{}\"", kind_raw)).unwrap_or(TaskKind::MuseVideo);
+            let status = serde_json::from_str(&format!("\"{}\"", status_raw)).unwrap_or(TaskStatus::Queued);
+
+            Ok(TaskItem {
+                id: row.get(0)?,
+                kind,
+                status,
+                prompt: row.get(3)?,
+                ratio: row.get(4)?,
+                input_path: row.get(5)?,
+                output_path: row.get(6)?,
+                progress: row.get(7)?,
+                error_msg: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+                provider: row.get(11)?,
+                connection_mode: row.get(12)?,
+                requested_model: row.get(13)?,
+                observed_model: row.get(14)?,
+                generation_key: row.get(15)?,
+                scene_revision: row.get(16)?,
+            })
+        })?;
+
+        let mut list = Vec::new();
+        for task in task_iter {
+            list.push(task?);
+        }
+        Ok(list)
+    }
+
+    pub fn record_task_attempt(&self, attempt: &crate::models::TaskAttemptItem) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO task_attempts (id, task_id, attempt_num, phase, remote_job_id, session_id, error_code, error_msg, started_at, finished_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                attempt.id,
+                attempt.task_id,
+                attempt.attempt_num,
+                attempt.phase,
+                attempt.remote_job_id,
+                attempt.session_id,
+                attempt.error_code,
+                attempt.error_msg,
+                attempt.started_at,
+                attempt.finished_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_latest_task_attempt(&self, task_id: &str) -> Result<Option<crate::models::TaskAttemptItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, task_id, attempt_num, phase, remote_job_id, session_id, error_code, error_msg, started_at, finished_at
+             FROM task_attempts WHERE task_id = ?1 ORDER BY attempt_num DESC LIMIT 1",
+        )?;
+
+        let mut rows = stmt.query(params![task_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(crate::models::TaskAttemptItem {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                attempt_num: row.get(2)?,
+                phase: row.get(3)?,
+                remote_job_id: row.get(4)?,
+                session_id: row.get(5)?,
+                error_code: row.get(6)?,
+                error_msg: row.get(7)?,
+                started_at: row.get(8)?,
+                finished_at: row.get(9)?,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn update_task_status(
@@ -152,7 +285,7 @@ impl Database {
     pub fn list_tasks(&self) -> Result<Vec<TaskItem>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at 
+            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision
              FROM tasks ORDER BY created_at DESC",
         )?;
 
@@ -175,6 +308,12 @@ impl Database {
                 error_msg: row.get(8)?,
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
+                provider: row.get(11)?,
+                connection_mode: row.get(12)?,
+                requested_model: row.get(13)?,
+                observed_model: row.get(14)?,
+                generation_key: row.get(15)?,
+                scene_revision: row.get(16)?,
             })
         })?;
 
@@ -188,7 +327,7 @@ impl Database {
     pub fn get_task(&self, id: &str) -> Result<TaskItem, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at 
+            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision
              FROM tasks WHERE id = ?1",
         )?;
 
@@ -211,6 +350,12 @@ impl Database {
                 error_msg: row.get(8)?,
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
+                provider: row.get(11)?,
+                connection_mode: row.get(12)?,
+                requested_model: row.get(13)?,
+                observed_model: row.get(14)?,
+                generation_key: row.get(15)?,
+                scene_revision: row.get(16)?,
             })
         } else {
             Err(AppError::NotFound(format!("Không tìm thấy task {}", id)))

@@ -16,9 +16,22 @@ pub async fn enqueue_task(
     prompt: Option<String>,
     ratio: Option<String>,
     input_path: Option<String>,
+    provider: Option<String>,
+    requested_model: Option<String>,
+    scene_revision: Option<i64>,
+    force_new_generation: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<TaskItem, AppError> {
-    state.queue.enqueue(kind, prompt, ratio, input_path).await
+    state.queue.enqueue_advanced(
+        kind,
+        prompt,
+        ratio,
+        input_path,
+        provider,
+        requested_model,
+        scene_revision,
+        force_new_generation.unwrap_or(false),
+    ).await
 }
 
 #[tauri::command]
@@ -225,9 +238,19 @@ pub async fn duplicate_task(
     state: State<'_, AppState>,
 ) -> Result<TaskItem, AppError> {
     let task = state.db.get_task(&task_id)?;
+    // Cho phép tạo biến thể mới rõ ràng với force_new_generation = true
     state
         .queue
-        .enqueue(task.kind, task.prompt, task.ratio, task.input_path)
+        .enqueue_advanced(
+            task.kind,
+            task.prompt,
+            task.ratio,
+            task.input_path,
+            task.provider,
+            task.requested_model,
+            task.scene_revision,
+            true, // force new generation
+        )
         .await
 }
 
@@ -381,9 +404,19 @@ pub async fn regenerate_segment(
     );
 
     let prompt = seg.prompt.unwrap_or(seg.text);
+    // Khi regenerate tường minh, bật force_new_generation = true để cho phép tạo biến thể mới
     let task = state
         .queue
-        .enqueue(TaskKind::MuseVideo, Some(prompt), Some("16:9".into()), seg.ref_image_path)
+        .enqueue_advanced(
+            TaskKind::MuseVideo,
+            Some(prompt),
+            Some("16:9".into()),
+            seg.ref_image_path,
+            Some("muse".into()),
+            None,
+            None,
+            true, // force_new_generation
+        )
         .await?;
 
     let _ = state.db.set_segment_queue_task_id(&segment_id, &task.id);
@@ -1026,14 +1059,18 @@ pub async fn dispatch_script_to_queue(
             }
         }
 
-        // Tạo task trong queue
+        // Tạo task trong queue (idempotent: chống spam đúp khi click liên tiếp)
         let task = state
             .queue
-            .enqueue(
+            .enqueue_advanced(
                 TaskKind::MuseVideo,
                 Some(final_prompt),
                 Some(script.ratio.clone()),
                 char_ref_img,
+                Some("muse".into()),
+                None,
+                Some(1),
+                false, // không gửi trùng nếu đã có cùng generation key
             )
             .await?;
 

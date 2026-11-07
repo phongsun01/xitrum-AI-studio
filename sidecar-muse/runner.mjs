@@ -216,6 +216,16 @@ async function run() {
         await p.fill(selectors.composer, promptTemplate);
         await p.click(selectors.sendButton);
 
+        // Phát tín hiệu submitted kèm URL trang/thread để đối soát (reconciliation identity)
+        const currentThreadUrl = p.url();
+        sendJson({
+          type: "submitted",
+          taskId,
+          remoteJobId: currentThreadUrl.includes("/thread/") ? currentThreadUrl.split("/thread/")[1]?.split("?")[0] : null,
+          sessionId: currentThreadUrl,
+          message: "Đã gửi prompt lên dịch vụ Muse.ai thành công"
+        });
+
         // R2: Kiểm tra ngay các cảnh báo Captcha / Rate Limit / Hết Credit sau khi gửi
         await p.waitForTimeout(1500);
         if ((await p.locator(selectors.captcha).count()) > 0) {

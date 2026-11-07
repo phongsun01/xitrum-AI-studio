@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 pub enum QueueAction {
-    Enqueue(TaskItem),
+    Enqueue(String), // Chỉ truyền task_id để đảm bảo actor đọc lại bản mới nhất từ SQLite
     Cancel(String),
 }
 
@@ -56,15 +56,18 @@ impl QueueManager {
         let muse_runner = Arc::new(Mutex::new(MuseRunner::with_app_handle(app_handle.clone())));
         let muse_worker = Arc::clone(&muse_runner);
 
+        let tx_sender = tx.clone();
+        let db_startup = Arc::clone(&db);
+
         tokio::spawn(async move {
-            tracing::info!("Queue actor started with Multi-Lane Semaphores");
+            tracing::info!("Queue actor started with Multi-Lane Semaphores (ID-based, durable)");
             while let Some(action) = rx.recv().await {
                 match action {
-                    QueueAction::Enqueue(task) => {
+                    QueueAction::Enqueue(task_id) => {
                         let token = CancellationToken::new();
                         {
                             let mut map = tokens_worker.lock().await;
-                            map.insert(task.id.clone(), token.clone());
+                            map.insert(task_id.clone(), token.clone());
                         }
 
                         let db_ref = Arc::clone(&db_worker);
@@ -75,15 +78,46 @@ impl QueueManager {
                         let local_sem = Arc::clone(&local_sem_worker);
 
                         tokio::spawn(async move {
-                            // F14: Điều phối luồng qua Semaphore Multi-Lane tương ứng
+                            // 1. Đọc lại task từ SQLite ngay trước khi thực thi để nhận các chỉnh sửa/hủy mới nhất
+                            let task = match db_ref.get_task(&task_id) {
+                                Ok(t) => t,
+                                Err(e) => {
+                                    tracing::warn!("Task {} not found in DB before permit: {}", task_id, e);
+                                    return;
+                                }
+                            };
+
+                            // Nếu task đã bị hủy trong DB trước khi được xử lý thì dừng lại
+                            if task.status == TaskStatus::Cancelled {
+                                tracing::info!("Task {} was cancelled in DB, skipping execution", task_id);
+                                return;
+                            }
+
+                            // 2. Chờ lấy semaphore tương ứng, hỗ trợ nhận tín hiệu cancel ngay khi đang chờ permit
                             match task.kind {
                                 TaskKind::MuseVideo | TaskKind::MuseImage => {
-                                    let _permit = muse_sem.acquire().await;
-                                    run_task(task, db_ref, app_ref, rembg_ref, muse_ref, token).await;
+                                    tokio::select! {
+                                        _ = token.cancelled() => {
+                                            tracing::info!("Task {} cancelled while waiting for Muse semaphore", task_id);
+                                            let _ = db_ref.update_task_status(&task_id, TaskStatus::Cancelled, 0, None, Some("Hủy khi đang chờ luồng"));
+                                        }
+                                        permit = muse_sem.acquire() => {
+                                            let _permit = permit;
+                                            run_task(task_id, db_ref, app_ref, rembg_ref, muse_ref, token).await;
+                                        }
+                                    }
                                 }
                                 _ => {
-                                    let _permit = local_sem.acquire().await;
-                                    run_task(task, db_ref, app_ref, rembg_ref, muse_ref, token).await;
+                                    tokio::select! {
+                                        _ = token.cancelled() => {
+                                            tracing::info!("Task {} cancelled while waiting for local semaphore", task_id);
+                                            let _ = db_ref.update_task_status(&task_id, TaskStatus::Cancelled, 0, None, Some("Hủy khi đang chờ luồng"));
+                                        }
+                                        permit = local_sem.acquire() => {
+                                            let _permit = permit;
+                                            run_task(task_id, db_ref, app_ref, rembg_ref, muse_ref, token).await;
+                                        }
+                                    }
                                 }
                             }
                         });
@@ -94,6 +128,20 @@ impl QueueManager {
                             token.cancel();
                             tracing::info!("Cancellation signal sent for task: {}", task_id);
                         }
+                    }
+                }
+            }
+        });
+
+        // Tự động nạp lại các task pending/queued từ SQLite khi ứng dụng khởi động (Durable Queue Recovery)
+        let tx_recovery = tx_sender.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+            if let Ok(pending) = db_startup.list_pending_tasks() {
+                if !pending.is_empty() {
+                    tracing::info!("Recovering {} pending task(s) from database into queue...", pending.len());
+                    for task in pending {
+                        let _ = tx_recovery.send(QueueAction::Enqueue(task.id)).await;
                     }
                 }
             }
@@ -138,6 +186,46 @@ impl QueueManager {
         ratio: Option<String>,
         input_path: Option<String>,
     ) -> Result<TaskItem, AppError> {
+        self.enqueue_advanced(kind, prompt, ratio, input_path, None, None, None, false).await
+    }
+
+    pub async fn enqueue_advanced(
+        &self,
+        kind: TaskKind,
+        prompt: Option<String>,
+        ratio: Option<String>,
+        input_path: Option<String>,
+        provider: Option<String>,
+        requested_model: Option<String>,
+        scene_revision: Option<i64>,
+        force_new_generation: bool,
+    ) -> Result<TaskItem, AppError> {
+        let prov = provider.unwrap_or_else(|| "muse".to_string());
+        let pr = prompt.as_deref().unwrap_or("");
+        let rat = ratio.as_deref();
+
+        // Tính generation key duy nhất
+        let gen_key = crate::dedup::compute_generation_key(
+            &prov,
+            requested_model.as_deref(),
+            pr,
+            rat,
+            scene_revision,
+            input_path.as_deref(),
+        );
+
+        // Chống dispatch trùng (Idempotent Check):
+        // Nếu không yêu cầu tạo biến thể mới (force_new_generation = false)
+        // và đã có task tương ứng đang queued hoặc running hoặc thành công, trả lại task đó thay vì submit đúp.
+        if !force_new_generation {
+            if let Ok(Some(existing_task)) = self.db.find_task_by_generation_key(&gen_key) {
+                if matches!(existing_task.status, TaskStatus::Queued | TaskStatus::Running | TaskStatus::Success) {
+                    tracing::info!("Found existing task with identical generation key: {} ({:?}). Avoiding duplicate submit.", existing_task.id, existing_task.status);
+                    return Ok(existing_task);
+                }
+            }
+        }
+
         let now = chrono_now();
         let task = TaskItem {
             id: Uuid::new_v4().to_string(),
@@ -151,11 +239,17 @@ impl QueueManager {
             error_msg: None,
             created_at: now,
             updated_at: now,
+            provider: Some(prov),
+            connection_mode: Some("muse_web".to_string()),
+            requested_model,
+            observed_model: None,
+            generation_key: Some(gen_key),
+            scene_revision: Some(scene_revision.unwrap_or(1)),
         };
 
         self.db.insert_task(&task)?;
         self.tx
-            .send(QueueAction::Enqueue(task.clone()))
+            .send(QueueAction::Enqueue(task.id.clone()))
             .await
             .map_err(|e| AppError::Queue(e.to_string()))?;
 
@@ -189,7 +283,7 @@ impl QueueManager {
         self.db.update_task_status(&task.id, TaskStatus::Queued, 0, None, None)?;
 
         self.tx
-            .send(QueueAction::Enqueue(task.clone()))
+            .send(QueueAction::Enqueue(task.id.clone()))
             .await
             .map_err(|e| AppError::Queue(e.to_string()))?;
 
@@ -198,15 +292,52 @@ impl QueueManager {
 }
 
 async fn run_task(
-    task: TaskItem,
+    task_id: String,
     db: Arc<Database>,
     app: tauri::AppHandle,
     rembg: Option<Arc<RembgEngine>>,
     muse_runner: Arc<Mutex<MuseRunner>>,
     token: CancellationToken,
 ) {
-    let task_id = task.id.clone();
-    tracing::info!("Executing task: {} ({:?})", task_id, task.kind);
+    // Đọc lại task mới nhất từ DB
+    let task = match db.get_task(&task_id) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("Cannot run task {}: {}", task_id, e);
+            return;
+        }
+    };
+
+    // Kiểm tra terminal state: nếu đã hủy hoặc thành công thì không chạy lại
+    if matches!(task.status, TaskStatus::Cancelled | TaskStatus::Success) {
+        tracing::info!("Task {} is in terminal state ({:?}), skipping", task_id, task.status);
+        return;
+    }
+
+    let attempt_num = db.get_latest_task_attempt(&task_id)
+        .ok()
+        .flatten()
+        .map(|a| a.attempt_num + 1)
+        .unwrap_or(1);
+
+    let attempt_id = Uuid::new_v4().to_string();
+    let start_time = chrono_now();
+
+    // Ghi attempt phase: dispatching
+    let _ = db.record_task_attempt(&crate::models::TaskAttemptItem {
+        id: attempt_id.clone(),
+        task_id: task_id.clone(),
+        attempt_num,
+        phase: "dispatching".into(),
+        remote_job_id: None,
+        session_id: None,
+        error_code: None,
+        error_msg: None,
+        started_at: start_time,
+        finished_at: None,
+    });
+
+    tracing::info!("Executing task: {} (kind: {:?}, attempt: {})", task_id, task.kind, attempt_num);
     let _ = db.update_task_status(&task_id, TaskStatus::Running, 10, None, None);
 
     match task.kind {
@@ -235,6 +366,29 @@ async fn run_task(
                 match res {
                     Ok(out_json) => {
                         let out_str = out_json.to_string_lossy().to_string();
+                        let finish_now = chrono_now();
+
+                        let _ = db.record_task_attempt(&crate::models::TaskAttemptItem {
+                            id: attempt_id.clone(),
+                            task_id: task_id.clone(),
+                            attempt_num,
+                            phase: "completed".into(),
+                            remote_job_id: None,
+                            session_id: None,
+                            error_code: None,
+                            error_msg: None,
+                            started_at: start_time,
+                            finished_at: Some(finish_now),
+                        });
+
+                        // Stale attempt check
+                        if let Ok(current_task) = db.get_task(&task_id) {
+                            if current_task.status == TaskStatus::Cancelled {
+                                tracing::warn!("Task {} finished but was marked cancelled. Ignoring result.", task_id);
+                                return;
+                            }
+                        }
+
                         let _ = db.update_task_status(&task_id, TaskStatus::Success, 100, Some(&out_str), None);
 
                         // Tự động phân rã vào bảng audio_jobs & audio_segments (F7)
@@ -279,8 +433,26 @@ async fn run_task(
                     }
                     Err(e) => {
                         let err_str = e.to_string();
+                        let finish_now = chrono_now();
+                        let is_cancelled = err_str.contains("Cancelled") || token.is_cancelled();
+                        let phase = if is_cancelled { "cancelled" } else { "failed" };
+
+                        let _ = db.record_task_attempt(&crate::models::TaskAttemptItem {
+                            id: attempt_id.clone(),
+                            task_id: task_id.clone(),
+                            attempt_num,
+                            phase: phase.into(),
+                            remote_job_id: None,
+                            session_id: None,
+                            error_code: if is_cancelled { Some("USER_CANCELLED".into()) } else { Some("EXECUTION_ERROR".into()) },
+                            error_msg: Some(err_str.clone()),
+                            started_at: start_time,
+                            finished_at: Some(finish_now),
+                        });
+
                         tracing::error!("WhisperStt error: {}", err_str);
-                        let _ = db.update_task_status(&task_id, TaskStatus::Failed, 0, None, Some(&err_str));
+                        let final_status = if is_cancelled { TaskStatus::Cancelled } else { TaskStatus::Failed };
+                        let _ = db.update_task_status(&task_id, final_status, 0, None, Some(&err_str));
                     }
                 }
             } else {
@@ -304,13 +476,63 @@ async fn run_task(
 
                     match res {
                         Ok(Ok(out_file)) => {
+                            let finish_now = chrono_now();
+                            let _ = db.record_task_attempt(&crate::models::TaskAttemptItem {
+                                id: attempt_id.clone(),
+                                task_id: task_id.clone(),
+                                attempt_num,
+                                phase: "completed".into(),
+                                remote_job_id: None,
+                                session_id: None,
+                                error_code: None,
+                                error_msg: None,
+                                started_at: start_time,
+                                finished_at: Some(finish_now),
+                            });
+
+                            // Stale attempt check
+                            if let Ok(current_task) = db.get_task(&task_id) {
+                                if current_task.status == TaskStatus::Cancelled {
+                                    tracing::warn!("Task {} finished Rembg but was marked cancelled. Ignoring result.", task_id);
+                                    return;
+                                }
+                            }
+
                             let _ = db.update_task_status(&task_id, TaskStatus::Success, 100, Some(&out_file), None);
                         }
                         Ok(Err(e)) => {
-                            let _ = db.update_task_status(&task_id, TaskStatus::Failed, 0, None, Some(&e.to_string()));
+                            let finish_now = chrono_now();
+                            let err_str = e.to_string();
+                            let _ = db.record_task_attempt(&crate::models::TaskAttemptItem {
+                                id: attempt_id.clone(),
+                                task_id: task_id.clone(),
+                                attempt_num,
+                                phase: "failed".into(),
+                                remote_job_id: None,
+                                session_id: None,
+                                error_code: Some("REMBG_ERROR".into()),
+                                error_msg: Some(err_str.clone()),
+                                started_at: start_time,
+                                finished_at: Some(finish_now),
+                            });
+                            let _ = db.update_task_status(&task_id, TaskStatus::Failed, 0, None, Some(&err_str));
                         }
                         Err(e) => {
-                            let _ = db.update_task_status(&task_id, TaskStatus::Failed, 0, None, Some(&e.to_string()));
+                            let finish_now = chrono_now();
+                            let err_str = e.to_string();
+                            let _ = db.record_task_attempt(&crate::models::TaskAttemptItem {
+                                id: attempt_id.clone(),
+                                task_id: task_id.clone(),
+                                attempt_num,
+                                phase: "failed".into(),
+                                remote_job_id: None,
+                                session_id: None,
+                                error_code: Some("PANIC_OR_JOIN_ERROR".into()),
+                                error_msg: Some(err_str.clone()),
+                                started_at: start_time,
+                                finished_at: Some(finish_now),
+                            });
+                            let _ = db.update_task_status(&task_id, TaskStatus::Failed, 0, None, Some(&err_str));
                         }
                     }
                 }
@@ -401,6 +623,30 @@ async fn run_task(
             match res {
                 Ok(out_file) => {
                     let out_str = out_file.to_string_lossy().to_string();
+                    let finish_now = chrono_now();
+
+                    // Cập nhật attempt: completed
+                    let _ = db.record_task_attempt(&crate::models::TaskAttemptItem {
+                        id: attempt_id.clone(),
+                        task_id: task_id.clone(),
+                        attempt_num,
+                        phase: "completed".into(),
+                        remote_job_id: None,
+                        session_id: None,
+                        error_code: None,
+                        error_msg: None,
+                        started_at: start_time,
+                        finished_at: Some(finish_now),
+                    });
+
+                    // Kiểm tra xem trong lúc chạy, task có bị hủy hoặc có revision mới không (stale attempt check)
+                    if let Ok(current_task) = db.get_task(&task_id) {
+                        if current_task.status == TaskStatus::Cancelled {
+                            tracing::warn!("Task {} finished running but was marked cancelled. Ignoring result to avoid overwrite.", task_id);
+                            return;
+                        }
+                    }
+
                     let _ = db.update_task_status(&task_id, TaskStatus::Success, 100, Some(&out_str), None);
                     // Tự động liên kết video hoàn thành vào audio_segments nếu task này bắt nguồn từ timeline
                     let _ = db.update_segment_by_task_id(&task_id, &out_str);
@@ -409,12 +655,37 @@ async fn run_task(
                 }
                 Err(e) => {
                     let err_str = e.to_string();
+                    let finish_now = chrono_now();
+
+                    let is_cancelled = err_str.contains("Cancelled");
+                    let phase = if is_cancelled { "cancelled" } else { "failed" };
+
+                    // Cập nhật attempt: failed hoặc cancelled
+                    let _ = db.record_task_attempt(&crate::models::TaskAttemptItem {
+                        id: attempt_id.clone(),
+                        task_id: task_id.clone(),
+                        attempt_num,
+                        phase: phase.into(),
+                        remote_job_id: None,
+                        session_id: None,
+                        error_code: if is_cancelled { Some("USER_CANCELLED".into()) } else { Some("EXECUTION_ERROR".into()) },
+                        error_msg: Some(err_str.clone()),
+                        started_at: start_time,
+                        finished_at: Some(finish_now),
+                    });
+
                     tracing::error!("Muse execution failed: {}", err_str);
-                    let _ = db.update_task_status(&task_id, TaskStatus::Failed, 0, None, Some(&err_str));
+                    let final_status = if is_cancelled { TaskStatus::Cancelled } else { TaskStatus::Failed };
+                    let _ = db.update_task_status(&task_id, final_status, 0, None, Some(&err_str));
                 }
             }
         }
 
-        _ => {}
+        _ => {
+            // Task kind chưa có executor: fail rõ ràng theo tiêu chí G1
+            let err = format!("Tác vụ loại {:?} chưa được cấu hình executor", task.kind);
+            tracing::warn!("{}", err);
+            let _ = db.update_task_status(&task_id, TaskStatus::Failed, 0, None, Some(&err));
+        }
     }
 }

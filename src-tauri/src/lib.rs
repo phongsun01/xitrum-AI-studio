@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod db;
+pub mod dedup;
 pub mod diagnostics;
 pub mod errors;
 pub mod executors;
