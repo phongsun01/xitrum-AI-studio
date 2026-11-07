@@ -115,6 +115,14 @@ pub enum WhiteboardRequest {
         video_path: String,
         expected_fingerprint: String,
     },
+    #[serde(rename = "render_preview")]
+    RenderPreview {
+        #[serde(default)]
+        task_id: String,
+        image_path: String,
+        annotation_path: String,
+        output_path: String,
+    },
     #[serde(rename = "merge_scenes")]
     MergeScenes {
         #[serde(default)]
@@ -699,6 +707,21 @@ impl WhiteboardPipeline {
             Ok(v) => v.get("valid").and_then(|b| b.as_bool()).unwrap_or(false),
             Err(_) => false,
         }
+    }
+
+    pub fn render_preview(
+        &self,
+        image_path: String,
+        annotation_path: String,
+        output_path: String,
+    ) -> Result<serde_json::Value> {
+        let req = WhiteboardRequest::RenderPreview {
+            task_id: uuid::Uuid::new_v4().to_string(),
+            image_path,
+            annotation_path,
+            output_path,
+        };
+        self.call(req, self.timeouts.quick, "tạo preview vùng vẽ", &|_| {})
     }
 
     pub fn merge_scenes(

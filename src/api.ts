@@ -421,6 +421,17 @@ export const api = {
       durationMs,
     }),
 
+  renderWhiteboardPreview: (
+    imagePath: string,
+    annotationPath: string,
+    outputPath: string
+  ) =>
+    invoke<{ preview_path: string; file_size: number }>("render_whiteboard_preview", {
+      imagePath,
+      annotationPath,
+      outputPath,
+    }),
+
   mergeWhiteboardScenes: (
     videoPaths: string[],
     outputPath: string,

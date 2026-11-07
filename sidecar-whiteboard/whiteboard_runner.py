@@ -614,6 +614,21 @@ def handle_get_fingerprint(req):
     return {"fingerprint": fp}
 
 
+def handle_render_preview(req):
+    import render_annotation_preview
+    image_path = req.get("image_path")
+    annotation_path = req.get("annotation_path")
+    output_path = req.get("output_path")
+    if not image_path or not os.path.exists(image_path):
+        raise ValueError(f"Không tìm thấy ảnh gốc: {image_path}")
+    if not annotation_path or not os.path.exists(annotation_path):
+        raise ValueError(f"Không tìm thấy annotation: {annotation_path}")
+    if not output_path:
+        raise ValueError("Chưa chỉ định output_path cho preview")
+    render_annotation_preview.main(image_path, annotation_path, output_path)
+    return {"preview_path": output_path, "file_size": os.path.getsize(output_path) if os.path.exists(output_path) else 0}
+
+
 HANDLERS = {
     "check_env": handle_check_env,
     "analyze_image_style": handle_analyze_image_style,
@@ -623,6 +638,7 @@ HANDLERS = {
     "merge_scenes": handle_merge_scenes,
     "verify_cache": handle_verify_cache,
     "get_fingerprint": handle_get_fingerprint,
+    "render_preview": handle_render_preview,
 }
 
 

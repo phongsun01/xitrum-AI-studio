@@ -1705,6 +1705,20 @@ pub async fn render_whiteboard_scene(
 }
 
 #[tauri::command]
+pub async fn render_whiteboard_preview(
+    image_path: String,
+    annotation_path: String,
+    output_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || {
+        wb.render_preview(image_path, annotation_path, output_path)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn merge_whiteboard_scenes(
     video_paths: Vec<String>,
     output_path: String,

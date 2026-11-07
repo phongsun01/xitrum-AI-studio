@@ -138,9 +138,19 @@ class RegionStreamRenderer:
         self.drawn = np.empty((self.out_h, self.out_w, 3), dtype=np.float32)
         self.drawn[...] = self.canvas_bgr.astype(np.float32)
 
-        # 笔尖覆盖
-        self.tip: sr.TipOverlay | None = None
-        if not bare_tip:
+        # 笔尖覆盖 / Hand Rig (R4)
+        self.tip = None
+        self.hand_rig = None
+        if not bare_tip and hand_png and hand_png.exists():
+            import whiteboard_hand
+            self.hand_rig = whiteboard_hand.HandRig.from_image(
+                hand_png,
+                target_height=cfg.target_hand_height,
+                anchor_x=cfg.tip_anchor_x,
+                anchor_y=cfg.tip_anchor_y,
+            )
+
+        if not bare_tip and self.hand_rig is None:
             hand_data = sr._load_hand(hand_png, cfg.target_hand_height) if hand_png else None
             ax, ay = cfg.tip_anchor_x, cfg.tip_anchor_y
             if hand_data is None:
@@ -164,9 +174,11 @@ class RegionStreamRenderer:
         e = self.cfg.grid_edge
         return (c * e + e // 2, r * e + e // 2)
 
-    def _snapshot_with_tip(self, px: int, py: int) -> np.ndarray:
+    def _snapshot_with_tip(self, px: int, py: int, pen_down: bool = True, dx: float = 0.0, dy: float = 0.0) -> np.ndarray:
         snap = self.drawn.astype(np.uint8)
-        if self.tip is not None:
+        if self.hand_rig is not None:
+            self.hand_rig.stamp(snap, px, py, pen_down=pen_down, dx=dx, dy=dy)
+        elif self.tip is not None:
             self.tip.stamp(snap, px, py)
         return snap
 
@@ -270,6 +282,7 @@ class RegionStreamRenderer:
         idx_for_frame = _frame_progress_indices(n, frames)
         last: int | None = None
         for si in idx_for_frame:
+            dx, dy = 0.0, 0.0
             if last is None:
                 self._reveal_ink_segment(samples[si], samples[si], allowed)
             else:
@@ -277,8 +290,11 @@ class RegionStreamRenderer:
                     if k in pen_lifts:
                         continue
                     self._reveal_ink_segment(samples[k - 1], samples[k], allowed)
+                dx = float(samples[si][0] - samples[last][0])
+                dy = float(samples[si][1] - samples[last][1])
             sx, sy = samples[si]
-            writer.write(self._snapshot_with_tip(sx, sy))
+            is_lift = si in pen_lifts
+            writer.write(self._snapshot_with_tip(sx, sy, pen_down=not is_lift, dx=dx, dy=dy))
             last = si
 
     # ── 添彩段：brush 或 contour-wipe，限制在 allowed 内 ──

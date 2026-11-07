@@ -44,10 +44,11 @@ def main(image_path: str, annotation_path: str, output_path: str) -> None:
         label = f"{index}. {element['label']}  {element['reveal']['direction']}"
         draw.rounded_rectangle((x + 52, y + 8, min(right - 8, x + 52 + len(label) * 19), y + 46), radius=6, fill=(255, 255, 255, 225))
         draw.text((x + 60, y + 12), label, font=small_font, fill=color)
-        start = tuple(element["handPath"]["start"])
-        end = tuple(element["handPath"]["end"])
-        draw.line((start, end), fill=color, width=4)
-        draw.polygon((end, (end[0] - 13, end[1] - 7), (end[0] - 13, end[1] + 7)), fill=color)
+        if "handPath" in element and isinstance(element["handPath"], dict) and "start" in element["handPath"] and "end" in element["handPath"]:
+            start = tuple(element["handPath"]["start"])
+            end = tuple(element["handPath"]["end"])
+            draw.line((start, end), fill=color, width=4)
+            draw.polygon((end, (end[0] - 13, end[1] - 7), (end[0] - 13, end[1] + 7)), fill=color)
 
     result = Image.alpha_composite(image, overlay).convert("RGB")
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)

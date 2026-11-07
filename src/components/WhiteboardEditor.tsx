@@ -27,6 +27,7 @@ import {
   Check,
   Volume2,
   VolumeX,
+  Eye,
 } from "lucide-react";
 
 const errText = (e: any): string => String(e?.message ?? e);
@@ -47,6 +48,7 @@ export function WhiteboardEditor() {
 
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [previewModalImg, setPreviewModalImg] = useState<string | null>(null);
 
   // Danh sách các cảnh trong dự án
   const [scenes, setScenes] = useState<WhiteboardSceneItem[]>([]);
@@ -394,6 +396,26 @@ export function WhiteboardEditor() {
       });
     } catch (e: any) {
       setStatusMsg({ text: `Lỗi tạo mẫu annotation: ${errText(e)}`, ok: false });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Xem trước các vùng vẽ của cảnh (R6 Preview)
+  const handlePreviewScene = async () => {
+    if (!activeScene || !activeScene.imagePath || !activeScene.annotationPath) {
+      setStatusMsg({ text: "Cần chọn ảnh và tạo annotation trước khi xem trước vùng vẽ.", ok: false });
+      return;
+    }
+    const previewOut = activeScene.imagePath.replace(/\.[^/.]+$/, "") + `.${activeScene.id}.preview.png`;
+    setLoading(true);
+    setStatusMsg(null);
+    try {
+      const res = await api.renderWhiteboardPreview(activeScene.imagePath, activeScene.annotationPath, previewOut);
+      setPreviewModalImg(res.preview_path);
+      setStatusMsg({ text: `Đã tạo ảnh xem trước vùng vẽ: ${res.preview_path}`, ok: true });
+    } catch (e: any) {
+      setStatusMsg({ text: `Lỗi tạo ảnh xem trước: ${errText(e)}`, ok: false });
     } finally {
       setLoading(false);
     }
@@ -969,14 +991,25 @@ export function WhiteboardEditor() {
               <h4 style={{ margin: 0, fontSize: "15px", fontWeight: 600 }}>
                 Chi Tiết #{activeScene.order}: {activeScene.id}
               </h4>
-              <button
-                className="secondary-btn"
-                onClick={handleRenderSingleScene}
-                disabled={loading || !activeScene.imagePath}
-                style={{ display: "flex", alignItems: "center", gap: "4px", padding: "6px 12px", fontSize: "12px" }}
-              >
-                <Play size={14} /> Render Thử Cảnh Này
-              </button>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  className="secondary-btn"
+                  onClick={handlePreviewScene}
+                  disabled={loading || !activeScene.imagePath || !activeScene.annotationPath}
+                  style={{ display: "flex", alignItems: "center", gap: "4px", padding: "6px 10px", fontSize: "12px" }}
+                  title="Xem trước các vùng vẽ và thứ tự (R6 Preview)"
+                >
+                  <Eye size={14} /> Xem Trước Vùng Vẽ
+                </button>
+                <button
+                  className="secondary-btn"
+                  onClick={handleRenderSingleScene}
+                  disabled={loading || !activeScene.imagePath}
+                  style={{ display: "flex", alignItems: "center", gap: "4px", padding: "6px 12px", fontSize: "12px" }}
+                >
+                  <Play size={14} /> Render Thử Cảnh Này
+                </button>
+              </div>
             </div>
 
             {/* Ảnh minh họa */}
@@ -1272,6 +1305,70 @@ export function WhiteboardEditor() {
                 style={{ padding: "6px 14px", fontSize: "13px" }}
               >
                 Tiếp tục các cảnh còn lại
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 3: Xem trước phân tích vùng vẽ (R6 Preview) */}
+      {previewModalImg && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "16px",
+          }}
+          onClick={() => setPreviewModalImg(null)}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "10px",
+              padding: "16px",
+              maxWidth: "800px",
+              maxHeight: "90vh",
+              width: "100%",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Eye size={18} color="var(--primary)" />
+                <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 600 }}>Xem Trước Vùng Vẽ & Thứ Tự Xuất Hiện</h3>
+              </div>
+              <button className="icon-btn" onClick={() => setPreviewModalImg(null)}>
+                <XCircle size={18} />
+              </button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", justifyContent: "center", alignItems: "center", background: "#f1f5f9", borderRadius: "6px", padding: "8px" }}>
+              <img
+                src={`asset://${previewModalImg}`}
+                alt="Whiteboard Preview"
+                style={{ maxWidth: "100%", maxHeight: "70vh", objectFit: "contain", borderRadius: "4px" }}
+                onError={(e) => {
+                  // Fallback load ảnh local
+                  (e.target as any).src = "file://" + previewModalImg;
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", color: "var(--text-muted)" }}>
+              <span>Đường dẫn: {previewModalImg}</span>
+              <button className="secondary-btn" onClick={() => setPreviewModalImg(null)} style={{ padding: "4px 12px" }}>
+                Đóng
               </button>
             </div>
           </div>

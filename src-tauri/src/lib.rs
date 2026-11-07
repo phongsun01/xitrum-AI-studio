@@ -126,6 +126,7 @@ pub fn run() {
             parse_whiteboard_srt,
             generate_whiteboard_annotation,
             render_whiteboard_scene,
+            render_whiteboard_preview,
             merge_whiteboard_scenes,
             save_whiteboard_project,
             load_whiteboard_project,
