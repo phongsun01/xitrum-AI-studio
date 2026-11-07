@@ -1,0 +1,440 @@
+/* ====================================================================
+   TẢI VIDEO ĐA NỀN TẢNG
+   Tự động thích ứng cả Chế độ Sáng / Tối (Light & Dark Theme)
+   ==================================================================== */
+
+#tab-hongguo {
+  display: none;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  box-sizing: border-box;
+  padding: 4px 4px 24px;
+  background: var(--canvas);
+}
+#tab-hongguo.active {
+  display: flex !important;
+  flex-direction: column;
+}
+
+.hongguo-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+}
+
+/* 1. Platform Switcher Row */
+.hongguo-platform-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.hg-platform-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.hg-platform-pill:hover {
+  border-color: #0891b2;
+  color: var(--ink);
+}
+.hg-platform-pill.active {
+  background: linear-gradient(135deg, #06b6d4 0%, #10b981 100%) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+}
+.hg-pill-icon {
+  font-size: 14px;
+}
+.hg-pill-more {
+  background: var(--surface-2);
+  border-style: dashed;
+  color: var(--ink-3);
+}
+
+/* 2. Search & Action Box */
+.hongguo-search-box {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  box-shadow: var(--shadow-1);
+}
+.hg-search-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  padding: 0 10px;
+  height: 38px;
+}
+.hg-search-icon {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+.hg-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-size: 13px;
+  outline: none;
+}
+.hg-search-input::placeholder {
+  color: var(--ink-3);
+}
+.hg-search-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.hg-btn-search {
+  background: linear-gradient(135deg, #06b6d4 0%, #10b981 100%) !important;
+  color: #fff !important;
+  border: none !important;
+  font-weight: 700 !important;
+  border-radius: var(--r-sm) !important;
+  height: 36px;
+  padding: 0 16px;
+  box-shadow: 0 3px 10px rgba(6, 182, 212, 0.25);
+}
+
+/* 3. Catalog Header */
+.hg-catalog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 4px;
+}
+.hg-catalog-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.hg-catalog-count {
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--ink-3);
+}
+.hg-catalog-filters {
+  display: flex;
+  gap: 6px;
+}
+.hg-sub-pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: 0.15s;
+}
+.hg-sub-pill.active {
+  background: linear-gradient(135deg, #06b6d4 0%, #10b981 100%);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+/* 4. Drama Poster Grid (Scrollable) */
+.hg-drama-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: 14px;
+  align-content: start;
+}
+
+.hg-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.2s ease;
+  position: relative;
+  box-shadow: var(--shadow-1);
+}
+.hg-card:hover {
+  transform: translateY(-3px);
+  border-color: #06b6d4;
+  box-shadow: var(--shadow-2);
+}
+.hg-poster-wrap {
+  position: relative;
+  width: 100%;
+  height: 225px;
+  min-height: 225px;
+  flex-shrink: 0;
+  background: var(--soft);
+  overflow: hidden;
+}
+.hg-poster-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease;
+}
+.hg-card:hover .hg-poster-img {
+  transform: scale(1.04);
+}
+.hg-badge-date {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(8, 145, 178, 0.92);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.hg-badge-rating {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fbbf24;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+}
+.hg-badge-episodes {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+}
+.hg-info-wrap {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+.hg-drama-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hg-drama-desc {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hg-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.hg-btn-pick {
+  flex: 1;
+  background: var(--surface-2) !important;
+  border: 1px solid var(--line-2) !important;
+  color: var(--ink-2) !important;
+  font-size: 12px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+}
+.hg-btn-dl {
+  flex: 1.2;
+  background: linear-gradient(135deg, #06b6d4 0%, #10b981 100%) !important;
+  border: none !important;
+  color: #fff !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  height: 28px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+}
+
+/* 5. Download Queue Bar (Bottom) */
+.hg-queue-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 8px 16px;
+  box-shadow: var(--shadow-1);
+}
+.hg-queue-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.hg-queue-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* 6. Toolkit Video Cut Timeline Toolbar Buttons */
+.cut-tb-btn {
+  height: 28px;
+  min-width: 28px;
+  width: auto;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+/* Tab Cắt: nút thật có icon riêng và aria-label, không dùng font-size:0/::first-letter. */
+#tab-cut .cut-toolstrip { flex: 0 0 38px; min-height: 38px; max-height: 38px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+#tab-cut .cut-tools-left, #tab-cut .cut-tools-right { flex: 0 0 auto; flex-wrap: nowrap !important; min-width: max-content; }
+#tab-cut .cut-toolstrip .cut-tb-btn { width: 30px !important; height: 30px; min-width: 30px; padding: 0 !important; flex: 0 0 30px; font-size: 17px; line-height: 1; }
+#tab-cut .cut-toolstrip .cut-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 17px; width: 100%; height: 100%; }
+#tab-cut .cut-toolstrip .cut-mini-step { flex: 0 0 auto; }
+#tab-cut .cut-toolstrip input[type=range] { flex: 0 0 auto; }
+#tab-cut .cut-editor-body > :not(#cut-stage-viewport) { flex-shrink: 0; }
+#tab-cut .cut-editor-body > #cut-stage-viewport { min-height: 160px; min-width: 0; }
+#tab-cut > .row-between { min-height: 38px; }
+#tab-cut #cut-output-box[open] { position: absolute; z-index: 20; right: 10px; top: 42px; width: min(500px, calc(100% - 20px)); max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-2); }
+#tab-cut #cut-output-box:not([open]) { min-height: 25px; }
+#tab-cut { position: relative; }
+@media (max-width: 1100px) { #tab-cut #cut-stage-viewport { min-height: 147px; } }
+@media (max-width: 900px) { #tab-cut > .row-between { overflow-x: auto; } #tab-cut .cut-toolstrip { justify-content: flex-start !important; flex-basis: 52px; min-height: 52px; max-height: 52px; align-items: flex-start; } #tab-cut #cut-stage-viewport { min-height: 90px; } }
+@media (prefers-reduced-motion: reduce) { #tab-cut #cut-stage-viewport { transition: none !important; } }
+.cut-tb-btn:hover {
+  background: var(--soft);
+  color: var(--ink);
+  border-color: var(--blue);
+}
+.cut-tb-btn.active {
+  background: var(--blue-tint);
+  color: var(--blue);
+  border-color: var(--blue);
+  box-shadow: 0 0 8px var(--ring);
+}
+.cut-mini-step {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.cut-mini-step:hover {
+  background: var(--soft);
+  color: var(--ink);
+  border-color: var(--blue);
+}
+
+/* 7. Toolkit Full-Screen Cut Stage & Modal */
+#tab-cut {
+  padding: 0 !important;
+  gap: 0 !important;
+  height: 100% !important;
+}
+#tab-cut.active {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.cut-mode-btn {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--ink) !important;
+  border-radius: 10px !important;
+  padding: 14px 18px !important;
+  cursor: pointer !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  transition: all 0.15s ease !important;
+}
+.cut-mode-btn:hover {
+  background: var(--soft) !important;
+  border-color: var(--blue) !important;
+}
+.cut-mode-btn.active, .cut-mode-btn.teal {
+  background: var(--surface) !important;
+  border: 1.5px dashed var(--green) !important;
+  color: var(--green) !important;
+  box-shadow: 0 0 12px var(--ring) !important;
+}
+
+.toolkit-cut-input {
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  width: 100px;
+  text-align: center;
+}
+.toolkit-cut-input:focus {
+  border-color: var(--green);
+  outline: none;
+}
+
+/* Cắt video: màn rỗng + nút tỉ lệ đang chọn */
+#cut-preview-video:not([src]) ~ #cut-empty{display:flex!important}
+.cut-tb-btn.on{border-color:var(--blue-2);background:var(--blue-tint);color:var(--blue)}
+

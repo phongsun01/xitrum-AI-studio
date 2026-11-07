@@ -1,0 +1,1930 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sesame Studio — Bản Free Tặng Cộng Đồng (Miễn Phí 100%)</title>
+  <script>try { document.documentElement.dataset.theme = localStorage.getItem('sesame.theme.v1') || 'dark'; } catch (e) {}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="hongguo.css">
+</head>
+<body>
+  <header class="mac-titlebar">
+    <div class="titlebar-drag"></div>
+    <div class="titlebar-crumb"><strong id="crumb-title">Studio</strong></div>
+    <div class="titlebar-actions">
+      <select id="prj-select" class="select prj-select" title="Dự án đang mở"></select>
+      <button id="prj-manage" class="btn-ghost btn-sm">Dự án</button>
+      <details id="acc-menu" class="acc-menu">
+        <summary id="acc-sum" title="Bấm để xem từng tài khoản"></summary>
+        <div class="acc-menu-pop"><div id="acc-chips"></div><button id="acc-menu-manage" class="btn-ghost btn-sm">Quản lý tài khoản</button></div>
+      </details>
+      <span id="top-blocked" class="st-chip" data-tone="warn" hidden><span class="st-dot"></span><span></span></span>
+      <button id="btn-resume" class="btn-ghost btn-sm" title="Chạy tiếp các task đang chờ">Chạy tiếp</button>
+      <button id="btn-stop-all" class="btn-danger btn-sm" title="Huỷ mọi task đang chờ và đang chạy">Dừng tất cả</button>
+      <button id="btn-open-resources" class="btn-ghost btn-sm" title="Trung tâm tài nguyên (Model &amp; Runtime) — Kiểm tra &amp; cài đặt tài nguyên cho người mới">☁ Tài nguyên <span id="res-header-badge" class="st-dot" style="background:#10b981;margin-left:4px;"></span></button>
+      <button id="btn-open-finder" class="btn-ghost btn-sm" title="Mở thư mục lưu">Thư mục</button>
+      <div class="zoom-pill-group" title="Thu phóng giao diện (Ctrl - / Ctrl 0 / Ctrl +)">
+        <button type="button" id="btn-zoom-out" class="zoom-pill-btn" title="Thu nhỏ (Ctrl -)">−</button>
+        <span id="btn-zoom-reset" class="zoom-pill-lbl" title="Bấm để đặt lại 100% (Ctrl 0)">100%</span>
+        <button type="button" id="btn-zoom-in" class="zoom-pill-btn" title="Phóng to (Ctrl +)">+</button>
+      </div>
+      <button id="btn-theme" class="btn-ghost btn-sm" title="Đổi giao diện Sáng / Tối">🌙</button>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="sidebar-nav">
+      <div class="brand-block">
+        <div class="brand-logo-hex" style="background:linear-gradient(135deg,#06b6d4 0%,#10b981 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(6,182,212,0.3);">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="stroke:none;"><polygon points="7,5 19,12 7,19"/></svg>
+        </div>
+        <div>
+          <div class="brand-title">SESAME</div>
+          <div class="brand-badge" style="color:#06b6d4;">STUDIO FREE</div>
+        </div>
+      </div>
+      <nav class="nav-menu">
+        <button class="nav-item" data-tab="tab-studio"><span class="nav-icon"><svg viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20" fill="currentColor" style="stroke:none;color:#06b6d4;"/></svg></span>Studio<span class="counter-badge" id="badge-active" hidden>0</span></button>
+        <button class="nav-item" data-tab="tab-assets"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.7-3.6 3.5-6 7-6s6.3 2.4 7 6"/><path d="M18 3l.7 1.6 1.6.7-1.6.7L18 7.6l-.7-1.6-1.6-.7 1.6-.7z"/></svg></span>Tư liệu</button>
+        <button class="nav-item" data-tab="tab-script"><span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M8 5l2 4M13 5l2 4"/></svg></span>Kịch bản</button>
+        <button class="nav-item" data-tab="tab-promptsync"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h16"/><circle cx="18" cy="12" r="2"/></svg></span>Prompt đồng bộ</button>
+        <button class="nav-item" data-tab="tab-library"><span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>Thư viện</button>
+        <button class="nav-item" data-tab="tab-edit"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>Edit/Ghép</button>
+        <button class="nav-item" data-tab="tab-cut"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg></span>Cắt video</button>
+        <button class="nav-item" data-tab="tab-tts"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></span>Text to Speech</button>
+        <button class="nav-item" data-tab="tab-fbpost"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 001 1h2l5 4V5L7 9H5a1 1 0 00-1 1z"/><path d="M16 9a4 4 0 010 6M18.5 6.5a7.5 7.5 0 010 11"/></svg></span>Đăng Reels</button>
+        <button class="nav-item" data-tab="tab-accounts"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.4 3.2-5.5 6.5-5.5s5.9 2.1 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18.5 14.8c1.7.8 2.8 2.6 3 5.2"/></svg></span>Tài khoản</button>
+        <button class="nav-item" data-tab="tab-settings"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg></span>Cài đặt</button>
+        <button class="nav-item" data-tab="tab-guide"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>Hướng dẫn</button>
+      </nav>
+    </aside>
+
+    <main class="main-stage">
+
+      <!-- STUDIO: soạn lệnh | hàng đợi task (mọi nguồn) | chi tiết -->
+      <section id="tab-studio" class="stage-view stage-fill">
+        <div class="studio">
+          <div class="card studio-col studio-compose">
+            <div class="seg" role="tablist">
+              <button class="seg-btn" data-kind="image">Tạo ảnh</button>
+              <button class="seg-btn active" data-kind="video">Tạo video</button>
+            </div>
+            <div>
+              <div class="row-between"><label class="label" for="st-prompt">Prompt</label><span id="st-count" class="muted small"></span></div>
+              <textarea id="st-prompt" class="textarea" rows="8" placeholder="Mỗi prompt cách nhau 1 dòng trống"></textarea>
+              <div class="row st-tpl-row" style="flex-wrap:wrap;gap:6px;">
+                <select id="st-tpl" class="select" style="flex:1;min-width:140px;"><option value="">Chèn mẫu prompt…</option></select>
+                <button type="button" id="st-opt-prompt" class="btn-ghost btn-sm" title="Tối ưu câu lệnh: Tách riêng chỉ dẫn nhạc nền/âm thanh, bám sát ảnh tham chiếu và chống chèn chữ/nhép môi">✨ Tối ưu prompt</button>
+                <button type="button" id="st-tpl-save" class="btn-ghost btn-sm">Lưu mẫu</button>
+              </div>
+              <div id="st-chars" class="muted small"></div>
+            </div>
+            <div class="st-switches">
+              <label class="switch"><input type="checkbox" id="st-model"><span></span>Người mẫu <em id="st-model-n" class="muted"></em></label>
+              <label class="switch"><input type="checkbox" id="st-rotate"><span></span>Ảnh luân phiên <em id="st-rotate-n" class="muted"></em></label>
+            </div>
+            <div>
+              <span class="label">Ảnh tham chiếu (tối đa 6)</span>
+              <div id="st-refs" class="img-strip"></div>
+            </div>
+            <div class="studio-params">
+              <div id="st-n-wrap" hidden>
+                <label class="label" for="st-n">Số ảnh mỗi prompt</label>
+                <select id="st-n" class="select"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+              </div>
+              <div>
+                <div class="label">Tỉ lệ</div>
+                <select id="st-ratio" class="select" hidden>
+                  <option value="9:16">9:16 · Dọc</option><option value="16:9">16:9 · Ngang</option><option value="1:1">1:1 · Vuông</option>
+                  <option value="4:3">4:3</option><option value="3:4">3:4</option>
+                </select>
+                <div class="seg seg-fill" id="st-ratio-seg"><button type="button" class="seg-btn" data-r="9:16">9:16</button><button type="button" class="seg-btn" data-r="16:9">16:9</button><button type="button" class="seg-btn" data-r="1:1">1:1</button><button type="button" class="seg-btn" data-r="4:3">4:3</button><button type="button" class="seg-btn" data-r="3:4">3:4</button></div>
+              </div>
+              <div>
+                <div class="label">Engine AI</div>
+                <select id="st-engine" class="select">
+                  <option value="auto" selected>Tự động (Auto Engine)</option>
+                  <option value="muse">Muse AI (muse.ai)</option>
+                  <option value="google_flow">Google Flow (flow.google)</option>
+                  <option value="dola">Dola AI (Seedance 2.0)</option>
+                  <option value="seedance">Seedance 2.5 (BytePlus)</option>
+                </select>
+              </div>
+            </div>
+            <details class="studio-adv">
+              <summary>Nâng cao</summary>
+              <div class="stack">
+                <div>
+                  <label class="label" for="st-sep">Ký tự tách prompt</label>
+                  <input id="st-sep" class="input" placeholder="Để trống = dòng trống">
+                </div>
+                <div>
+                  <span class="label">Dùng ảnh tham chiếu</span>
+                  <div class="seg" id="st-imgmode">
+                    <button class="seg-btn active" data-mode="shared" title="Mọi prompt dùng tất cả ảnh">Dùng chung</button>
+                    <button class="seg-btn" data-mode="pair" title="Prompt 1 dùng ảnh 1, prompt 2 dùng ảnh 2...">Ghép cặp</button>
+                  </div>
+                </div>
+              </div>
+            </details>
+            <div class="studio-actions">
+              <button id="st-run" class="btn btn-block">Tạo &amp; chạy</button>
+              <button id="st-hold" class="btn-ghost btn-block">Chỉ thêm vào hàng đợi</button>
+            </div>
+          </div>
+
+          <div class="card studio-col studio-queue">
+            <div class="sq-tools">
+              <input id="sq-q" class="input" type="search" placeholder="Tìm prompt…">
+              <select id="sq-status" class="select">
+                <option value="">Mọi trạng thái</option><option value="held">Chưa chạy</option><option value="queued">Đang chờ</option><option value="processing">Đang chạy</option>
+                <option value="succeeded">Xong</option><option value="failed">Lỗi</option><option value="cancelled">Đã huỷ</option>
+              </select>
+            </div>
+            <div class="row sq-picks">
+              <button type="button" class="btn-ghost btn-sm" data-pick="failed">Chọn lỗi</button>
+              <button type="button" class="btn-ghost btn-sm" data-pick="held">Chọn chưa chạy</button>
+            </div>
+            <div class="row-between">
+              <label class="check"><input type="checkbox" id="sq-all"> <span id="sq-count">0 task</span></label>
+              <select id="sq-sort" class="select" style="width:auto">
+                <option value="new">Mới nhất</option><option value="old">Cũ nhất</option><option value="status">Theo trạng thái</option>
+              </select>
+            </div>
+            <div id="sq-list" class="sq-list"></div>
+            <div class="sq-foot">
+              <button class="btn-ghost btn-sm" data-bulk="run">Chạy</button>
+              <button class="btn-ghost btn-sm" data-bulk="stop">Dừng</button>
+              <button class="btn-danger btn-sm" data-bulk="remove">Xoá</button>
+              <button class="btn-ghost btn-sm" data-bulk="retry-failed">Chạy lại lỗi</button>
+              <button class="btn-ghost btn-sm" data-bulk="merge">Ghép video</button>
+            </div>
+          </div>
+
+          <aside id="sd" class="card studio-col studio-detail"></aside>
+        </div>
+
+        <dialog id="st-edit" class="modal">
+          <form method="dialog" class="stack">
+            <h3>Chỉnh sửa prompt</h3>
+            <textarea id="st-edit-text" class="textarea" rows="8"></textarea>
+            <div class="row" style="justify-content:flex-end">
+              <button value="cancel" class="btn-ghost">Huỷ</button>
+              <button value="save" class="btn">Lưu &amp; chạy lại</button>
+            </div>
+          </form>
+        </dialog>
+      </section>
+
+      <!-- GOOGLE FLOW AI APP BUILDER: Quy trình 8 bước tự động Ý tưởng → Kịch bản → Danh sách Scene → Prompt → Video Preview -->
+      <section id="tab-flow-app" class="stage-view stage-wide">
+        <div class="stage-header">
+          <div>
+            <h1 class="stage-title">Google Flow — Tạo Video AI Tự Động</h1>
+            <p class="stage-subtitle">Quy trình 8 bước: Nhập ý tưởng → Tự viết kịch bản &amp; Khóa đồng nhất → Chia Scene → Tạo Prompt chi tiết → Generate &amp; Preview Video</p>
+          </div>
+          <div class="row" style="gap: 8px; flex-wrap: wrap;">
+            <span id="flow-acc-badge" class="st-chip" data-tone="info"><span class="st-dot"></span><span>Đang kiểm tra tài khoản Google Flow...</span></span>
+            <button type="button" id="btn-flow-connect-acc" class="btn-ghost btn-sm" title="Mở hoặc thêm tài khoản Google Flow">+ Kết nối / Mở Google Flow</button>
+            <button type="button" id="btn-flow-open-folder" class="btn-ghost btn-sm">📂 Thư mục xuất</button>
+          </div>
+        </div>
+
+        <!-- Thanh quy trình 5 giai đoạn chuẩn Bước #7: Ý tưởng → Kịch bản → Danh sách Scene → Prompt → Video Preview -->
+        <ol class="steps flow-pipeline-steps" id="flow-steps-bar">
+          <li class="step active" data-step-nav="idea"><b>1</b> Ý tưởng (Idea)</li>
+          <li class="step" data-step-nav="script"><b>2</b> Kịch bản &amp; Khóa đồng nhất</li>
+          <li class="step" data-step-nav="scenes"><b>3</b> Danh sách Scene</li>
+          <li class="step" data-step-nav="prompts"><b>4</b> Bộ Prompt chi tiết</li>
+          <li class="step" data-step-nav="preview"><b>5</b> Video Preview &amp; Ghép phim</li>
+        </ol>
+
+        <!-- BƯỚC 1 (#3): KHU VỰC NHẬP Ý TƯỞNG ("Bạn muốn tạo video gì?") -->
+        <div class="card flow-section-card" id="flow-sec-idea">
+          <div class="card-h">
+            <div>
+              <h3>1. Bạn muốn tạo video gì?</h3>
+              <p>Nhập ý tưởng tự nhiên hoặc chọn mẫu thử nghiệm bên dưới. App sẽ tự phát triển kịch bản, chia từng cảnh và tạo bộ prompt chuẩn Google Flow.</p>
+            </div>
+            <div class="row" style="gap: 6px;">
+              <button type="button" id="btn-flow-copy-chatgpt" class="btn-ghost btn-sm" title="Tối ưu đỡ tốn credit: Copy lệnh chuẩn mang sang ChatGPT hoàn thiện trước">📋 Copy lệnh cho ChatGPT</button>
+              <button type="button" id="btn-flow-paste-chatgpt" class="btn-ghost btn-sm" title="Dán kịch bản/prompt đã làm trên ChatGPT vào các Scene">📥 Dán từ ChatGPT</button>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div>
+              <span class="label">Ý tưởng mẫu (Bấm để điền nhanh — Bước #3 &amp; #8)</span>
+              <div class="chips" id="flow-idea-presets">
+                <button type="button" class="preset-chip" data-idea="Tạo video quảng cáo một chai nước hoa dành cho nữ, phong cách sang trọng, cinematic." data-genre="commercial" data-style="luxury_cinematic" data-scenes="5" data-ratio="9:16">✨ Nước hoa nữ sang trọng, cinematic (Mẫu #3)</button>
+                <button type="button" class="preset-chip" data-idea="Tạo video quảng cáo một cô gái Việt Nam giới thiệu sản phẩm thời trang trong một quán cà phê hiện đại." data-genre="fashion" data-style="modern_lifestyle" data-scenes="5" data-ratio="9:16">👗 Cô gái Việt giới thiệu thời trang tại quán cà phê (Mẫu #8)</button>
+                <button type="button" class="preset-chip" data-idea="Tạo video quảng cáo chai serum dưỡng da cao cấp dành cho nữ trong không gian phòng sáng tối giản đón ánh nắng ban mai, phong cách điện ảnh 4K." data-genre="commercial" data-style="minimal_editorial" data-scenes="5" data-ratio="9:16">🌿 Mỹ phẩm Serum dưỡng da 4K</button>
+                <button type="button" class="preset-chip" data-idea="Tạo video phim ngắn gia đình Việt Nam nấu bữa cơm chiều ấm cúng trong căn bếp hiện đại, biểu cảm tự nhiên, điện ảnh." data-genre="story" data-style="warm_film" data-scenes="5" data-ratio="16:9">🍲 Phim ngắn gia đình Việt ấm cúng</button>
+              </div>
+            </div>
+
+            <div>
+              <label class="label" for="flow-idea-input">Bạn muốn tạo video gì?</label>
+              <textarea id="flow-idea-input" class="textarea" rows="3" placeholder="Ví dụ: Tạo video quảng cáo một chai nước hoa dành cho nữ, phong cách sang trọng, cinematic..."></textarea>
+            </div>
+
+            <!-- 6 Trường tùy chọn chuẩn Bước #3 + Tùy chọn kế thừa Sesame Studio -->
+            <div class="flow-options-grid">
+              <div>
+                <label class="label" for="flow-opt-genre">Thể loại video</label>
+                <select id="flow-opt-genre" class="select">
+                  <option value="commercial" selected>Quảng cáo sản phẩm (Commercial / TVC)</option>
+                  <option value="fashion">Thời trang &amp; Lifestyle (Fashion / Lookbook)</option>
+                  <option value="ugc_review">Review &amp; Trải nghiệm thực tế (UGC / KOL)</option>
+                  <option value="story">Phim ngắn / Kể chuyện (Cinematic Story)</option>
+                  <option value="food">Ẩm thực &amp; Đời sống (Food Cinematic)</option>
+                  <option value="brand">Giới thiệu Thương hiệu / Giáo dục</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="flow-opt-style">Phong cách hình ảnh</label>
+                <select id="flow-opt-style" class="select">
+                  <option value="luxury_cinematic" selected>Sang trọng, Cinematic (Luxury 4K)</option>
+                  <option value="modern_lifestyle">Hiện đại, Trẻ trung, Tươi sáng</option>
+                  <option value="natural_realistic">Chân thực đời thường Việt Nam</option>
+                  <option value="studio_commercial">Studio Quảng cáo Cao cấp</option>
+                  <option value="warm_film">Điện ảnh Phim nhựa Ấm áp (35mm)</option>
+                  <option value="minimal_editorial">Tối giản Tinh tế (Editorial)</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="flow-opt-duration">Thời lượng</label>
+                <select id="flow-opt-duration" class="select">
+                  <option value="24">24 giây (8s / cảnh)</option>
+                  <option value="30">30 giây (10s / cảnh)</option>
+                  <option value="32">32 giây (8s / cảnh)</option>
+                  <option value="40" selected>40 giây (Chuẩn 5 cảnh × 8s)</option>
+                  <option value="50">50 giây (Chuẩn 5 cảnh × 10s)</option>
+                  <option value="60">60 giây (6 cảnh × 10s)</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="flow-opt-ratio">Tỷ lệ khung hình</label>
+                <select id="flow-opt-ratio" class="select">
+                  <option value="9:16" selected>9:16 · Dọc (TikTok, Reels, Shorts)</option>
+                  <option value="16:9">16:9 · Ngang (YouTube, TVC Điện ảnh)</option>
+                  <option value="1:1">1:1 · Vuông (Facebook, Instagram)</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="flow-opt-scenes">Số lượng cảnh (Scenes)</label>
+                <select id="flow-opt-scenes" class="select">
+                  <option value="3">3 cảnh (Mở đầu - Trải nghiệm - Kết)</option>
+                  <option value="4">4 cảnh</option>
+                  <option value="5" selected>5 cảnh (Chuẩn: Cận SP → Nhân vật → Sử dụng → Cận SP → Kết)</option>
+                  <option value="6">6 cảnh</option>
+                  <option value="8">8 cảnh</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="flow-opt-lang">Ngôn ngữ Prompt</label>
+                <select id="flow-opt-lang" class="select">
+                  <option value="vi" selected>Tiếng Việt (Đầy đủ chi tiết + Camera)</option>
+                  <option value="en">Tiếng Anh (Chuẩn Veo 3 Cinematic)</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="flow-opt-engine">Engine Thực Thi</label>
+                <select id="flow-opt-engine" class="select">
+                  <option value="google_flow" selected>Google Flow (flow.google / Veo 3.1)</option>
+                  <option value="dola">Dola AI (Seedance 2.0 Fast)</option>
+                  <option value="auto">Tự động (Auto Engine Sesame Studio)</option>
+                  <option value="muse">Muse AI (muse.ai)</option>
+                  <option value="seedance">Seedance 2.5 (BytePlus)</option>
+                </select>
+              </div>
+              <div>
+                <div class="row-between">
+                  <label class="label" for="flow-opt-voice" style="margin:0;">Giọng đọc VieNeu-TTS v3 Turbo (48kHz)</label>
+                  <button type="button" id="btn-flow-preview-voice" class="btn-ghost btn-sm" style="padding:2px 6px; font-size:11px;" title="Nghe thử giọng đọc VieNeu-TTS 48kHz đang chọn">🔊 Nghe thử</button>
+                </div>
+                <select id="flow-opt-voice" class="select">
+                  <option value="vieneu:Quỳnh Anh" selected>🎙️ Quỳnh Anh (48kHz) — Nữ · truyền cảm, ngôn tình / hiện đại</option>
+                  <option value="vieneu:Mỹ Duyên">🎙️ Mỹ Duyên (48kHz) — Nữ · miền Nam, ngọt ngào, cảm xúc</option>
+                  <option value="vieneu:Ngọc Linh">🎙️ Ngọc Linh (48kHz) — Nữ · sâu lắng, kể chuyện đêm khuya</option>
+                  <option value="vieneu:Thục Đoan">🎙️ Thục Đoan (48kHz) — Nữ · thanh lịch, cổ trang / cung đấu</option>
+                  <option value="vieneu:Ngọc Huyền">🎙️ Ngọc Huyền (48kHz) — Nữ · tự nhiên, ấm áp, đời thường</option>
+                  <option value="vieneu:Kim Thanh">🎙️ Kim Thanh (48kHz) — Nữ · sắc sảo, review / chốt đơn</option>
+                  <option value="vieneu:Thiện Minh">🎙️ Thiện Minh (48kHz) — Nam · trầm ấm, tổng tài / thuyết minh</option>
+                  <option value="vieneu:Đức Trí">🎙️ Đức Trí (48kHz) — Nam · đĩnh đạc, kịch tính, điểm tin</option>
+                  <option value="vieneu:Hải Đăng">🎙️ Hải Đăng (48kHz) — Nam · miền Nam, hào sảng, năng động</option>
+                  <option value="vieneu:rotate">🎲 Luân phiên giọng 48kHz tự động (Đổi giọng theo từng clip)</option>
+                  <option value="">Không lồng tiếng (Giữ tiếng gốc video AI)</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="flow-opt-char">Nhân vật cố định (Tư liệu)</label>
+                <select id="flow-opt-char" class="select">
+                  <option value="">Tự động theo mô tả kịch bản</option>
+                </select>
+              </div>
+              <div style="display:flex; align-items:flex-end;">
+                <label class="check" title="Kế thừa từ Sesame Studio: Tự động trích xuất frame cuối của Scene trước làm frame mở đầu cho Scene tiếp theo để giữ đồng nhất 100%">
+                  <input type="checkbox" id="flow-opt-continuity" checked>
+                  <span>Khóa nối cảnh liên tục (Continuity Lock)</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Đính kèm ảnh tham chiếu Sản phẩm / Nhân vật (Ingredients / First-Frame) -->
+            <div class="attach-row" id="flow-ref-dropzone">
+              <div class="grow">
+                <strong id="flow-ref-title">Ảnh tham chiếu Sản phẩm / Nhân vật (Tuỳ chọn — Ingredients Google Flow)</strong>
+                <div class="muted small">Kéo thả hoặc chọn 1–4 ảnh gốc để Google Flow giữ nguyên 100% thiết kế sản phẩm và khuôn mặt nhân vật xuyên suốt mọi Scene.</div>
+              </div>
+              <button type="button" id="btn-flow-pick-refs" class="btn-ghost btn-sm">+ Chọn ảnh tham chiếu</button>
+              <button type="button" id="btn-flow-clear-refs" class="btn-danger btn-sm" hidden>Bỏ hết ảnh</button>
+              <div id="flow-ref-strip" class="img-strip" hidden></div>
+            </div>
+
+            <div class="row-between" style="padding-top: 4px;">
+              <span id="flow-idea-summary" class="muted small">Sẵn sàng tạo kịch bản 5 Scene × 8s (40 giây) · Tỷ lệ 9:16</span>
+              <button type="button" id="btn-flow-build-script" class="btn btn-lg">✨ Viết Kịch Bản, Chia Scene &amp; Tạo Bộ Prompt</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- BƯỚC 2 (#4 & #5): KỊCH BẢN TỔNG THỂ & KHÓA NHẤT QUÁN NHÂN VẬT / SẢN PHẨM -->
+        <div class="card flow-section-card" id="flow-sec-script">
+          <div class="card-h">
+            <div>
+              <h3>2. Kịch bản tổng thể &amp; Khóa đồng nhất (Consistency Lock)</h3>
+              <p>Giữ nguyên ngoại hình nhân vật, thiết kế sản phẩm và bối cảnh xuyên suốt mọi Scene. Khi sửa thông tin khóa ở đây, bấm "Đồng bộ vào tất cả Prompt" để cập nhật toàn bộ các cảnh.</p>
+            </div>
+            <button type="button" id="btn-flow-sync-locks" class="btn-ghost btn-sm">🔄 Đồng bộ Khóa vào tất cả Prompt</button>
+          </div>
+
+          <div class="flow-locks-grid">
+            <div>
+              <label class="label" for="flow-lock-product">Khóa đồng nhất Sản phẩm / Chủ thể (Product Lock)</label>
+              <textarea id="flow-lock-product" class="textarea" rows="2" placeholder="Mô tả chi tiết hình dáng, màu sắc, chất liệu sản phẩm cố định ở mọi cảnh..."></textarea>
+            </div>
+            <div>
+              <label class="label" for="flow-lock-char">Khóa đồng nhất Nhân vật (Character Lock)</label>
+              <textarea id="flow-lock-char" class="textarea" rows="2" placeholder="Mô tả cố định độ tuổi, gương mặt, kiểu tóc, trang phục nhân vật xuyên suốt..."></textarea>
+            </div>
+            <div>
+              <label class="label" for="flow-lock-setting">Khóa Bối cảnh &amp; Ánh sáng (Environment &amp; Lighting Lock)</label>
+              <textarea id="flow-lock-setting" class="textarea" rows="2" placeholder="Mô tả cố định không gian bối cảnh, ánh sáng chủ đạo..."></textarea>
+            </div>
+          </div>
+
+          <details class="raw-lines" style="margin-top: 10px;">
+            <summary>Xem tóm tắt kịch bản tổng thể (Master Script Overview)</summary>
+            <textarea id="flow-script-overview" class="textarea" rows="5" style="margin-top: 8px; font-family: ui-monospace, monospace; font-size: 12px;"></textarea>
+          </details>
+        </div>
+
+        <!-- BƯỚC 3 & 4 (#4, #5, #6, #7): THANH NÚT GENERATE VIDEO & DANH SÁCH SCENE (Prompt | Generate | Preview | Regenerate) -->
+        <div class="card flow-section-card" id="flow-sec-scenes">
+          <div class="flow-gen-toolbar">
+            <div>
+              <h3 style="font-size: 15px; font-weight: 700;">3 &amp; 4. Danh sách Scene &amp; Bộ Prompt Chi Tiết</h3>
+              <p class="muted small" id="flow-scenes-status-text">Mỗi Scene gồm: Thời lượng, Nội dung, Hành động, Hình ảnh, Âm thanh và Prompt đầy đủ. Bấm Generate từng cảnh hoặc Generate All Scenes.</p>
+            </div>
+            <div class="row" style="gap: 8px; flex-wrap: wrap;">
+              <button type="button" id="btn-flow-add-scene" class="btn-ghost btn-sm">+ Thêm Scene</button>
+              <button type="button" id="btn-flow-stop-all" class="btn-danger btn-sm" hidden>⏹ Dừng tạo</button>
+              <button type="button" id="btn-flow-gen-all" class="btn">⚡ Generate All Scenes</button>
+              <button type="button" id="btn-flow-gen-video" class="btn" style="background: var(--green); border-color: var(--green);">🎬 Generate Video (Tạo &amp; Tự ghép)</button>
+            </div>
+          </div>
+
+          <!-- Dãy nút nhanh: Generate Scene 1 | Generate Scene 2 | ... | Generate All Scenes (Chuẩn Bước #6) -->
+          <div class="flow-scene-quick-btns" id="flow-scene-quick-btns"></div>
+
+          <!-- Danh sách các thẻ Scene (Mỗi Scene có: Prompt | Generate | Preview | Regenerate) -->
+          <div id="flow-scenes-list" class="flow-scenes-list"></div>
+        </div>
+
+        <!-- BƯỚC 5 (#7 & #8): VIDEO PREVIEW TỔNG HỢP & GHÉP HẬU KỲ -->
+        <div class="card flow-section-card" id="flow-sec-preview">
+          <div class="card-h">
+            <div>
+              <h3>5. Video Preview &amp; Xuất bản Video Hoàn Chỉnh</h3>
+              <p>Xem trước từng Scene đã tạo, kiểm tra tính đồng nhất, tự động lồng giọng đọc AI VieNeu-TTS v3 Turbo (48kHz) và ghép nối mượt mà thành 1 video MP4 hoàn chỉnh.</p>
+            </div>
+            <div class="row" style="gap: 8px; flex-wrap: wrap;">
+              <label class="check" title="Tự động lồng giọng đọc AI VieNeu-TTS v3 Turbo (48kHz) theo lời thoại các Scene khi ghép">
+                <input type="checkbox" id="flow-merge-voice" checked>
+                <span>🎙️ Lồng tiếng VieNeu 48kHz</span>
+              </label>
+              <label class="check" title="Tự động lồng nhạc nền ngẫu nhiên từ thư mục Nhạc nền khi ghép xong">
+                <input type="checkbox" id="flow-merge-music">
+                <span>Ghép nhạc nền</span>
+              </label>
+              <button type="button" id="btn-flow-dub-vieneu" class="btn-ghost btn-sm" title="Lồng lại giọng đọc VieNeu-TTS v3 Turbo 48kHz cho video đã ghép">🎙️ Lồng tiếng lại (48kHz)</button>
+              <button type="button" id="btn-flow-merge-final" class="btn">🎞️ Ghép các Scene đã xong thành 1 Video</button>
+            </div>
+          </div>
+
+          <div class="flow-preview-layout">
+            <div class="flow-preview-strip-wrap">
+              <div class="row-between" style="margin-bottom: 8px;">
+                <span class="label" style="margin:0;">Các Scene trong dự án (<span id="flow-done-count">0/0</span> đã có video)</span>
+                <span class="muted small">Bấm vào từng cảnh để xem hoặc tạo lại</span>
+              </div>
+              <div id="flow-preview-strip" class="flow-preview-strip"></div>
+            </div>
+
+            <div class="flow-final-player-box" id="flow-final-player-box">
+              <div class="preview-empty">
+                <strong>Chưa có Video tổng hợp</strong>
+                Hãy nhấn <b>Generate Video</b> hoặc tạo các Scene rồi bấm <b>Ghép các Scene đã xong thành 1 Video</b>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TƯ LIỆU: nhân vật, mẫu prompt, người mẫu cố định, ảnh luân phiên -->
+      <section id="tab-assets" class="stage-view">
+        <div class="stage-header">
+          <div>
+            <h1 class="stage-title">Tư liệu</h1>
+            <p class="stage-subtitle">Kho ảnh và mẫu chữ dùng lại cho mọi video: ảnh nhân vật để giữ khuôn mặt/trang phục nhất quán, mẫu prompt để chèn nhanh, người mẫu cố định và ảnh luân phiên tự gắn vào từng lượt tạo video.</p>
+          </div>
+        </div>
+        <div class="assets-grid">
+          <div class="card stack">
+            <div class="row-between"><h3>Nhân vật</h3><button type="button" class="btn-ghost btn-sm" id="as-char-add">+ Thêm nhân vật</button></div>
+            <p class="muted small">Mỗi nhân vật có tên + tối đa 3 ảnh. Khi prompt ở Studio / Kịch bản / Flow Builder có đúng tên đó (viết hoa như tên, hoặc @tên), app tự đính ảnh nhân vật vào lượt tạo video.</p>
+            <div id="as-chars" class="stack"></div>
+          </div>
+          <div class="card stack">
+            <div class="row-between"><h3>Mẫu prompt</h3><button type="button" class="btn-ghost btn-sm" id="as-tpl-add">+ Thêm mẫu</button></div>
+            <p class="muted small">Đoạn prompt hay dùng. Ở Studio chọn “Chèn mẫu prompt…” để dán nhanh vào ô nhập.</p>
+            <div id="as-tpls" class="stack"></div>
+          </div>
+          <div class="card stack">
+            <div class="row-between"><h3>Người mẫu cố định</h3><label class="switch"><input type="checkbox" id="as-model-on"><span></span>Bật</label></div>
+            <p class="muted small">Gắn vào mọi task khi bật (tối đa 3 ảnh).</p>
+            <div id="as-model" class="img-strip"></div>
+          </div>
+          <div class="card stack">
+            <div class="row-between"><h3>Ảnh luân phiên</h3><label class="switch"><input type="checkbox" id="as-rotate-on"><span></span>Bật</label></div>
+            <p class="muted small" id="as-rotate-hint">Mỗi task lấy 1 ảnh kế tiếp (tối đa 20 ảnh).</p>
+            <div id="as-rotate" class="img-strip"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- KỊCH BẢN: tạo video nhiều cảnh, storyboard, ghép (điều phối job ở renderer) -->
+      <section id="tab-script" class="stage-view stage-wide">
+        <div class="card compose-card">
+          <div class="compose-grid">
+            <div class="compose-main">
+              <div class="compose-modes">
+                <div class="seg" role="tablist">
+                  <button class="seg-btn active" data-mode="auto" title="Dán ý tưởng hoặc đoạn truyện, app tự chia cảnh">✨ Tự động</button>
+                  <button class="seg-btn" data-mode="script" title="Tự viết từng cảnh, mỗi dòng 1 cảnh">Tự viết cảnh</button>
+                  <button class="seg-btn" data-mode="image">Từ ảnh</button>
+                  <button class="seg-btn" data-mode="drama" title="Phim kể bằng hình: đạo diễn chia shot có hành động, biểu cảm, lời bình; app kiểm tra rồi mới gen">🎬 Phim ngắn</button>
+                </div>
+
+                <div data-mode-only="auto" class="auto-opts">
+                  <div class="row" style="gap:8px; flex-wrap:wrap;">
+                    <select id="auto-scenes" class="select" style="max-width:150px" title="Số cảnh app tự chia">
+                      <option value="3" selected>3 cảnh (~20s)</option>
+                      <option value="4">4 cảnh (~25s)</option>
+                      <option value="5">5 cảnh (~30s)</option>
+                      <option value="6">6 cảnh (~60s với Muse 10s/cảnh)</option>
+                      <option value="8">8 cảnh (~64s với Flow 8s/cảnh)</option>
+                    </select>
+                    <input id="auto-char" class="input grow" placeholder="Nhân vật chính (tuỳ chọn) · VD: cô gái 25 tuổi, tóc đen dài, áo khoác kem">
+                  </div>
+                  <p class="muted small" style="margin:6px 0 0;">App tự tách thành từng cảnh, mỗi cảnh tạo 1 clip riêng, tự ghép, tự lồng giọng đọc và chèn phụ đề. Không cần viết prompt.</p>
+<details class="auto-adv" style="margin-top:8px;">
+<summary class="muted small" style="cursor:pointer;">Nâng cao: thể loại và phong cách hình</summary>
+<div class="row" style="gap:8px; flex-wrap:wrap; margin-top:6px;">
+<select id="auto-genre" class="select" style="max-width:230px" title="Quyết định cách đặt máy quay, nhịp và âm thanh trong prompt từng cảnh">
+<option value="" selected>Thể loại: tự nhận diện</option>
+<option value="story">Phim ngắn / Kể chuyện</option>
+<option value="commercial">Quảng cáo sản phẩm</option>
+<option value="fashion">Thời trang & Lifestyle</option>
+<option value="ugc_review">Review / Trải nghiệm thực tế</option>
+<option value="food">Ẩm thực</option>
+<option value="brand">Giới thiệu thương hiệu / Giáo dục</option>
+</select>
+<select id="auto-style" class="select" style="max-width:230px" title="Ánh sáng và chất hình của cả video">
+<option value="" selected>Phong cách: theo thể loại</option>
+<option value="warm_film">Phim nhựa ấm áp 35mm</option>
+<option value="natural_realistic">Chân thực đời thường Việt Nam</option>
+<option value="modern_lifestyle">Hiện đại, tươi sáng</option>
+<option value="luxury_cinematic">Sang trọng, cinematic</option>
+<option value="studio_commercial">Studio quảng cáo cao cấp</option>
+<option value="minimal_editorial">Tối giản tinh tế</option>
+</select>
+</div>
+</details>
+                </div>
+
+                <div data-mode-only="image" hidden>
+                  <span class="label">Gợi ý chuyển động</span>
+                  <div class="chips">
+                    <button class="preset-chip" data-motion="Cận cảnh zoom từ từ vào bề mặt sản phẩm, ánh sáng studio chuyên nghiệp phản chiếu lung linh, 4k cinematic">Zoom cận cảnh</button>
+                    <button class="preset-chip" data-motion="Sản phẩm xoay 360 độ mượt mà trên bục trưng bày sang trọng, ánh sáng phản chiếu lấp lánh">Xoay 360°</button>
+                    <button class="preset-chip" data-motion="Góc máy dynamic camera trượt ngang từ trái sang phải, hạt bụi vàng ma mị bay quanh sản phẩm">Trượt ngang cinematic</button>
+                    <button class="preset-chip" data-motion="Khói sương mờ ảo cuộn quanh sản phẩm, hiệu ứng mở hộp bí ẩn và cao cấp">Khói sương</button>
+                  </div>
+                </div>
+              </div>
+              <div data-mode-only="drama" class="drama-panel" hidden>
+                <p class="muted small" style="margin:6px 0 8px;">Phim kể bằng hình chuẩn <b>Drama Muse</b>: Hỗ trợ <b>Chiến lược hình ảnh độc lập (IVS)</b> chống trôi mặt 100%, <b>Bức tường lửa giọng nói (Speaker Firewall: NARRATOR_001 / VOICE_001)</b> cấm nhép môi, <b>Chế độ âm thanh tách rời (Audio Mode B)</b> lồng tiếng hậu kỳ chuẩn đài và <b>9 thể loại kịch bản ăn khách</b>.</p>
+                <div class="row" style="gap:8px; flex-wrap:wrap; align-items:center;">
+                  <select id="drama-genre" class="select" style="max-width:240px" title="Chọn 1 trong 9 thể loại kịch bản ăn khách">
+                    <option value="family">🏠 Gia đình (Tình thân &amp; Bi kịch)</option>
+                    <option value="love_betrayal">💔 Tình yêu / Phản bội</option>
+                    <option value="ceo" selected>🏙️ Tổng tài (Hào môn &amp; Thương trường)</option>
+                    <option value="underworld">🕶️ Thế giới ngầm (Giang hồ)</option>
+                    <option value="revenge">🔥 Báo thù (Lật ngược thế cờ)</option>
+                    <option value="hidden_identity">🎭 Bí mật thân phận (Ẩn danh)</option>
+                    <option value="mother_in_law">🍵 Mẹ chồng nàng dâu</option>
+                    <option value="rural">🌾 Nông thôn (Làng quê &amp; Đổi đời)</option>
+                    <option value="custom">✨ Tự chọn (Kịch bản tự do)</option>
+                  </select>
+                  <select id="drama-audio" class="select" style="max-width:300px" title="Chọn chế độ âm thanh cho cả series">
+                    <option value="mode_b" selected>🔇 Chế độ B: Hình sạch không tiếng + Hậu kỳ VieNeu/Edge-TTS</option>
+                    <option value="narration">🎙️ Lời bình (NARRATOR_001 off-screen + phụ đề)</option>
+                    <option value="dialogue">🗣️ Đa giọng (Speaker Firewall: NARRATOR_001 + VOICE_001)</option>
+                    <option value="caption">📝 Chỉ nhạc nền, kể bằng caption lúc đăng</option>
+                  </select>
+                  <button type="button" id="btn-drama-genre-tpl" class="btn-ghost btn-sm" title="Tạo ngay kịch bản mẫu theo thể loại đang chọn">✨ Mẫu theo thể loại</button>
+                  <button type="button" id="btn-drama-copy-prompt" class="btn-ghost btn-sm">📋 Copy lệnh Đạo diễn</button>
+                  <button type="button" id="btn-drama-sample" class="btn-ghost btn-sm">Nạp spec mẫu (Linh Phù)</button>
+                </div>
+                <div class="row" style="gap:16px; flex-wrap:wrap; align-items:center; margin-top:8px;">
+                  <label class="small" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;" title="Mỗi clip là một cảnh tái hiện độc lập (cận cảnh bàn tay, đạo cụ, bóng lưng, silhouette) giúp tỉ lệ gen thành công 100%, không bao giờ méo mặt hay dư người">
+                    <input type="checkbox" id="drama-ivs" checked />
+                    <span>🛡️ <b>Chiến lược hình ảnh độc lập (IVS)</b> — Chống trôi mặt &amp; Cấm nhép môi (No Lip-Sync)</span>
+                  </label>
+                  <label class="small" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;" title="Sử dụng định dạng PROMPT 001 | SCENE | VISUAL | ACTION | AUDIO | SPEAKER FIREWALL | NEGATIVE trên 1 dòng">
+                    <input type="checkbox" id="drama-v51-pipe" />
+                    <span>⚡ Xuất Prompt đơn dòng chuẩn Pipe (PROMPT 001 | ...)</span>
+                  </label>
+                </div>
+                <label class="label" for="drama-story" style="margin-top:8px;">Truyện / ý tưởng (để tạo lệnh Đạo diễn)</label>
+                <textarea id="drama-story" class="textarea" rows="3" placeholder="Dán đoạn truyện. Bấm Copy lệnh Đạo diễn rồi dán sang ChatGPT / Claude, hoặc bấm 'Mẫu theo thể loại' để thử ngay."></textarea>
+                <label class="label" for="drama-json" style="margin-top:8px;">Spec JSON do đạo diễn trả về</label>
+                <textarea id="drama-json" class="textarea" rows="7" spellcheck="false" style="font-family: ui-monospace, Menlo, monospace; font-size: 12px;" placeholder='{"title": "...", "genre": "ceo", "ivs": true, "audio": "mode_b", "characters": [...], "shots": [...]}'></textarea>
+                <div class="row" style="gap:8px; margin-top:8px; align-items:center;">
+                  <button type="button" id="btn-drama-check" class="btn-ghost">🔎 Kiểm tra &amp; Biên dịch</button>
+                  <button type="button" id="btn-drama-judge" class="btn-ghost" title="Chấm điểm kịch bản thang điểm 10 theo 4 tiêu chí điện ảnh">⚖️ Giám khảo AI chấm điểm</button>
+                  <span id="drama-status" class="muted small"></span>
+                </div>
+                <details class="film-advanced-send"><summary class="muted small">Nâng cao: gen ngay, sẽ dùng lượt AI (không qua Shot Board)</summary>
+                  <button type="button" id="btn-drama-queue" class="btn-danger btn-sm" disabled>Gen ngay · tốn lượt AI</button>
+                </details>
+                <div id="drama-report" class="stack" style="margin-top:8px;"></div>
+                <div id="drama-cards" class="stack" style="margin-top:8px;"></div>
+              </div>
+
+              <textarea id="input-scripts" class="textarea" rows="4" placeholder="Mỗi dòng là 1 cảnh · cách 1 dòng trống để sang video tiếp theo"></textarea>
+            </div>
+            <div data-params-slot>
+            <div id="shared-params" class="params-deck">
+              <div class="span-all">
+                <label class="label" for="param-board">Cách làm</label>
+                <select id="param-board" class="select">
+                  <option value="">Làm video thẳng · nhanh ~3 phút</option>
+                  <option value="auto">Storyboard → tự làm video · đồng nhất, ~8 phút</option>
+                  <option value="review">Storyboard → chờ tôi duyệt rồi làm video</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="param-engine">Engine AI</label>
+                <select id="param-engine" class="select" title="Chọn nền tảng AI tạo video (Tự động hoặc chỉ định cụ thể)">
+                  <option value="auto" selected>Tự động (Auto Engine)</option>
+                  <option value="muse">Muse AI (muse.ai)</option>
+                  <option value="google_flow">Google Flow (flow.google)</option>
+                  <option value="dola">Dola AI (Seedance 2.0)</option>
+                  <option value="seedance">Seedance 2.5 (BytePlus)</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="param-ratio">Tỉ lệ</label>
+                <select id="param-ratio" class="select">
+                  <option value="9:16" selected>9:16 · Dọc (TikTok, Reels)</option>
+                  <option value="16:9">16:9 · Ngang (YouTube)</option>
+                  <option value="1:1">1:1 · Vuông</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="param-duration">Thời lượng</label>
+                <select id="param-duration" class="select">
+                  <option value="10s">10 giây · gộp 1 lệnh</option>
+                  <option value="16s">16 giây · gộp 1 lệnh (2 cảnh × 8s)</option>
+                  <option value="20s">20 giây · gộp 1 lệnh</option>
+                  <option value="24s">24 giây · gộp 1 lệnh (3 cảnh × 8s)</option>
+                  <option value="30s" selected>30 giây · gộp 1 lệnh (3 cảnh × 10s, tiết kiệm)</option>
+                  <option value="40s">40 giây · gộp 1 lệnh</option>
+                  <option value="50s">50 giây · gộp 1 lệnh</option>
+                  <option value="60s">60 giây · gộp 1 lệnh</option>
+                  <option value="each">Từng cảnh 10s · gửi lần lượt, app tự ghép</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="param-prefix">Tiền tố câu lệnh</label>
+                <input type="text" id="param-prefix" value="Tạo video chân thực: " class="input">
+              </div>
+              <div>
+                <div class="row-between">
+                  <label class="label" for="param-voice" style="margin:0;">Giọng đọc (VieNeu-TTS v3 Turbo 48kHz)</label>
+                  <button type="button" id="btn-preview-param-voice" class="btn-ghost btn-sm" style="padding:2px 6px; font-size:11px;" title="Nghe thử giọng đọc VieNeu-TTS 48kHz đang chọn">🔊 Nghe thử</button>
+                </div>
+                <select id="param-voice" class="select">
+                  <optgroup label="🎙️ Giọng đọc AI VieNeu-TTS v3 Turbo (48kHz Local)">
+                    <option value="vieneu:Quỳnh Anh" selected>Quỳnh Anh (48kHz) — Nữ · miền Bắc, truyền cảm, ngôn tình</option>
+                    <option value="vieneu:Mỹ Duyên">Mỹ Duyên (48kHz) — Nữ · miền Nam, ngọt ngào, cảm xúc</option>
+                    <option value="vieneu:Ngọc Linh">Ngọc Linh (48kHz) — Nữ · sâu lắng, kể chuyện đêm khuya</option>
+                    <option value="vieneu:Thục Đoan">Thục Đoan (48kHz) — Nữ · thanh lịch, cổ trang / cung đấu</option>
+                    <option value="vieneu:Ngọc Huyền">Ngọc Huyền (48kHz) — Nữ · tự nhiên, ấm áp, đời thường</option>
+                    <option value="vieneu:Kim Thanh">Kim Thanh (48kHz) — Nữ · sắc sảo, review / chốt sale</option>
+                    <option value="vieneu:Thiện Minh">Thiện Minh (48kHz) — Nam · trầm ấm, tổng tài / thuyết minh</option>
+                    <option value="vieneu:Đức Trí">Đức Trí (48kHz) — Nam · đĩnh đạc, kịch tính, điểm tin</option>
+                    <option value="vieneu:Hải Đăng">Hải Đăng (48kHz) — Nam · miền Nam, hào sảng, năng động</option>
+                    <option value="vieneu:rotate">🎲 Luân phiên giọng 48kHz tự động (Đổi giọng theo từng clip)</option>
+                  </optgroup>
+                  <optgroup label="Chế độ khác & Giọng nội bộ Muse AI">
+                    <option value="">Không lồng tiếng (giữ tiếng gốc)</option>
+                    <option value="__self">Nhân vật tự nói — giọng Việt, khớp môi (như reel review)</option>
+                    <option value="Chipper Tambourine">Chipper Tambourine — Nam · trẻ trung, vui tươi (Muse)</option>
+                    <option value="Upbeat Buoy">Upbeat Buoy — Nam · trầm ấm, hào hứng (Muse)</option>
+                    <option value="Warm Pebble">Warm Pebble — Nam · ấm, chuyên nghiệp (Muse)</option>
+                    <option value="Husky Campfire">Husky Campfire — Nam · khàn nhẹ, thuyết phục (Muse)</option>
+                    <option value="Spirited Canyon">Spirited Canyon — Nam · trầm, mạnh mẽ (Muse)</option>
+                    <option value="Aria">Aria — Nữ · thân thiện, ấm áp (Meta AI)</option>
+                    <option value="Dynamic Sparkler">Dynamic Sparkler — Nữ · tự tin, năng động (Muse)</option>
+                    <option value="Cheerful Sunflower">Cheerful Sunflower — Nữ · tươi sáng, dễ nghe (Muse)</option>
+                    <option value="Bubbly Pompom">Bubbly Pompom — Nữ · sôi nổi, bắt tai (Muse)</option>
+                    <option value="Zippy Cork">Zippy Cork — Nữ · nhanh nhẹn, hợp TikTok (Muse)</option>
+                    <option value="Fizzy Bicycle">Fizzy Bicycle — Nam · cao, nhiều năng lượng (Muse)</option>
+                    <option value="Sprightly Windchime">Sprightly Windchime — Nam · sáng, tinh nghịch (Muse)</option>
+                    <option value="Warm">Warm — Meta AI · ấm</option>
+                    <option value="Smooth">Smooth — Meta AI · mượt</option>
+                  </optgroup>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="param-char-voices">Giọng thoại theo nhân vật (VieNeu)</label>
+                <textarea id="param-char-voices" class="input" rows="3" placeholder="Mỗi dòng: Tên nhân vật = Tên giọng VieNeu&#10;Nam = Hải Đăng&#10;Nữ = Ngọc Linh" title="Nhập tên giọng VieNeu bạn muốn cho từng nhân vật, không giới hạn theo giới tính hoặc danh sách gợi ý."></textarea>
+                <small>Để trống nếu chỉ dùng một giọng đọc. Tên giọng phải được VieNeu trên máy hỗ trợ.</small>
+              </div>
+              <div>
+                <label class="label" for="param-host">Người dẫn</label>
+                <select id="param-host" class="select" title="Ảnh storyboard và video vẽ người dẫn đúng giới tính này, khớp giọng đọc">
+                  <option value="">Theo giọng đọc</option>
+                  <option value="nữ">Nữ</option>
+                  <option value="nam">Nam</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="param-char">Nhân vật dẫn</label>
+                <select id="param-char" class="select" title="Gửi kèm ảnh nhân vật (tab Tư liệu) để mọi video giữ đúng 1 gương mặt người dẫn"></select>
+              </div>
+              <div>
+                <span class="label">Từng cảnh</span>
+                <label class="check"><input type="checkbox" id="param-merge" checked> Tự ghép khi xong</label>
+              </div>
+              <div>
+                <span class="label">Nhạc nền</span>
+                <div class="row"><label class="check" title="Video xong thì bốc ngẫu nhiên 1 bài trong thư mục Nhạc nền, lót nhỏ dưới giọng đọc. Giữ cả bản không nhạc."><input type="checkbox" id="param-music"> Ghép nhạc</label>
+                <button type="button" id="btn-music-folder" class="btn-ghost btn-sm" title="Mở thư mục nhạc nền">Thư mục</button></div>
+              </div>
+              <div>
+                <label class="label" for="param-copies">Số bản / video</label>
+                <input type="number" id="param-copies" class="input" min="1" max="20" value="1" title="Muse làm lại cùng kịch bản N lần, mỗi lần ra 1 video khác nhau để chọn">
+              </div>
+            </div>
+            </div>
+          </div>
+          <div class="compose-foot">
+            <div id="deck-common-image" class="attach-row">
+              <div class="grow">
+                <strong id="common-img-title">Ảnh sản phẩm (tuỳ chọn)</strong>
+                <div id="common-img-sub" class="muted small">Kéo thả hoặc chọn nhiều ảnh: mỗi ảnh làm ra 1 bộ video riêng.</div>
+              </div>
+              <button type="button" id="btn-pick-common-img" class="btn-ghost btn-sm">Chọn ảnh</button>
+              <button type="button" id="btn-remove-common-img" class="btn-danger btn-sm" hidden>Bỏ hết ảnh</button>
+              <div id="compose-images" class="img-strip" hidden></div>
+            </div>
+            <p id="compose-summary" class="muted small"></p>
+            <button id="btn-add-to-queue" class="btn">Đưa vào hàng đợi</button>
+          </div>
+        </div>
+
+        <!-- Project Store v1: full-width board only in Phim ngắn mode; does not replace legacy queue. -->
+        <section id="film-board" class="card film-board" data-mode-only="drama" hidden aria-label="Dự án và Shot Board">
+          <div class="film-board-head">
+            <div><h2>Dự án &amp; Shot Board</h2><p class="muted small">Một dự án giữ nhân vật, ảnh tham chiếu, shot, lời và task. Lưu/dựng nháp ở đây chưa tốn lượt AI.</p></div>
+            <strong id="film-project-meta" class="muted small">Chưa chọn dự án</strong>
+          </div>
+          <div class="film-project-toolbar">
+            <label class="label" for="film-project-select">Dự án đang mở</label>
+            <select id="film-project-select" class="select"><option value="">Chọn dự án…</option></select>
+            <button id="film-project-refresh" type="button" class="btn-ghost btn-sm" disabled>Làm mới</button>
+          </div>
+          <div class="film-project-create">
+            <input id="film-project-new-name" class="input" maxlength="80" placeholder="Tên dự án mới (VD: Tình Muộn — tập 1)" aria-label="Tên dự án mới">
+            <select id="film-project-mode" class="select" aria-label="Loại dự án">
+              <option value="film">Phim AI</option><option value="story" selected>Reel truyện</option>
+              <option value="hiu">HIU (chưa nối pipeline)</option><option value="affiliate">Affiliate (chưa nối pipeline)</option>
+            </select>
+            <button id="film-project-create" type="button" class="btn-ghost">Tạo dự án</button>
+          </div>
+          <div class="film-project-actions">
+            <button id="film-project-import" type="button" class="btn-ghost" disabled>Nạp spec Đạo diễn đã kiểm tra ở trên</button>
+            <span class="muted small">Shot nhập vào ở trạng thái nháp. Sửa → Lưu → Duyệt → Đưa vào chờ; không tự chạy Muse.</span>
+          </div>
+          <div id="film-board-message" role="status" aria-live="polite"></div>
+          <div id="film-characters" class="film-characters"></div>
+          <div id="film-scenes"></div>
+        </section>
+
+        <div id="queue-wrap" class="queue-wrap">
+          <div class="queue-bar">
+            <div id="queue-filters" class="filter-tabs" role="tablist"></div>
+            <div class="row">
+              <button id="btn-clear-done" class="btn-ghost btn-sm">Bỏ video đã xong</button>
+              <button id="btn-queue-folder" class="btn-ghost btn-sm">Thư mục video</button>
+            </div>
+          </div>
+          <div id="queue-notice" class="notice" hidden></div>
+          <div class="queue-split">
+            <div class="card queue-table">
+              <div class="queue-head">
+                <span></span><span>#</span><span></span><span>Video</span><span>Trạng thái</span><span>Thao tác</span>
+              </div>
+              <div id="queue-list" class="queue-list"></div>
+            </div>
+            <aside id="queue-preview" class="card queue-preview"></aside>
+          </div>
+          <div class="card queue-foot">
+            <div class="row">
+              <button id="btn-check-all" class="btn-ghost btn-sm">Chọn tất cả</button>
+              <button id="btn-check-none" class="btn-ghost btn-sm">Bỏ chọn</button>
+              <button id="btn-remove-checked" class="btn-danger btn-sm" disabled>Xoá đã chọn</button>
+              <button id="btn-clear-queue" class="btn-danger btn-sm">Xoá hết</button>
+            </div>
+            <div class="row">
+              <button id="btn-stop-render" class="btn-danger" disabled>Dừng</button>
+              <button id="btn-start-render" class="btn">Bắt đầu render trên Muse</button>
+            </div>
+            <div class="queue-status"><strong id="queue-progress">Chưa chạy</strong><span class="muted small"> · <span id="count-queue">0</span> video</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LADIPAGE -->
+      <section id="tab-ladipage" class="stage-view">
+        <div class="stage-header">
+          <div>
+            <h1 class="stage-title">Từ LadiPage ra kịch bản video</h1>
+            <p class="stage-subtitle">Dán link landing page: lấy ảnh gốc, giá, chính sách và sinh 3 kịch bản phân cảnh cho Muse</p>
+          </div>
+        </div>
+
+        <ol class="steps" id="ladi-steps">
+          <li class="step active"><b>1</b>Dán link</li>
+          <li class="step"><b>2</b>Chọn ảnh sản phẩm</li>
+          <li class="step"><b>3</b>Sửa kịch bản, chọn cách làm</li>
+          <li class="step"><b>4</b>Đưa vào hàng đợi</li>
+        </ol>
+
+        <div class="card">
+          <label class="label" for="input-ladi-url">Link LadiPage của sản phẩm</label>
+          <div class="row">
+            <input type="text" id="input-ladi-url" class="input grow" placeholder="https://ten-trang-cua-ban.vn/ten-san-pham">
+            <button id="btn-scrape-ladi" class="btn">Quét và sinh kịch bản</button>
+          </div>
+          <div id="ladi-loading" class="notice" hidden>
+            <span class="st-chip" data-tone="live"><span class="st-dot"></span>Đang xử lý</span>
+            <span id="ladi-loading-text">Đang tải LadiPage, bóc tách ảnh và bảng giá...</span>
+          </div>
+        </div>
+
+        <div id="ladi-skeleton" class="ladi-grid-layout" hidden>
+          <div class="card stack"><div class="skel w60"></div><div class="skel w40"></div><div class="skel h120"></div></div>
+          <div class="card stack"><div class="skel w40"></div><div class="skel h80"></div><div class="skel h80"></div><div class="skel h80"></div></div>
+        </div>
+
+        <div id="ladi-results" hidden>
+          <div class="ladi-grid-layout">
+            <div class="card stack">
+              <div>
+                <h4 id="res-product-name" class="product-name">Tên sản phẩm</h4>
+                <div id="res-product-facts" class="chips fact-chips"></div>
+                <p id="res-product-usp" class="muted small"></p>
+                <details class="raw-lines">
+                  <summary>Xem chữ gốc trên trang</summary>
+                  <ul id="res-product-raw"></ul>
+                </details>
+              </div>
+              <div>
+                <div class="row-between">
+                  <span class="label">Kho ảnh sản phẩm (<span id="res-img-count">0</span>)</span>
+                  <button type="button" id="btn-upload-custom-ladi-img" class="btn-ghost btn-sm">Thêm ảnh từ máy</button>
+                </div>
+                <p class="muted small">Bấm chọn 1–3 ảnh rõ sản phẩm nhất (viền xanh). Ảnh được gửi kèm cả video để Muse giữ đúng sản phẩm.</p>
+                <div id="res-images-grid" class="ladi-images-grid"></div>
+              </div>
+            </div>
+
+            <div class="card stack">
+              <div class="card-h"><div><h3>Kịch bản</h3><p>Sửa được lời thoại và prompt từng cảnh trước khi đưa vào hàng đợi.</p></div></div>
+              <div class="row-between">
+                <div class="chips" id="ladi-script-tabs"></div>
+                <label class="check" title="Lời chốt không đọc số tiền, chỉ nói giá ưu đãi để ở link (kiểu reel affiliate). Đổi là sinh lại kịch bản, mất chữ đã sửa."><input type="checkbox" id="ladi-no-price"> Không đọc giá</label>
+              </div>
+              <div id="ladi-script-scenes-container"></div>
+              <details class="raw-lines" id="ladi-prompt-preview">
+                <summary>Xem lệnh sẽ gửi Muse</summary>
+                <pre id="ladi-prompt-text" class="prompt-preview"></pre>
+              </details>
+              <div data-params-slot></div>
+              <p id="ladi-summary" class="muted small"></p>
+              <div class="row">
+                <button id="btn-import-to-muse" class="btn btn-lg grow">Đưa kịch bản đã tích vào hàng đợi</button>
+                <button id="btn-import-all" class="btn-ghost btn-lg">Tích cả</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TÀI KHOẢN: nhiều tài khoản, mỗi tài khoản 1 Chrome riêng -->
+      <section id="tab-accounts" class="stage-view">
+        <div class="stage-header">
+          <div>
+            <h1 class="stage-title">Tài khoản &amp; Hệ thống Đa Engine</h1>
+            <p class="stage-subtitle">Hỗ trợ Muse AI, Google Flow, Dola (Seedance 2.0) và Seedance 2.5. Mỗi tài khoản 1 Chrome riêng, chạy song song. Đăng nhập 1 lần, app nhớ phiên.</p>
+          </div>
+          <div class="row" style="gap: 8px; flex-wrap: wrap;">
+            <button id="acc-check-login" class="btn-ghost btn-sm">Kiểm tra phiên</button>
+            <button id="acc-check-quota" class="btn-ghost btn-sm">Kiểm tra hạn mức</button>
+            <button id="acc-add-muse" class="btn btn-sm">+ Muse AI</button>
+            <button id="acc-add-gflow" class="btn btn-sm">+ Google Flow</button>
+            <button id="acc-add-dola" class="btn btn-sm" style="background:#d97706;color:#ffffff;border:none;">+ Dola</button>
+            <button id="acc-add-seedance" class="btn btn-sm">+ Seedance</button>
+          </div>
+        </div>
+        <div class="card acc-settings">
+          <div>
+            <label class="label" for="acc-max">TK chạy đồng thời</label>
+            <input id="acc-max" class="input" type="number" min="1" max="20">
+          </div>
+          <div>
+            <label class="label" for="acc-total">Tổng luồng</label>
+            <input id="acc-total" class="input" type="number" min="1" max="50">
+          </div>
+          <div>
+            <span class="label">Chia việc</span>
+            <div class="seg" id="acc-mode">
+              <button class="seg-btn" data-mode="rotate" title="Tài khoản rảnh, còn nhiều hạn mức nhận trước">Luân phiên</button>
+              <button class="seg-btn" data-mode="sequential" title="Dùng hết tài khoản đầu rồi mới sang tài khoản sau">Lần lượt</button>
+            </div>
+          </div>
+          <label class="switch"><input type="checkbox" id="acc-topup"><span></span>Dùng token bổ sung khi hết hạn mức tuần</label>
+          <label class="switch"><input type="checkbox" id="acc-keep"><span></span>Hết hạn mức &amp; token vẫn tạo tiếp (chậm hơn)</label>
+          <label class="switch"><input type="checkbox" id="acc-pool"><span></span>Kho proxy dự phòng — tài khoản để trống ô Proxy tự lấy 1 cái ở đây, proxy chết tự chuyển cái khác</label>
+          <div id="acc-proxy-box" class="acc-proxy" hidden>
+            <textarea id="acc-proxies" class="textarea" rows="4" spellcheck="false" placeholder="1.2.3.4:8080&#10;1.2.3.4:8080:user:pass&#10;user:pass@proxy.vn:3128&#10;socks5://1.2.3.4:1080 (socks5 không có user/pass)"></textarea>
+            <div class="row-between"><div id="acc-proxy-status" class="acc-proxy-status small"></div><button id="acc-proxy-check" class="btn-ghost btn-sm">Kiểm tra proxy</button></div>
+          </div>
+          <datalist id="acc-proxy-pool"></datalist>
+        </div>
+        <div id="acc-list" class="acc-list"></div>
+      </section>
+
+      <!-- THƯ VIỆN: video + ảnh storyboard trong thư mục lưu -->
+      <section id="tab-library" class="stage-view">
+        <div class="stage-header">
+          <div>
+            <h1 class="stage-title">Thư viện</h1>
+            <p class="stage-subtitle" id="lib-path">Ảnh và video Muse làm xong</p>
+          </div>
+          <button id="lib-open" class="btn-ghost btn-sm">Mở thư mục</button>
+        </div>
+        <div class="queue-bar">
+          <select id="lib-prj" class="select prj-select" title="Lọc theo dự án"></select>
+          <div id="lib-filters" class="filter-tabs">
+            <button class="filter-tab active" data-f="all">Tất cả<span></span></button>
+            <button class="filter-tab" data-f="image">Ảnh<span></span></button>
+            <button class="filter-tab" data-f="video">Video<span></span></button>
+          </div>
+          <div class="row">
+            <span id="lib-sel" class="muted small"></span>
+            <select id="lib-asset" class="select prj-select" title="Lưu ảnh đã chọn vào Tư liệu" disabled></select>
+            <button id="lib-merge" class="btn-ghost btn-sm" disabled>Ghép video</button>
+            <button id="lib-trash" class="btn-danger btn-sm" disabled>Xoá</button>
+          </div>
+        </div>
+        <div id="library-grid" class="library-grid"></div>
+      </section>
+
+      <!-- ĐĂNG FACEBOOK -->
+      
+      <!-- CẮT VIDEO — GIAO DIỆN TIMELINE FILMSTRIP + WAVEFORM (FULL SCREEN EDGE-TO-EDGE) -->
+      <section id="tab-promptsync" class="stage-view stage-wide" style="padding:0;gap:0;height:100%;"></section>
+
+      <section id="tab-edit" class="stage-view stage-wide" style="padding:0;gap:0;height:100%;"></section>
+
+      <section id="tab-cut" class="stage-view stage-wide" style="padding:0;gap:0;height:100%;">
+        <!-- 1. Đầu trang: tiêu đề + phụ đề -->
+        <div style="padding:12px 20px 8px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:baseline;gap:12px;min-width:0;flex-wrap:wrap;">
+            <span style="font-size:21px;font-weight:800;color:var(--ink);white-space:nowrap;">Cắt video</span>
+            <span style="font-size:12.5px;color:var(--ink-3);">Cắt tự động hoặc theo mốc · xuất nhiều phần</span>
+          </div>
+          <div class="row" style="gap:8px;flex-wrap:nowrap;">
+            <button type="button" id="btn-cut-pick-lib" class="srt-pill-btn teal" style="height:32px;">🎬 Kho video</button>
+            <button type="button" id="btn-cut-pick-file" class="srt-pill-btn" style="height:32px;">📂 Chọn video</button>
+            <button type="button" id="btn-cut-open-dir" class="srt-pill-btn" style="height:32px;" title="Mở thư mục chứa các phần đã cắt">📁 Thư mục xuất</button>
+          </div>
+          <span id="cut-source-badge" class="st-chip" data-tone="ok" hidden></span>
+          <span id="cut-video-meta" hidden></span>
+        </div>
+
+        <!-- 2. Khung Timeline Editor Edge-to-Edge -->
+        <div class="cut-editor-body" style="background:var(--canvas);flex:1;min-height:0;display:flex;flex-direction:column;color:var(--ink);overflow-x:hidden;overflow-y:auto;">
+          <!-- 2A. Vùng xem trước Video (Stage) Full Viewport (Nền đen điện ảnh) -->
+          <div id="cut-stage-viewport" style="background:#000000;flex:1 1 auto;min-height:160px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;border-bottom:1px solid var(--line);transition:all 0.2s;">
+            <video id="cut-preview-video" playsinline style="height:100%;max-height:100%;max-width:100%;object-fit:contain;display:block;background:#000;box-shadow:0 0 30px rgba(0,0,0,0.8);transition:transform 0.2s;"></video>
+            <div id="cut-empty" style="position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:var(--surface);z-index:4;">
+              <div style="font-size:44px;line-height:1;color:#b45309;">✂</div>
+              <div style="font-size:22px;font-weight:800;color:var(--ink);">Chọn video để cắt</div>
+              <button type="button" class="srt-pill-btn" style="height:36px;padding:0 22px;" onclick="document.getElementById('btn-cut-pick-file').click()">🎞 Chọn từ file</button>
+              <button type="button" class="srt-pill-btn teal" style="height:36px;padding:0 22px;" onclick="document.getElementById('btn-cut-pick-lib').click()">⤓ Chọn từ Kho video</button>
+              <div class="muted small">Hoặc chọn video đã có trong Kho video Sesame</div>
+            </div>
+            <div id="cut-sub-overlay" hidden style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(2,6,23,0.85);color:#f8fafc;padding:5px 16px;border-radius:6px;font-size:13.5px;font-weight:700;border:1px solid rgba(56,189,248,0.4);pointer-events:none;white-space:nowrap;">Phụ đề xem trước trên khung hình</div>
+          </div>
+
+          <!-- 2B. Thanh Transport (Timecode | < Play > | Fullscreen & Collapse) -->
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 14px;background:var(--surface);border-bottom:1px solid var(--line);font-size:12.5px;">
+            <div class="row" style="gap:8px;min-width:220px;">
+              <span style="font-family:ui-monospace,Consolas,monospace;color:var(--blue);font-weight:700;" id="cut-playhead-time">00:00:00</span>
+              <span style="color:var(--ink-3);">-</span>
+              <span style="font-family:ui-monospace,Consolas,monospace;color:var(--ink-2);" id="cut-total-time">00:00:22</span>
+              <span id="cut-timeline-summary" style="font-size:11px;color:var(--green);background:var(--green-tint);border:1px solid var(--green);padding:1px 8px;border-radius:999px;margin-left:4px;">3 phần cắt</span>
+            </div>
+            <div class="row" style="gap:10px;">
+              <button type="button" id="btn-cut-step-back" class="p-icon-btn" style="color:var(--ink-2);background:transparent;border:none;cursor:pointer;font-size:14px;padding:2px 8px;" title="Lùi 1 giây">❮</button>
+              <button type="button" id="btn-cut-play-toggle" style="width:30px;height:30px;border-radius:50%;background:var(--grad);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 2px 8px rgba(6,182,212,0.35);" title="Phát / Tạm dừng">▶</button>
+              <button type="button" id="btn-cut-step-fwd" class="p-icon-btn" style="color:var(--ink-2);background:transparent;border:none;cursor:pointer;font-size:14px;padding:2px 8px;" title="Tiến 1 giây">❯</button>
+            </div>
+            <div class="row" style="gap:8px;min-width:220px;justify-content:flex-end;">
+              <button type="button" id="btn-cut-fullscreen" style="background:transparent;border:1px solid var(--line-2);color:var(--ink-2);border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:12px;" title="Xem toàn màn hình">⤢</button>
+              <button type="button" id="btn-cut-collapse-stage" style="background:transparent;border:1px solid var(--line-2);color:var(--ink-2);border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:12px;" title="Thu gọn / Mở rộng khung xem trước">⌃</button>
+            </div>
+          </div>
+
+          <!-- 2C. Thanh công cụ chỉnh sửa CapCut (Undo, Redo, Sub, Snapshot, Aspect, FlipH, FlipV, Rotate, Split || Flag, Clear, Speed, Zoom) -->
+          <div class="cut-toolstrip" role="toolbar" aria-label="Công cụ cắt video" style="display:flex;align-items:center;justify-content:space-between;padding:3px 10px;background:var(--surface-2);border-bottom:1px solid var(--line);flex-wrap:nowrap;gap:6px;overflow-x:auto;">
+            <div class="row cut-tools-left" style="gap:4px;flex-wrap:nowrap;align-items:center;">
+              <button type="button" id="btn-cut-undo" class="cut-tb-btn" title="Hoàn tác thao tác cắt gần nhất (Ctrl+Z)" aria-label="Hoàn tác"><span aria-hidden="true" class="cut-icon">↶</span></button>
+              <button type="button" id="btn-cut-redo" class="cut-tb-btn" title="Làm lại thao tác vừa hủy (Ctrl+Y)" aria-label="Làm lại"><span aria-hidden="true" class="cut-icon">↷</span></button>
+              <span style="width:1px;height:16px;background:var(--line);margin:0 4px;"></span>
+              <button type="button" id="btn-cut-split-playhead" class="cut-tb-btn" title="Cắt đôi video ngay tại vị trí con trỏ đỏ (Playhead)" style="font-weight:700;color:var(--blue);border-color:var(--blue);background:var(--blue-tint);" aria-label="Cắt đôi"><span aria-hidden="true" class="cut-icon">✂</span></button>
+              <span style="width:1px;height:16px;background:var(--line);margin:0 4px;"></span>
+              <button type="button" id="btn-cut-sub-toggle" class="cut-tb-btn" title="Bật / tắt hiển thị phụ đề xem trước trên video" aria-label="Phụ đề"><span aria-hidden="true" class="cut-icon">☷</span></button>
+              <button type="button" id="btn-cut-snapshot" class="cut-tb-btn" title="Chụp ảnh khung hình hiện tại lưu ra thư mục xuất" aria-label="Chụp ảnh"><span aria-hidden="true" class="cut-icon">▧</span></button>
+              <button type="button" class="cut-tb-btn" data-cut-asp="source" title="Giữ gốc" aria-label="Giữ gốc"><span aria-hidden="true" class="cut-icon">▭</span></button>
+              <button type="button" class="cut-tb-btn" data-cut-asp="16:9" title="Ngang 16:9" aria-label="Ngang"><span aria-hidden="true" class="cut-icon">▬</span></button>
+              <button type="button" class="cut-tb-btn" data-cut-asp="9:16" title="Dọc 9:16" aria-label="Dọc"><span aria-hidden="true" class="cut-icon">▮</span></button>
+              <button type="button" id="btn-cut-flip-h" class="cut-tb-btn" title="Lật ngang khung hình video (Mirror)" aria-label="Lật ngang"><span aria-hidden="true" class="cut-icon">⇋</span></button>
+              <button type="button" id="btn-cut-flip-v" class="cut-tb-btn" title="Lật ngược khung hình video theo chiều dọc" aria-label="Lật dọc"><span aria-hidden="true" class="cut-icon">⇅</span></button>
+              <button type="button" id="btn-cut-rotate" class="cut-tb-btn" title="Xoay video 90 độ theo chiều kim đồng hồ" aria-label="Xoay 90°"><span aria-hidden="true" class="cut-icon">↻</span></button>
+            </div>
+
+            <div class="row cut-tools-right" style="gap:6px;flex-wrap:nowrap;align-items:center;">
+              <button type="button" id="btn-cut-add-marker" class="cut-tb-btn" style="width:auto;padding:0 9px;color:var(--t-warn);border-color:var(--t-warn);background:var(--t-warn-bg);" title="Cắm cờ mốc cắt tại vị trí con trỏ Playhead" aria-label="Cắm mốc"><span aria-hidden="true" class="cut-icon">⚑</span></button>
+              <button type="button" id="btn-cut-clear-markers" class="cut-tb-btn" style="width:auto;padding:0 9px;color:var(--t-danger);border-color:var(--t-danger);background:var(--t-danger-bg);" title="Xóa toàn bộ các cờ mốc cắt trên timeline" aria-label="Xóa mốc"><span aria-hidden="true" class="cut-icon">🗑</span></button>
+              <span style="width:1px;height:16px;background:var(--line);margin:0 2px;"></span>
+              <div class="row" style="gap:5px;font-size:12px;color:var(--ink-2);">
+                <span>⏱ Tốc độ</span>
+                <button type="button" id="btn-cut-spd-minus" class="cut-mini-step" title="Giảm tốc độ" aria-label="Giảm tốc độ">−</button>
+                <input type="range" id="cut-speed-slider" min="0.5" max="2.0" step="0.05" value="1.0" style="width:72px;accent-color:var(--blue);">
+                <button type="button" id="btn-cut-spd-plus" class="cut-mini-step" title="Tăng tốc độ" aria-label="Tăng tốc độ">+</button>
+                <span id="cut-speed-val" style="font-family:ui-monospace,Consolas,monospace;min-width:38px;text-align:center;color:var(--blue);font-weight:700;">1.00x</span>
+                <button type="button" id="btn-cut-spd-reset" class="cut-mini-step" title="Đặt lại tốc độ 1.00x">↻</button>
+              </div>
+              <span style="width:1px;height:16px;background:var(--line);margin:0 2px;"></span>
+              <div class="row" style="gap:4px;font-size:12px;color:var(--ink-2);" title="Phóng to / Thu nhỏ thước Timeline">
+                <button type="button" id="btn-cut-zoom-out" class="cut-mini-step" title="Thu nhỏ timeline" aria-label="Thu nhỏ timeline">−</button>
+                <input type="range" id="cut-zoom-slider" min="1" max="3" step="0.25" value="1" style="width:64px;accent-color:var(--blue);">
+                <button type="button" id="btn-cut-zoom-in" class="cut-mini-step" title="Phóng to timeline" aria-label="Phóng to timeline">+</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2D. Bàn dựng Visual Filmstrip + Audio Waveform Timeline -->
+          <div style="display:flex;background:var(--surface);border-bottom:1px solid var(--line);min-height:130px;flex-shrink:0;user-select:none;">
+            <!-- Cột nhãn Track bên trái -->
+            <div style="width:80px;flex-shrink:0;background:var(--surface-2);border-right:1px solid var(--line);display:flex;flex-direction:column;">
+              <div style="height:26px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:center;gap:6px;font-size:11px;color:var(--ink-3);">
+                <span>↑</span><span>↓</span><span>🗑</span>
+              </div>
+              <div style="height:68px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:var(--ink);">
+                <span>🎞</span><span>Video</span>
+              </div>
+              <div style="height:36px;display:flex;align-items:center;justify-content:center;gap:5px;font-size:11.5px;color:var(--ink-2);">
+                <span>🔊</span><span>Sóng âm</span>
+              </div>
+            </div>
+
+            <!-- Vùng cuộn ngang của Timeline (Thước giây + Filmstrip ảnh thật + Sóng âm + Playhead trắng) -->
+            <div id="cut-timeline-scroll" style="flex:1;overflow-x:auto;overflow-y:hidden;position:relative;">
+              <div id="cut-timeline-bar" style="position:relative;min-width:100%;height:130px;cursor:pointer;" title="Nhấp để tua Playhead · Nhấp đúp để đặt/xóa cờ mốc cắt tại vị trí đó">
+                <!-- Hàng 1: Thước thời gian (00:00, 00:02...) + Cờ mốc đánh dấu -->
+                <div id="cut-ruler-ticks" style="height:26px;background:var(--surface-2);border-bottom:1px solid var(--line);position:relative;overflow:hidden;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--ink-3);"></div>
+
+                <!-- Hàng 2: Dải Filmstrip khung hình video thật + Vạch chia các phần cắt -->
+                <div style="height:68px;position:relative;background:var(--surface);border-bottom:1px solid var(--line);overflow:hidden;">
+                  <div id="cut-filmstrip-thumbs" style="position:absolute;inset:0;display:flex;align-items:stretch;overflow:hidden;"></div>
+                  <div id="cut-timeline-segments" style="position:absolute;inset:0;display:flex;pointer-events:none;"></div>
+                  <div id="cut-video-title" style="position:absolute;top:5px;left:8px;z-index:3;background:rgba(2,6,23,0.78);color:#f8fafc;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(148,163,184,0.25);pointer-events:none;max-width:65%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Đang nạp video...</div>
+                </div>
+
+                <!-- Hàng 3: Dải Sóng âm thanh (Audio Waveform) màu xanh ngọc -->
+                <div id="cut-waveform-bars" style="height:36px;background:var(--soft);position:relative;display:flex;align-items:flex-end;gap:2px;padding:4px 4px 2px 4px;overflow:hidden;"></div>
+
+                <!-- Cờ mốc cắt trên toàn chiều cao Timeline -->
+                <div id="cut-flags-layer" style="position:absolute;inset:0;pointer-events:none;z-index:5;"></div>
+
+                <!-- Kim Playhead trắng -->
+                <div id="cut-timeline-playhead" style="position:absolute;top:0;bottom:0;left:0%;width:2px;background:#ffffff;z-index:6;pointer-events:none;box-shadow:0 0 6px rgba(255,255,255,0.8);">
+                  <div style="position:absolute;top:0;left:-6px;width:14px;height:16px;background:#ffffff;color:#0f172a;border-radius:3px 3px 6px 6px;font-size:9px;font-weight:900;display:flex;align-items:center;justify-content:center;letter-spacing:-1px;">||</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Cột nút + nối thêm video ở cuối bên phải -->
+            <div style="width:42px;flex-shrink:0;background:var(--surface-2);border-left:1px solid var(--line);display:flex;align-items:center;justify-content:center;">
+              <button type="button" id="btn-cut-merge-exported" style="width:28px;height:28px;border-radius:6px;background:var(--surface);color:var(--ink);border:1px solid var(--line-2);cursor:pointer;font-size:16px;font-weight:700;" title="Ghép nối các đoạn video đã cắt thành 1 file">+</button>
+            </div>
+          </div>
+
+          <!-- 2E. Thanh điều khiển dưới cùng (Giọng gốc | Giọng lồng | Bản gốc | 🎚 Chế độ cắt | ✂️ Cắt & Xuất) -->
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--surface);border-top:1px solid var(--line);flex-wrap:wrap;gap:10px;">
+            <div class="row" style="gap:16px;flex-wrap:wrap;align-items:center;">
+              <div class="row" style="gap:6px;font-size:12px;color:var(--ink-2);">
+                <span>Giọng gốc</span>
+                <button type="button" id="btn-cut-vol-orig-minus" class="cut-mini-step">−</button>
+                <input type="range" id="cut-vol-orig" min="0" max="200" value="100" style="width:80px;accent-color:var(--blue);">
+                <button type="button" id="btn-cut-vol-orig-plus" class="cut-mini-step">+</button>
+                <span id="cut-vol-orig-val" style="font-family:ui-monospace,Consolas,monospace;min-width:36px;color:var(--ink);">100%</span>
+              </div>
+              <div class="row" style="gap:6px;font-size:12px;color:var(--ink-2);">
+                <span>Giọng lồng</span>
+                <button type="button" id="btn-cut-vol-dub-minus" class="cut-mini-step">−</button>
+                <input type="range" id="cut-vol-dub" min="0" max="200" value="0" style="width:80px;accent-color:var(--blue);">
+                <button type="button" id="btn-cut-vol-dub-plus" class="cut-mini-step">+</button>
+                <span id="cut-vol-dub-val" style="font-family:ui-monospace,Consolas,monospace;min-width:32px;color:var(--ink-3);">0%</span>
+              </div>
+            </div>
+
+            <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;">
+              <select id="cut-opt-aspect" style="height:32px;padding:0 10px;border-radius:8px;background:var(--surface);color:var(--ink);border:1px solid var(--line-2);font-size:12.5px;font-weight:600;">
+                <option value="source" selected>Bản gốc</option>
+                <option value="9:16">9:16 · TikTok / Reels</option>
+                <option value="16:9">16:9 · YouTube</option>
+                <option value="1:1">1:1 · Vuông</option>
+              </select>
+              <!-- Input ẩn tương thích ngược với bộ điều khiển cũ -->
+              <input type="checkbox" id="cut-opt-flip" hidden>
+              <select id="cut-opt-speed" hidden><option value="1" selected>1.0</option></select>
+
+              <button type="button" id="btn-cut-open-mode-modal" class="srt-pill-btn" style="background:var(--surface);color:var(--blue);border:1.5px solid var(--blue);height:32px;font-weight:700;">🎚 Chế độ cắt</button>
+              <button type="button" id="btn-cut-start-export" class="srt-pill-btn primary" style="height:32px;padding:0 16px;">✂️ Cắt &amp; Xuất</button>
+            </div>
+          </div>
+
+          <!-- 2F. Dòng trạng thái & Thanh tiến trình -->
+          <div style="padding:6px 14px 8px 14px;background:var(--surface-2);border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div id="cut-status-text" style="font-size:11.5px;color:var(--ink-2);">Đã sẵn sàng · Bấm <b style="color:var(--ink);">🎚 Chế độ cắt</b> để chọn kiểu chia đoạn hoặc bấm <b style="color:var(--blue);">✂️ Cắt &amp; Xuất</b> để tách file MP4.</div>
+            <div style="width:220px;height:5px;background:var(--line);border-radius:999px;overflow:hidden;">
+              <div id="cut-progress-fill" style="width:0%;height:100%;background:linear-gradient(90deg,#0891b2,#10b981);transition:width 0.2s;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Ngăn hiển thị các phần video MP4 vừa cắt xong (Nằm gọn bên dưới Timeline) -->
+        <details id="cut-output-box" style="background:var(--surface);border-top:1px solid var(--line);padding:4px 14px;color:var(--ink);flex-shrink:0;">
+          <summary style="cursor:pointer;font-size:12px;list-style:none;display:flex;justify-content:space-between;gap:8px;">
+            <strong>✅ Các phần video đã xuất (<span id="cut-output-count">0</span> file MP4) ▾</strong>
+            <span class="muted small">Dự kiến tách: <b id="cut-planned-count">3</b> đoạn</span>
+          </summary>
+          <div id="cut-output-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;max-height:135px;overflow-y:auto;margin-top:6px;">
+            <div class="muted small" style="grid-column:1/-1;padding:8px;text-align:center;border:1px dashed var(--line);border-radius:8px;">Chưa có video nào được cắt trong phiên này. Bấm <b>✂️ Cắt &amp; Xuất</b> để tách video.</div>
+          </div>
+        </details>
+
+        <!-- 4. HỘP THOẠI POPUP "CHẾ ĐỘ CẮT VIDEO" -->
+        <dialog id="modal-cut-mode" class="modal" style="max-width:620px;width:95%;padding:0;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--ink);overflow:hidden;box-shadow:var(--shadow-2);">
+          <!-- Header -->
+          <div style="padding:12px 18px;background:var(--surface-2);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;">
+            <div class="row" style="gap:8px;align-items:center;">
+              <span style="font-size:16px;">🎞</span>
+              <span style="font-size:13px;font-weight:700;color:var(--ink);">Chọn chế độ cắt</span>
+            </div>
+            <button type="button" id="btn-cut-close-mode-modal-x" class="btn-ghost btn-sm" style="padding:2px 8px;font-size:14px;">✕</button>
+          </div>
+
+          <div style="padding:22px 24px;display:flex;flex-direction:column;gap:14px;background:var(--surface);">
+            <!-- Tiêu đề lớn -->
+            <div>
+              <div style="font-size:20px;font-weight:800;color:var(--ink);letter-spacing:-0.3px;margin-bottom:6px;">Cắt video thành nhiều phần</div>
+              <div style="font-size:12.5px;color:var(--ink-3);line-height:1.5;">File gốc không bị thay đổi. Xén, lật, xoay, tỷ lệ và tốc độ đang chọn sẽ áp dụng giống nhau cho mọi video xuất.</div>
+            </div>
+
+            <!-- 4 Thẻ Chế Độ Cắt (2x2 Grid) -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;" id="cut-mode-cards">
+              <button type="button" class="cut-mode-btn active" data-cut-mode="parts">
+                <span>✂</span> Chia đều
+              </button>
+              <button type="button" class="cut-mode-btn" data-cut-mode="duration">
+                <span>⏱</span> Theo thời lượng
+              </button>
+              <button type="button" class="cut-mode-btn" data-cut-mode="scene">
+                <span>🎬</span> Chuyển cảnh
+              </button>
+              <button type="button" class="cut-mode-btn" data-cut-mode="markers">
+                <span>🚩</span> Theo mốc
+              </button>
+            </div>
+
+            <!-- Khung thông số tương ứng từng chế độ -->
+            <div id="cut-param-parts" class="cut-param-box" style="padding:14px 16px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);">
+              <div class="row-between" style="gap:12px;align-items:center;">
+                <label style="font-weight:700;font-size:13.5px;color:var(--ink);">Số video đầu ra</label>
+                <input type="number" id="cut-input-parts" class="toolkit-cut-input" value="4" min="2" max="50">
+              </div>
+              <div style="font-size:12px;color:var(--ink-3);margin-top:8px;">Ví dụ chọn 4: chia toàn bộ video thành 4 phần bằng nhau.</div>
+            </div>
+
+            <div id="cut-param-duration" class="cut-param-box" hidden style="padding:14px 16px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);">
+              <div class="row-between" style="gap:12px;align-items:center;">
+                <label style="font-weight:700;font-size:13.5px;color:var(--ink);">Độ dài mỗi phần</label>
+                <div class="row" style="gap:6px;align-items:center;">
+                  <input type="number" id="cut-input-duration" class="toolkit-cut-input" value="60.0" min="2" max="600" step="0.5">
+                  <span style="font-size:13px;color:var(--ink);font-weight:600;">giây</span>
+                </div>
+              </div>
+              <div style="font-size:12px;color:var(--ink-3);margin-top:8px;">Phần cuối tự giữ toàn bộ thời lượng còn lại.</div>
+            </div>
+
+            <div id="cut-param-scene" class="cut-param-box" hidden style="padding:14px 16px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);">
+              <div class="row-between" style="gap:12px;align-items:center;">
+                <label style="font-weight:700;font-size:13.5px;color:var(--ink);">Độ nhạy chuyển cảnh</label>
+                <input type="number" id="cut-input-threshold" class="toolkit-cut-input" value="0.35" min="0.10" max="0.80" step="0.05">
+              </div>
+              <div style="font-size:12px;color:var(--ink-3);margin-top:8px;">Số nhỏ bắt được nhiều cảnh hơn; 0,35 phù hợp phần lớn video.</div>
+              <div class="row" style="gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+                <button type="button" id="btn-cut-detect-scenes" class="tts2-act" style="height:36px;">🔍 Dò chuyển cảnh ngay</button>
+                <span id="cut-scene-hint" class="muted small">Chưa dò. Nạp video rồi bấm “Dò chuyển cảnh ngay” — app tự tìm các điểm đổi cảnh để tách.</span>
+              </div>
+            </div>
+
+            <div id="cut-param-markers" class="cut-param-box" hidden style="padding:14px 16px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);">
+              <div class="row-between" style="gap:12px;align-items:center;">
+                <label style="font-weight:700;font-size:13.5px;color:var(--ink);">Mốc trên timeline</label>
+                <span id="cut-marker-status-text" style="color:var(--t-danger);font-weight:700;font-size:13px;">Đã đặt 0 mốc - sẽ xuất 0 video.</span>
+              </div>
+              <div style="font-size:12px;color:var(--ink-3);margin-top:8px;">Đặt playhead rồi bấm biểu tượng lá cờ, hoặc nhấp đúp vào thước.</div>
+              <input type="text" id="cut-input-markers" hidden>
+            </div>
+
+            <!-- Ghi chú Stream Copy -->
+            <div style="color:var(--ink-3);font-size:12px;line-height:1.6;margin-top:2px;">
+              Khi chỉ cắt, app dùng stream copy: không mã hoá lại, giữ nguyên chất lượng; mốc cắt căn vào khung hình khoá (keyframe) gần nhất nên có thể lệch vài giây (app báo từng mốc lệch bao nhiêu). Khi có lật / xoay / đổi tỉ lệ / tốc độ / âm lượng, app mã hoá lại H.264 để cắt đúng mốc. Video chọn từ máy: file gốc giữ nguyên. Video lấy từ Kho: app hỏi có thay video gốc không (gốc vào Thùng rác, khôi phục được).
+            </div>
+
+            <!-- Hai nút hành động (Ảnh 3, 4, 5, 6) -->
+            <div style="display:flex;justify-content:center;gap:18px;padding-top:14px;margin-top:4px;">
+              <button type="button" id="btn-cut-close-mode-modal" style="background:var(--grad);color:#ffffff;border-radius:999px;font-weight:700;font-size:13.5px;padding:10px 36px;border:none;cursor:pointer;box-shadow:0 2px 8px rgba(6,182,212,0.35);">✖ Hủy</button>
+              <button type="button" id="btn-cut-modal-apply" style="background:var(--surface-2);border:1px solid var(--line-2);color:var(--green);border-radius:999px;font-weight:700;font-size:13.5px;padding:10px 36px;cursor:pointer;display:flex;align-items:center;gap:6px;">✓ Dùng chế độ này</button>
+            </div>
+          </div>
+        </dialog>
+
+        <!-- 5. HỘP GIẢI THÍCH 4 CHẾ ĐỘ CẮT + Ý NGHĨA TỪNG ICON -->
+        <dialog id="modal-cut-help" class="modal" style="max-width:760px;width:95%;padding:0;border-radius:14px;border:1px solid var(--line);overflow:hidden;">
+          <div style="padding:12px 18px;background:#0b1322;color:#f8fafc;display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-size:15px;font-weight:800;">❓ Hướng dẫn giao diện Cắt video</div>
+            <button type="button" id="btn-cut-help-close" class="btn-ghost btn-sm" style="color:#cbd5e1;border-color:#334155;">✖ Đóng</button>
+          </div>
+          <div style="padding:14px 18px;max-height:70vh;overflow-y:auto;background:var(--surface);font-size:12.5px;line-height:1.6;">
+            <h4 style="margin:0 0 6px;">Cách dùng nhanh (3 bước)</h4>
+            <ol style="margin:0 0 12px 18px;padding:0;">
+              <li>Bấm <b>📂 Chọn video</b> (hoặc <b>🎬 Kho video</b>) để nạp video.</li>
+              <li>Bấm <b>🎚 Chế độ cắt</b> → chọn 1 trong 4 chế độ → nhập thông số → <b>✓ Dùng chế độ này</b>. Vạch chia các phần hiện ngay trên Timeline.</li>
+              <li>Bấm <b>✂️ Cắt &amp; Xuất</b>. Các file MP4 hiện ở khung “Các phần video đã xuất”, bấm ▶ để xem.</li>
+            </ol>
+            <h4 style="margin:0 0 6px;">4 chế độ cắt</h4>
+            <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+              <tr><td style="padding:4px 8px;white-space:nowrap;"><b>✂ Chia đều</b></td><td style="padding:4px 8px;">Chia video thành N phần dài bằng nhau. VD video 60s, chọn 3 phần → 3 file 20s.</td></tr>
+              <tr><td style="padding:4px 8px;white-space:nowrap;"><b>🕒 Theo thời lượng</b></td><td style="padding:4px 8px;">Mỗi phần dài cố định X giây, phần cuối lấy số giây còn lại. VD 65s, X=30 → 30s + 30s + 5s. Hợp để cắt clip đăng Reels/TikTok.</td></tr>
+              <tr><td style="padding:4px 8px;white-space:nowrap;"><b>🎞 Chuyển cảnh</b></td><td style="padding:4px 8px;">App tự dò chỗ hình thay đổi mạnh (đổi cảnh, đổi góc máy) và cắt tại đó. Ngưỡng nhỏ (0.2) bắt nhiều cảnh hơn, ngưỡng lớn (0.5) chỉ bắt cảnh đổi rõ. Bấm “🔍 Dò chuyển cảnh ngay” để xem trước.</td></tr>
+              <tr><td style="padding:4px 8px;white-space:nowrap;"><b>⚑ Theo mốc</b></td><td style="padding:4px 8px;">Cắt đúng tại những giây bạn chọn: kéo kim trắng tới chỗ cần cắt → bấm <b>⚑ Đặt mốc</b> (hoặc nhấp đúp lên Timeline), hoặc gõ thẳng “7, 14.5”. 2 mốc → 3 phần.</td></tr>
+            </table>
+            <h4 style="margin:0 0 6px;">Ý nghĩa từng nút</h4>
+            <table style="width:100%;border-collapse:collapse;">
+              <tr><td style="padding:3px 8px;"><b>❮ / ❯</b></td><td style="padding:3px 8px;">Lùi / tiến 1 giây.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>▶ / ⏸</b></td><td style="padding:3px 8px;">Phát / tạm dừng video xem trước.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>⤢</b></td><td style="padding:3px 8px;">Xem video toàn màn hình.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>⌃</b></td><td style="padding:3px 8px;">Thu gọn / mở rộng khung xem trước để Timeline rộng hơn.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>↶ / ↷</b></td><td style="padding:3px 8px;">Hoàn tác / làm lại thao tác đặt–xoá mốc cắt.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>☑</b></td><td style="padding:3px 8px;">Bật / tắt dòng phụ đề xem trước trên khung hình.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>🖼</b></td><td style="padding:3px 8px;">Chụp khung hình đang dừng thành ảnh, lưu vào thư mục xuất (làm thumbnail).</td></tr>
+              <tr><td style="padding:3px 8px;"><b>📱</b></td><td style="padding:3px 8px;">Đổi nhanh tỷ lệ xuất: Bản gốc → 9:16 → 16:9 → 1:1 (giống ô chọn tỷ lệ góc dưới).</td></tr>
+              <tr><td style="padding:3px 8px;"><b>⛁ / ⛃</b></td><td style="padding:3px 8px;">Lật ngang (soi gương) / lật dọc video — áp dụng cho mọi phần xuất.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>↻</b> (thanh công cụ)</td><td style="padding:3px 8px;">Xoay video 90° mỗi lần bấm.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>||</b></td><td style="padding:3px 8px;">Tách đoạn ngay tại vị trí kim trắng (thêm 1 mốc cắt và chuyển sang chế độ Theo mốc).</td></tr>
+              <tr><td style="padding:3px 8px;"><b>⚑ Đặt mốc</b></td><td style="padding:3px 8px;">Cắm cờ mốc cắt tại vị trí kim trắng.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>🗑</b> (cạnh Đặt mốc)</td><td style="padding:3px 8px;">Xoá toàn bộ cờ mốc cắt.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>⏱ Tốc độ − / + / ↻</b></td><td style="padding:3px 8px;">Đổi tốc độ phát của video xuất (0.5x – 2.0x); ↻ đưa về 1.00x.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>Zoom − / +</b></td><td style="padding:3px 8px;">Phóng to / thu nhỏ thước Timeline để đặt mốc chính xác hơn (không ảnh hưởng video).</td></tr>
+              <tr><td style="padding:3px 8px;"><b>↑ ↓ 🗑</b> (đầu track)</td><td style="padding:3px 8px;">Ký hiệu sắp xếp / xoá track trên Timeline (hiện chỉ có 1 track video nên chỉ để hiển thị).</td></tr>
+              <tr><td style="padding:3px 8px;"><b>🎞 Video / 🔊 Sóng âm</b></td><td style="padding:3px 8px;">Dải khung hình thật của video và sóng âm thanh — nhìn chỗ im lặng để đặt mốc cắt cho khỏi cắt ngang câu nói.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>+</b> (cuối Timeline)</td><td style="padding:3px 8px;">Ghép các phần vừa cắt lại thành 1 file MP4.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>Giọng gốc / Giọng lồng</b></td><td style="padding:3px 8px;">Âm lượng tiếng gốc của video và giọng lồng (nếu có) trong file xuất.</td></tr>
+              <tr><td style="padding:3px 8px;"><b>Bản gốc ▾</b></td><td style="padding:3px 8px;">Tỷ lệ khung hình của các phần xuất.</td></tr>
+            </table>
+          </div>
+        </dialog>
+      </section>
+
+      <!-- VOICE STUDIO / TEXT TO SPEECH — CHUẨN 100% GIAO DIỆN TOOLKIT (TIMECODE SRT/TXT · NHẬP VĂN BẢN · FILE TXT · XUẤT WAV/MP3/M4A) -->
+      <section id="tab-tts" class="stage-view stage-wide">
+        <!-- Bố cục theo Toolkit: tiêu đề + mô tả cùng hàng, huy hiệu giọng bên trái, "Cài đặt giọng riêng…" bên phải -->
+        <div class="tts2-head">
+          <h1 class="tts2-title">Text to speech <span class="tts2-sub">Tạo giọng từ văn bản hoặc timecode</span></h1>
+          <button type="button" id="btn-tts-voice-settings" class="tts2-ghost">⚙ Cài đặt giọng riêng…</button>
+        </div>
+        <div class="tts2-voicebar">
+          <span id="tts-voice-summary-badge" class="tts2-badge"><span class="tts2-dot"></span>Hoài My · ♀ · Edge · 1.00x</span>
+          <button type="button" id="btn-tts-open-dir" class="tts2-act" title="Mở thư mục chứa file giọng đọc đã xuất">📁 Mở thư mục xuất</button>
+        </div>
+
+        <div class="tts2-card">
+          <!-- Hàng 1: chế độ nguồn (mặc định "Từ SRT / TXT có timecode" như Toolkit) -->
+          <div class="tts2-row" id="tts-mode-tabs">
+            <button type="button" class="tts2-seg tts-mode-btn" data-tts-mode="file">⏱ Từ SRT / TXT có timecode</button>
+            <button type="button" class="tts2-i" data-tts-hint="Chọn file SRT hoặc TXT có timecode (00:00:01,000 --> 00:00:04,000). Mỗi câu được đọc và đặt đúng mốc thời gian." aria-label="Giải thích">i</button>
+            <button type="button" class="tts2-seg tts-mode-btn" data-tts-mode="text">🔤 Nhập văn bản</button>
+            <button type="button" class="tts2-i" data-tts-hint="Dán thẳng nội dung vào ô. Có thể chèn thẻ [nghỉ 0.5s], [nhấn mạnh]… và bấm Chuẩn hóa AI để chỉnh dấu câu." aria-label="Giải thích">i</button>
+            <button type="button" class="tts2-seg tts-mode-btn" data-tts-mode="txt" hidden>📑 Từ file TXT</button>
+          </div>
+
+          <!-- Hàng 2: cách đọc (chỉ khi dùng file timecode) -->
+          <div id="tts-reading-mode-row" class="tts2-row">
+            <span class="tts2-label">Cách đọc:</span>
+            <button type="button" class="tts2-seg tts-read-btn" data-read-mode="file">🕐 Giữ timeline</button>
+            <button type="button" class="tts2-i" data-tts-hint="Đặt mỗi câu đúng vào mốc thời gian trong file, giữ nguyên khoảng lặng của phim gốc." aria-label="Giải thích">i</button>
+            <button type="button" class="tts2-seg tts-read-btn" data-read-mode="fit">⚡ Khớp thời gian tuyệt đối</button>
+            <button type="button" class="tts2-i" data-tts-hint="Mỗi câu gọn trong ô SRT của nó, tự tăng tốc (tối đa 1.45x) nếu đọc dài hơn ô để không chồng tiếng." aria-label="Giải thích">i</button>
+            <button type="button" class="tts2-seg tts-read-btn" data-read-mode="pro">🚀 Mode Pro</button>
+            <button type="button" class="tts2-i" data-tts-hint="Bỏ qua nhịp phim, chỉ lấy lời thoại và đọc liên tục, cách nhau khoảng nghỉ đã chọn." aria-label="Giải thích">i</button>
+          </div>
+          <p id="tts-hint-line" class="tts2-hint" hidden></p>
+
+          <!-- VÙNG 1: FILE CÓ TIMECODE -->
+          <div id="tts-pane-file" class="stack" style="gap:10px;">
+            <h2 class="tts2-h2">File lời đọc có mốc thời gian</h2>
+            <div class="muted small" id="tts-timed-summary">Hỗ trợ SRT chuẩn hoặc TXT dạng <code>00:00:01,000 --&gt; 00:00:03,000 | Nội dung</code>. Mỗi câu được đặt đúng timeline đã nhập.</div>
+            <div class="tts2-pick">
+              <input id="tts-timed-file-path" class="input grow" readonly placeholder="Chưa chọn file SRT/TXT có timecode">
+              <button type="button" id="btn-tts-pick-timed" class="tts2-act">⤓ Chọn file</button>
+            </div>
+
+            <div class="tts2-row" style="justify-content:space-between;margin-top:6px;">
+              <span class="muted small">Xử lý hàng loạt · mỗi SRT chọn ngôn ngữ và giọng riêng</span>
+              <span class="tts2-row">
+                <button type="button" id="btn-tts-add-batch" class="tts2-act">＋ Thêm nhiều SRT</button>
+                <button type="button" id="btn-tts-clear-batch" class="tts2-ghost tts2-danger">🗑 Bỏ hết</button>
+              </span>
+            </div>
+            <div class="tts2-table-wrap">
+              <table class="tts2-table">
+                <thead><tr><th>File SRT</th><th>Ngôn ngữ</th><th>Giọng đọc</th><th>Trạng thái</th></tr></thead>
+                <tbody id="tts-batch-tbody"><tr class="tts2-empty"><td colspan="4">Chưa có file nào trong danh sách hàng loạt. Bấm “Thêm nhiều SRT”.</td></tr></tbody>
+              </table>
+            </div>
+
+            <details class="tts2-cues">
+              <summary>Xem / sửa lời đọc của file đang chọn</summary>
+              <div style="max-height:200px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;margin-top:8px;">
+                <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+                  <thead>
+                    <tr style="background:var(--surface-2);border-bottom:1px solid var(--line);color:var(--muted);text-align:left;">
+                      <th style="padding:8px 10px;width:50px;">#</th>
+                      <th style="padding:8px 10px;width:210px;">Mốc thời gian (Timecode)</th>
+                      <th style="padding:8px 10px;">Lời đọc (sửa trực tiếp trước khi tạo giọng)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tts-timed-tbody"></tbody>
+                </table>
+              </div>
+            </details>
+            <p class="muted small" style="margin:0;">Timecode sẽ quyết định chính xác lúc bắt đầu và kết thúc từng câu.</p>
+          </div>
+
+          <!-- VÙNG 2: NHẬP VĂN BẢN -->
+          <div id="tts-pane-text" class="stack" hidden style="gap:8px;">
+            <div class="row-between" style="flex-wrap:wrap;gap:8px;">
+              <div class="row" style="gap:8px;align-items:center;">
+                <strong style="font-size:13.5px;">Văn bản cần chuyển thành giọng nói</strong>
+                <span id="tts-char-count" class="st-chip" data-tone="info">0 ký tự</span>
+              </div>
+              <div class="row" style="gap:6px;flex-wrap:wrap;">
+                <button type="button" class="tts2-ghost tts-tag-btn" data-tts-tag="[nghỉ 0.5s]" title="Chèn khoảng lặng 0.5 giây">+ [nghỉ 0.5s]</button>
+                <button type="button" class="tts2-ghost tts-tag-btn" data-tts-tag="[nghỉ 1.0s]" title="Chèn khoảng lặng 1.0 giây">+ [nghỉ 1.0s]</button>
+                <button type="button" class="tts2-ghost tts-tag-btn" data-tts-tag="[nhấn mạnh]" title="Đọc nhấn giọng câu này">+ [nhấn mạnh]</button>
+                <button type="button" class="tts2-ghost tts-tag-btn" data-tts-tag="[đọc chậm]" title="Đọc chậm rãi">+ [đọc chậm]</button>
+                <button type="button" class="tts2-ghost tts-tag-btn" data-tts-tag="[giọng trầm]" title="Hạ trầm giọng đọc">+ [giọng trầm]</button>
+                <button type="button" id="btn-tts-import-txt-inline" class="tts2-ghost">📄 Đọc từ file TXT</button>
+                <button type="button" id="btn-tts-normalize-ai" class="tts2-act" title="Chỉnh dấu câu, đổi số sang chữ và ngắt nhịp tự nhiên">✨ Chuẩn hóa AI</button>
+              </div>
+            </div>
+            <textarea id="tts-text-input" class="textarea" rows="6" style="font-size:13.5px;line-height:1.55;min-height:120px;" placeholder="Dán nội dung tại đây. Mỗi đoạn hoặc mỗi dòng sẽ được đọc theo thứ tự..."></textarea>
+          </div>
+
+          <!-- VÙNG 3: FILE TXT THUẦN (giữ cho tương thích, không hiện tab) -->
+          <div id="tts-pane-txt" class="stack" hidden style="gap:10px;">
+            <div class="tts2-pick">
+              <input id="tts-plain-txt-path" class="input grow" readonly placeholder="Chưa chọn file TXT chứa văn bản">
+              <button type="button" id="btn-tts-pick-txt" class="tts2-act">📂 Chọn file TXT</button>
+            </div>
+            <div class="muted small" id="tts-plain-txt-summary">Không cần timecode. Mỗi dòng hoặc mỗi đoạn trong file TXT được đọc tuần tự và nối thành một file giọng hoàn chỉnh.</div>
+            <textarea id="tts-plain-txt-preview" class="textarea" rows="5" style="font-size:13.5px;line-height:1.6;" placeholder="Nội dung file TXT hiển thị tại đây để kiểm tra hoặc sửa trước khi tạo giọng..."></textarea>
+          </div>
+
+          <!-- Định dạng xuất & thư mục -->
+          <div class="tts2-row" style="justify-content:space-between;border-top:1px solid var(--line);padding-top:12px;">
+            <div class="tts2-row">
+              <label class="small" style="font-weight:700;">Định dạng xuất:</label>
+              <select id="tts-output-format" class="select" style="width:210px;">
+                <option value="mp3" selected>MP3 · 192 kbps (Phổ biến)</option>
+                <option value="wav">WAV · Chất lượng cao (48kHz)</option>
+                <option value="m4a">M4A · AAC 192 kbps</option>
+              </select>
+            </div>
+            <div class="tts2-row grow" style="max-width:560px;">
+              <label class="small" style="font-weight:700;white-space:nowrap;">Thư mục xuất:</label>
+              <input id="tts-output-dir" class="input grow" readonly placeholder="Mặc định lưu vào thư mục Output của Sesame Studio">
+              <button type="button" id="btn-tts-choose-outdir" class="tts2-act">📂 Chọn</button>
+            </div>
+          </div>
+
+          <!-- Trạng thái + player + nút tạo -->
+          <div class="tts2-bottom">
+            <div id="tts-status-text" class="muted small">Sẵn sàng tổng hợp giọng đọc · Chọn file hoặc nhập văn bản rồi bấm “Tạo giọng đọc”.</div>
+            <div class="tts2-track"><div id="tts-progress-fill" class="tts2-fill" style="width:0%;"></div></div>
+            <div class="tts2-row" style="justify-content:space-between;">
+              <div class="tts2-row grow" style="min-width:280px;">
+                <audio id="tts-audio-player" controls style="height:36px;flex:1;max-width:440px;"></audio>
+                <span id="tts-output-meta" class="muted small">Chưa có bản thu mới</span>
+              </div>
+              <div class="tts2-row">
+                <button type="button" id="btn-tts-preview-short" class="tts2-ghost" title="Nghe thử câu đầu tiên với giọng và tốc độ đang chọn">🔊 Nghe thử 1 câu</button>
+                <button type="button" id="btn-tts-generate" class="tts2-primary">🎙 Tạo giọng đọc</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--line);padding-top:10px;">
+            <div class="row-between" style="margin-bottom:8px;">
+              <strong class="small">🎵 Lịch sử file giọng đọc vừa xuất (<span id="tts-history-count">0</span> file)</strong>
+              <span class="muted small">Bấm Nghe để phát lại hoặc Mở file để lấy file gốc</span>
+            </div>
+            <div id="tts-history-list" style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;"></div>
+          </div>
+        </div>
+
+        <!-- "Giọng riêng" — bố cục theo Toolkit, nối thật vào engine (Edge · Google · VieNeu) -->
+        <dialog id="tts-voice-dlg" class="modal tts-vdlg">
+          <div class="tts-vd">
+            <div class="tts-vd-head">
+              <div>
+                <h3 class="tts-vd-title">Giọng riêng · Text to Speech</h3>
+                <p class="muted small" style="margin:2px 0 0;">Chọn nguồn, giọng đọc và cách đọc riêng cho Text to Speech.</p>
+              </div>
+              <button type="button" id="tts-vd-x" class="tts2-ghost" style="height:32px;width:32px;padding:0;justify-content:center;" aria-label="Đóng">✕</button>
+            </div>
+            <div id="tts-vd-banner" class="tts-vd-banner"></div>
+            <div class="tts-vd-sec">NGÔN NGỮ &amp; GIỌNG ĐỌC</div>
+            <div id="tts-vd-sources" class="tts-vd-grid"></div>
+            <p id="tts-vd-srcnote" class="muted small" style="margin:0;"></p>
+            <div class="tts-vd-row">
+              <label class="tts-vd-lbl">Ngôn ngữ:</label>
+              <select id="tts-vd-locale" class="select" style="min-width:230px;max-width:300px;"></select>
+              <label class="tts-vd-lbl">Giọng đọc:</label>
+              <select id="tts-vd-voice" class="select" style="flex:1 1 220px;min-width:180px;"></select>
+              <button type="button" id="tts-vd-preview" class="tts2-act">▶ Nghe thử</button>
+            </div>
+            <div id="tts-vd-prevstatus" class="muted small" style="min-height:16px;"></div>
+            <audio id="tts-vd-audio" hidden></audio>
+            <div class="tts-vd-slider">
+              <label class="tts-vd-lbl">Tốc độ đọc:</label>
+              <input type="range" id="tts-vd-rate" min="-50" max="100" step="5" value="0">
+              <span id="tts-vd-rate-val" class="tts-vd-val">+0%</span>
+              <button type="button" id="tts-vd-rate-reset" class="tts2-ghost" style="height:28px;padding:0 10px;">Đặt lại</button>
+            </div>
+            <div class="tts-vd-slider">
+              <label class="tts-vd-lbl">Cao độ:</label>
+              <input type="range" id="tts-vd-pitch" min="-20" max="20" step="1" value="0">
+              <span id="tts-vd-pitch-val" class="tts-vd-val">0 Hz</span>
+            </div>
+            <div class="tts-vd-row">
+              <label class="tts-vd-lbl">Nhịp nghỉ giữa các câu:</label>
+              <select id="tts-vd-pause" class="select" style="width:120px;">
+                <option value="0.2">0.2s</option><option value="0.25">0.25s</option><option value="0.35">0.35s</option><option value="0.5">0.5s</option><option value="0.8">0.8s</option>
+              </select>
+              <label class="tts-vd-lbl">Số file chạy song song:</label>
+              <select id="tts-vd-parallel" class="select" style="width:100px;"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+            </div>
+            <p class="muted small" style="margin:0;">Nhịp nghỉ áp dụng khi đọc văn bản / Mode Pro. Số file song song áp dụng cho xử lý hàng loạt; VieNeu luôn chạy lần lượt. Cao độ chỉ chỉnh được ở nguồn Edge.</p>
+            <div class="tts-vd-foot">
+              <button type="button" id="tts-vd-cancel" class="tts2-ghost">Huỷ</button>
+              <button type="button" id="tts-vd-save" class="tts2-primary">Lưu cài đặt</button>
+            </div>
+          </div>
+        </dialog>
+      </section>
+
+      <section id="tab-fbpost" class="stage-view">
+        <div class="stage-header">
+          <div>
+            <h1 class="stage-title">Đăng Facebook Reels</h1>
+            <p class="stage-subtitle">Đăng video lên Fanpage bằng Page Access Token (Graph API v20)</p>
+          </div>
+        </div>
+
+        <div id="fb-page-banner" class="card row-between">
+          <div class="row">
+            <img id="fb-banner-avatar" class="avatar" src="assets/sesame_icon.png" alt="Fanpage" onerror="this.src='assets/sesame_icon.png'">
+            <div>
+              <div id="fb-banner-name"><strong>Chưa kết nối Fanpage</strong></div>
+              <div id="fb-banner-id" class="muted small">Vào Cài đặt để nhập token Fanpage</div>
+            </div>
+          </div>
+          <div class="row">
+            <select id="sel-fb-active-page" class="select" hidden></select>
+            <button id="btn-goto-settings" class="btn-ghost btn-sm">Quản lý token</button>
+          </div>
+        </div>
+
+        <div class="card stack">
+          <div>
+            <label class="label" for="sel-fb-video">Video cần đăng</label>
+            <div class="row">
+              <select id="sel-fb-video" class="select grow">
+                <option value="">— Chọn video trong kho —</option>
+              </select>
+              <input type="file" id="file-fb-video" accept="video/mp4" hidden>
+              <button id="btn-browse-fb-video" class="btn-ghost">Chọn file khác</button>
+            </div>
+            <div id="fb-selected-path" class="path"></div>
+          </div>
+          <div>
+            <label class="label" for="input-fb-caption">Caption</label>
+            <textarea id="input-fb-caption" class="textarea" rows="4" placeholder="Tiêu đề, caption chốt đơn kèm hashtag (VD: #reels #xuhuong #freeship)"></textarea>
+          </div>
+          <div class="row-between">
+            <span class="muted small">Định dạng: Facebook Reels (video dọc 9:16)</span>
+            <button id="btn-publish-reels" class="btn btn-lg">Đăng lên Reels</button>
+          </div>
+          <div id="fb-publish-loading" class="notice" hidden>
+            <span class="st-chip" data-tone="live"><span class="st-dot"></span>Đang đăng</span>
+            <span id="fb-publish-status-text">Đang kết nối Facebook Graph API...</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h3>Lịch sử đăng</h3></div>
+          <div id="fb-published-list" class="queue-list">
+            <div class="queue-empty">Chưa có bài đăng nào trong phiên này.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- API & TÍCH HỢP -->
+      <section id="tab-api" class="stage-view">
+        <div class="stage-header">
+          <div>
+            <h1 class="stage-title">API &amp; tích hợp</h1>
+            <p class="stage-subtitle">Chỉ cần khi có phần mềm khác (CRM, bot) muốn tự gửi việc vào Sesame Studio. Nếu bạn chỉ dùng app thì bỏ qua tab này.</p>
+          </div>
+          <span class="st-chip" data-tone="ok"><span class="st-dot"></span>Đang nghe 127.0.0.1:48900</span>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><div><h3>Khóa kết nối (API key)</h3><p>Phần mềm khác phải có khóa này mới gửi việc vào được. Bấm Đổi key thì khóa cũ hết dùng.</p></div></div>
+          <div class="api-key-row">
+            <input id="api-key" class="input" type="password" readonly>
+            <button id="btn-api-key-show" class="btn-ghost btn-sm">Hiện</button>
+            <button id="btn-api-key-copy" class="btn-ghost btn-sm">Copy</button>
+            <button id="btn-api-key-new" class="btn-danger btn-sm">Đổi key</button>
+            <button id="btn-api-test" class="btn-ghost btn-sm">Kiểm tra API</button>
+          </div>
+          <pre id="api-test-result" class="code-preview" hidden></pre>
+        </div>
+
+        <details class="card fold">
+          <summary><b>Hướng dẫn kết nối cho lập trình viên</b><span class="muted small"> (bấm để mở)</span></summary>
+          <div class="card-h"><div><h3>Tài liệu API v1</h3><p>Tạo task trả về ngay <code>{task:{id,status:"queued"}}</code>; hỏi lại theo id tới khi <code>succeeded</code> rồi tải file.</p></div></div>
+          <pre class="code-preview">POST   /api/v1/tasks               tạo task
+       {"prompt": "...", "images": [{"imageUrl": "https://..."} | {"imageBase64": "data:image/jpeg;base64,..."}],
+        "timeoutMin": 10, "label": "tên gợi nhớ"}
+GET    /api/v1/tasks?status=&amp;limit=   danh sách (status: queued|processing|succeeded|failed|cancelled)
+GET    /api/v1/tasks/:id           xem 1 task
+POST   /api/v1/tasks/:id/cancel    huỷ
+POST   /api/v1/tasks/:id/retry     chạy lại task lỗi / đã huỷ
+DELETE /api/v1/tasks/:id           xoá
+GET    /api/v1/tasks/:id/file      tải video mp4</pre>
+          <pre id="api-curl" class="code-preview"></pre>
+        </details>
+
+        <details class="card fold">
+          <summary><b>API cũ cho Content CRM</b><span class="muted small"> (không cần key, bấm để mở)</span></summary>
+          <div class="card-h"><div><h3>API cũ cho Content CRM (không cần key)</h3><p>Vẫn chạy như trước; kịch bản vào chung hàng đợi task với nguồn "CRM".</p></div></div>
+          <pre class="code-preview">fetch('http://127.0.0.1:48900/api/render', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ topicId: 'chien_dich_noel_01', prompt: 'Cận cảnh hộp quà Giáng Sinh...' })
+});</pre>
+          <div id="crm-logs-list" class="queue-list">
+            <div class="queue-empty">Đang chờ lệnh từ Content CRM...</div>
+          </div>
+        </details>
+      </section>
+
+      <!-- CÀI ĐẶT -->
+      <section id="tab-settings" class="stage-view">
+        <div class="stage-header">
+          <div>
+            <h1 class="stage-title">Cài đặt</h1>
+            <p class="stage-subtitle">Thư mục lưu, giới hạn thời gian, token Facebook</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><div><h3>Chạy task</h3><p>Áp dụng cho task chạy sau khi lưu.</p></div></div>
+          <div class="set-grid">
+            <div class="span-all">
+              <label class="label" for="set-out">Thư mục lưu</label>
+              <div class="row">
+                <input id="set-out" class="input grow" readonly>
+                <button id="set-out-pick" class="btn-ghost">Chọn thư mục</button>
+                <button id="btn-settings-open-finder" class="btn-ghost">Mở</button>
+              </div>
+            </div>
+            <div>
+              <label class="label" for="set-attempts">Số lần thử khi lỗi</label>
+              <input id="set-attempts" class="input" type="number" min="1" max="5">
+            </div>
+            <div>
+              <label class="label" for="set-img-min">Giới hạn tạo ảnh (phút)</label>
+              <input id="set-img-min" class="input" type="number" min="1" max="60">
+            </div>
+            <div>
+              <label class="label" for="set-vid-min">Giới hạn tạo video (phút)</label>
+              <input id="set-vid-min" class="input" type="number" min="5" max="120">
+            </div>
+          </div>
+          <div class="card-foot"><span class="muted small">Thử lại tốn thêm lượt Muse.</span><button id="set-save" class="btn">Lưu</button></div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><div><h3>Facebook token</h3><p>Dán 1 token (User hoặc Page), app tự lấy danh sách Fanpage bạn quản lý.</p></div></div>
+
+          <label class="label" for="cfg-fb-token">Access token</label>
+          <div class="row">
+            <input type="password" id="cfg-fb-token" class="input grow" placeholder="Bắt đầu bằng EAA...">
+            <button type="button" id="btn-toggle-token-vis" class="btn-ghost" title="Hiện / ẩn token">Hiện</button>
+            <button id="btn-cfg-fetch-pages" class="btn">Quét Fanpage</button>
+          </div>
+
+          <div id="cfg-fb-active-banner" class="active-page">
+            <div class="row">
+              <img id="cfg-active-avatar" class="avatar" src="" alt="">
+              <div>
+                <div class="row"><strong id="cfg-active-name">Tên Fanpage</strong><span class="st-chip" data-tone="ok">Đang dùng</span></div>
+                <div id="cfg-active-id" class="muted small">ID: ...</div>
+              </div>
+            </div>
+            <button id="btn-cfg-clear-fb" class="btn-danger btn-sm">Đổi token khác</button>
+          </div>
+
+          <div id="cfg-fb-pages-container" class="fb-pages-box">
+            <div class="row-between">
+              <span class="label">Fanpage được cấp quyền (<span id="cfg-fb-pages-count">0</span>)</span>
+              <span class="muted small">Bấm vào thẻ để chọn</span>
+            </div>
+            <div id="cfg-fb-pages-list" class="fb-pages-list"></div>
+            <div class="card-foot">
+              <div id="cfg-selected-page-summary" class="small">Chưa chọn Fanpage nào</div>
+              <button id="btn-cfg-save-selected-page" class="btn">Lưu Fanpage đã chọn</button>
+            </div>
+          </div>
+
+          <div class="guide">
+            <b>Cách lấy User token để quét mọi Fanpage</b><br>
+            1. Mở <b>developers.facebook.com/tools/explorer</b> (Graph API Explorer).<br>
+            2. Ở mục <b>User or Page</b>, chọn <b>User Token</b>.<br>
+            3. Tích quyền <code>pages_show_list</code>, <code>pages_read_engagement</code>, <code>pages_manage_posts</code>, <code>publish_video</code>.<br>
+            4. Bấm <b>Generate Access Token</b>, dán vào ô trên rồi bấm <b>Quét Fanpage</b>.
+          </div>
+        </div>
+      </section>
+
+      <!-- HƯỚNG DẪN SỬ DỤNG SESAME STUDIO TỪNG TÍNH NĂNG CHO NGƯỜI MỚI -->
+      <section id="tab-guide" class="stage-view">
+        <div class="stage-header">
+          <div>
+            <h1 class="stage-title">Hướng dẫn sử dụng</h1>
+            <p class="stage-subtitle">Cách dùng từng tab của Sesame Studio, theo đúng tên nút và tên tab trong ứng dụng.</p>
+          </div>
+          <div class="row" style="gap:8px;">
+            <button type="button" class="btn-ghost btn-sm" onclick="document.getElementById('btn-open-resource-center')?.click()">☁ Kiểm tra Tài nguyên</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">
+            <div>
+              <h3>Bắt đầu nhanh</h3>
+              <p>
+                Chưa có tài khoản dịch vụ? Bạn vẫn dùng ngay được <b>Cắt video</b>, <b>Edit/Ghép</b>, <b>Thư viện</b> và <b>Prompt đồng bộ</b>.
+                Muốn tạo video bằng AI: thêm tài khoản ở tab <b>Tài khoản</b>, rồi sang <b>Studio</b>.
+                Bấm <b>☁ Tài nguyên</b> ở thanh trên cùng để xem máy còn thiếu gì. Mục <b>Lưu ý</b> trong từng phần nêu những điều cần biết trước khi dùng.
+              </p>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;">
+            <div class="stack" style="gap:16px;">
+
+              <div class="guide">
+                <b>0. Trước khi dùng — yêu cầu máy và nơi lưu file</b> <span class="muted small">Windows 10/11 64-bit</span><br>
+                • <b>Dùng được ngay sau khi cài</b> (không cần tài khoản, FFmpeg đã kèm sẵn): <b>Cắt video</b>, <b>Edit/Ghép</b>, <b>Thư viện</b>, <b>Prompt đồng bộ</b>.<br>
+                • <b>Cần thêm Google Chrome</b> cho tab <b>Tài khoản</b> (Muse, Google Flow, Dola, Seedance): app điều khiển một cửa sổ Chrome thật. Thiếu Chrome app báo “Không tìm thấy Google Chrome”.<br>
+                • <b>Giọng đọc (Text to Speech)</b>: nguồn <b>Google</b> chạy không cần Python. Nguồn <b>Edge</b> (nguồn đang chọn sẵn) cần <b>Python 3</b> và gói <i>edge-tts</i> (<code>pip install edge-tts</code>); nguồn <b>VieNeu</b> cần Python 3.12 và gói vieneu. Thiếu thì app báo rõ cách cài.<br>
+                • <b>Cần mạng</b> cho: tài khoản dịch vụ, giọng Edge/Google, đăng Facebook. Cắt video và Edit/Ghép chạy ngay trên máy. Giao diện tải phông chữ từ Google Fonts khi có mạng; không có mạng thì dùng phông hệ thống.<br>
+                • <b>Kiểm tra máy</b>: bấm <b>☁ Tài nguyên</b> ở thanh trên cùng để xem máy đã có FFmpeg, Python, edge-tts, VieNeu, yt-dlp chưa. Nếu máy đã có Python mà thiếu edge-tts, nút <b>Tải xuống</b> sẽ tự cài giúp bạn. Mục này <b>không kiểm Google Chrome</b>.<br>
+                • <b>Nơi lưu</b>: video xuất mặc định vào <code>Videos\Sesame Studio</code> (đổi ở tab <b>Cài đặt</b>). Dự án Edit/Ghép và tài khoản lưu trong thư mục dữ liệu của app (<code>%APPDATA%\Sesame Studio</code>). File video gốc của bạn không bị sửa.<br>
+                • <b>Cài đặt lần đầu</b>: bản cài chưa ký số nên Windows có thể hiện “Windows protected your PC”. Bấm <b>Thông tin thêm → Vẫn chạy</b> nếu bạn tải bản cài từ nguồn chính thức của tác giả.<br>
+                • <b>Riêng tư</b>: Sesame Studio không có máy chủ riêng và không thu thập dữ liệu của bạn. App chỉ kết nối tới các dịch vụ bạn tự chọn dùng (tài khoản AI, giọng đọc Edge/Google, Facebook) và tới Google Fonts để tải phông chữ giao diện khi có mạng.<br>
+                • <b>Giấy phép</b>: miễn phí sử dụng, tác giả giữ bản quyền — xem file LICENSE và THIRD_PARTY_NOTICES trong thư mục cài.
+              </div>
+
+              <div class="guide">
+                <b>1. Tài khoản — nơi đăng nhập các dịch vụ tạo video</b><br>
+                • Tab <b>Tài khoản</b> có 4 nút thêm: <b>+ Muse AI</b>, <b>+ Google Flow</b>, <b>+ Dola</b>, <b>+ Seedance</b>. Mỗi tài khoản mở 1 cửa sổ Chrome riêng; bạn tự đăng nhập một lần, app nhớ phiên.<br>
+                • <b>Kiểm tra phiên</b> xem đã đăng nhập chưa; <b>Kiểm tra hạn mức</b> xem còn lượt tạo không. <b>TK chạy đồng thời / Chia việc</b> quyết định bao nhiêu tài khoản chạy song song.<br>
+                • <b>Lưu ý:</b> app <b>không tự tạo video</b> — cần ít nhất 1 tài khoản dịch vụ còn hạn mức (Muse hết hạn mức tuần sẽ không tạo thêm được, trừ khi dùng token bổ sung).<br>
+                • <b>Lưu ý Dola</b> (Seedance 2.0 Fast): với gói miễn phí, video <b>không có tiếng nói</b> và có logo “Dola AI” ở góc dưới trái.
+              </div>
+
+              <div class="guide">
+                <b>2. Studio — tạo ảnh / video từ prompt</b><br>
+                1. Chọn <b>Tạo ảnh</b> hoặc <b>Tạo video</b>.<br>
+                2. Gõ <b>Prompt</b>. Mỗi prompt là một việc riêng (ký tự tách prompt ở mục <i>Nâng cao</i>). Dùng <b>✨ Tối ưu prompt</b> để AI viết lại, <b>Chèn mẫu prompt…</b> để dán mẫu đã lưu trong tab Tư liệu, <b>Lưu mẫu</b> để lưu prompt đang gõ.<br>
+                3. Thêm <b>Ảnh tham chiếu</b> (tối đa 6). Ở <i>Nâng cao</i>: <b>Dùng chung</b> (mọi prompt cùng bộ ảnh) hoặc <b>Ghép cặp</b> (ảnh thứ n cho prompt thứ n).<br>
+                4. Chọn <b>Tỉ lệ</b> (9:16, 16:9, 1:1, 4:3, 3:4) và <b>Engine AI</b> (Tự động, Muse, Google Flow, Dola, Seedance 2.5).<br>
+                5. <b>Tạo &amp; chạy</b> = thêm vào hàng đợi và chạy luôn; <b>Chỉ thêm vào hàng đợi</b> = để đó chạy sau.<br>
+                • <b>Engine Google Flow</b>: app gửi prompt vào project Flow, chờ render xong rồi lấy thẳng link MP4 gốc (720p, có tiếng) lưu vào thư mục xuất — không dùng menu Download của Flow. App nhận clip mới bằng 2 cách: card đầu danh sách đổi ảnh, hoặc media mới trong project (Flow thường từ chối lệnh gửi nhanh bằng RPC với “hoạt động bất thường”, app tự chuyển sang nhập prompt trực tiếp trên trang — đó là bình thường). <b>Lưu ý:</b> mỗi lần tạo mới tiêu hao điểm Flow; nếu clip đã render mà tải lỗi, đừng tạo lại — mở project trên Flow và tải tay. Tắt app khi đang render rồi mở lại có thể khiến tác vụ cũ tự chạy lại và tốn thêm điểm: hãy bấm Dừng trước khi tắt.<br>
+                • Hàng đợi có lọc theo trạng thái (Chưa chạy / Đang chờ / Đang chạy / Xong / Lỗi / Đã huỷ), nút <b>Chạy, Dừng, Xoá, Chạy lại lỗi, Ghép video</b>, và <b>Chỉnh sửa prompt</b> rồi <b>Lưu &amp; chạy lại</b> cho từng việc.
+              </div>
+
+<div class="guide">
+                <b>3. Tư liệu — kho nhân vật và mẫu dùng lại</b><br>
+                • <b>Nhân vật</b>: đặt tên + tối đa 3 ảnh. Khi prompt (ở Studio, Kịch bản, Flow Builder) có <b>đúng tên đó</b> (viết hoa như tên, hoặc <code>@Tên</code>), app tự đính ảnh nhân vật vào lượt tạo video để giữ mặt và trang phục. Không có ô giới tính hay mô tả ngoại hình — chỉ tên và ảnh.<br>
+                • <b>Mẫu prompt</b>: tên + nội dung; ở Studio chọn <b>Chèn mẫu prompt…</b> để dán.<br>
+                • <b>Người mẫu cố định</b> (bật/tắt, tối đa 3 ảnh): gắn vào <i>mọi</i> lượt tạo khi đang bật.<br>
+                • <b>Ảnh luân phiên</b> (bật/tắt, tối đa 20 ảnh): mỗi lượt lấy 1 ảnh kế tiếp trong danh sách.<br>
+                • Tổng số ảnh gắn vào một lượt tối đa 6; vượt quá thì phần dư bị cắt.<br>
+              </div>
+
+              <div class="guide">
+                <b>4. Kịch bản — tạo nhiều cảnh</b><br>
+                • 4 chế độ: <b>Tự động</b> (dán ý tưởng hoặc truyện, app chia 3–5 cảnh), <b>Tự viết cảnh</b> (mỗi dòng một cảnh), <b>Từ ảnh</b>, <b>Phim ngắn</b> (đạo diễn chia shot: kiểm tra và biên dịch trước khi gen).<br>
+                • Mục <b>Cách làm</b>: <i>Làm video thẳng</i> (~3 phút), <i>Storyboard → tự làm video</i> (~8 phút), hoặc <i>Storyboard → chờ tôi duyệt</i>. Các bước gọi AI tốn lượt AI của bạn.<br>
+                • <b>Lưu ý:</b> kết quả phụ thuộc engine bạn chọn và hạn mức tài khoản.
+              </div>
+            </div>
+
+            <div class="stack" style="gap:16px;">
+
+              <div class="guide">
+                <b>4b. Prompt đồng bộ — giữ cùng nhân vật và bối cảnh ở mọi cảnh</b><br>
+                1. Điền <b>Phong cách &amp; địa điểm</b> một lần (có thể thêm nhạc nền mặc định).<br>
+                2. <b>Hồ sơ nhân vật</b>: mỗi nhân vật có <b>tên</b>, <b>ngoại hình khoá</b> (loài/độ tuổi, khuôn mặt, tóc, trang phục, tỉ lệ) và <b>giọng</b> (giới tính, tuổi, vùng miền, âm sắc, nhịp nói).<br>
+                3. <b>Các cảnh</b>: tick ai xuất hiện, gõ hành động, chọn cỡ cảnh → góc máy → chuyển động, tâm trạng, nhạc/SFX, lời thoại (có cách nói).<br>
+                4. Bên phải app tự ghép <b>mỗi cảnh một prompt</b> theo cùng một khuôn. Phần hồ sơ (phong cách, địa điểm, ngoại hình, giọng) được <b>lặp nguyên văn</b> ở mọi cảnh; app báo nếu chúng lệch nhau, và cảnh báo khi thiếu ngoại hình, trùng tên nhân vật, người nói không có trong cảnh hoặc prompt quá dài.<br>
+                5. Các tuỳ chọn khoá: chỉ nhân vật đã liệt kê được xuất hiện, tắt phụ đề trong video, khoá ngôn ngữ thoại (Việt/Anh), cấm hát.<br>
+                6. <b>Sao chép</b> từng cảnh hoặc tất cả, <b>Lưu .txt</b>. Có thể <b>Nhập từ file prompt mẫu</b> (.txt, mỗi khối cách nhau một dòng trống) để sửa tiếp. Nội dung soạn tự lưu trên máy.<br>
+                • <b>Lưu ý:</b> tab này <b>chỉ tạo văn bản</b> — bạn sao chép prompt rồi dán sang <b>Studio</b>. Mức giữ nhân vật còn phụ thuộc engine bạn dùng.
+              </div>
+
+              <div class="guide">
+                <b>5. Thư viện</b><br>
+                • Lưu ảnh và video đã tạo. Lọc <b>Tất cả / Ảnh / Video</b>, chọn từ 2 video trở lên rồi <b>Ghép video</b> (có <b>⚡ Sắp xếp timeline</b> để xếp theo số cảnh), <b>Xoá</b>, <b>Mở thư mục</b>.
+              </div>
+
+              <div class="guide">
+                <b>5b. Edit/Ghép video — dựng nhiều clip theo dự án</b><br>
+                1. <b>Danh sách dự án</b>: <b>＋ Tạo dự án</b>, <b>Mở dự án…</b>, hoặc <b>Chọn video để chỉnh sửa</b> (tạo dự án và thêm video luôn). Mỗi thẻ có dung lượng, thời lượng và dấu ✕ xoá dự án; <b>Xóa tất cả</b> xoá mọi dự án. Video gốc của bạn không bị xoá.<br>
+                2. <b>Thêm clip</b>: <b>＋ Thêm tệp</b>, <b>Kho video</b> (tick nhiều video), hoặc bấm <b>＋</b> trên ảnh nhỏ ở cột trái để đưa vào cuối timeline (cũng kéo thả được). Thêm nhiều clip một lượt thì app tự xếp theo số cảnh (Canh-01, Canh-02…).<br>
+                3. <b>Timeline</b>: mỗi clip hiện nhiều khung hình và <b>sóng âm thật</b> của video; bấm để chọn, kéo thả đổi thứ tự. Thanh biểu tượng phía trên: <b>↶ ↷</b> hoàn tác/làm lại (Ctrl+Z / Ctrl+Y), <b>Giữ gốc / Ngang / Dọc</b> (tỉ lệ khung xuất), <b>Lật ngang, Lật dọc, Xoay 90°</b> (cho clip đang chọn), <b>✂</b> tách clip tại chỗ đang xem, <b>− ＋</b> thu phóng timeline.<br>
+                4. <b>Các nút bên phải</b> (mở bảng ngay trên khung video, xem được liền): <b>Bộ lọc</b> — thanh trượt Nhiệt độ, Tông màu, Bão hòa, Phơi sáng, Tương phản, Vùng sáng, Bóng, Điểm trắng, Điểm đen, cộng mẫu màu, làm mờ và <b>chuyển cảnh vào clip</b> (mờ dần, qua đen, hoà tan, quét, trượt, mở/đóng tròn, vỡ hạt; thời lượng chuyển cảnh được trừ khỏi tổng thời lượng). <b>Text</b> (chữ theo khoảng giây). <b>Watermark</b> (chữ hoặc logo; chọn font, đậm, nghiêng, màu, viền, bóng, nền sau chữ, hiệu ứng mờ dần / nhịp sáng / nhấp nháy). <b>Lớp phủ</b> (ảnh hoặc video đè lên). <b>Che Sub</b> (làm mờ, mosaic, “xoá gần đúng”, hộp màu; có nút <b>Che theo từng câu .srt</b>). <b>Phụ đề</b> (.srt).<br>
+                5. <b>Âm thanh</b> (cột trái): <b>Thêm nhạc nền</b> (có âm lượng), <b>Âm thanh lồng tiếng</b>, <b>Đoạn nhạc theo thời điểm</b> (chọn điểm bắt đầu, vào/ra, âm lượng); thanh <b>Giọng gốc</b> / <b>Giọng lồng</b> ở dưới timeline.<br>
+                6. <b>✓ Áp dụng</b> dựng thử <b>cả timeline</b> (bản nhẹ) để bạn xem đúng kết quả; sau khi Áp dụng thì mục <b>Phụ đề</b> được mở khoá (trước đó bị khoá). Đổi cấu trúc clip (thêm, xoá, tách, cắt, đổi tốc độ) thì khoá lại và cần Áp dụng lại. <b>Lưu &amp; đóng</b> giữ dự án (mở lại khôi phục đủ timeline); <b>Xuất</b> ra MP4 trong thư mục xuất, tự vào Thư viện.<br>
+                • <b>Lưu ý:</b> khi kéo thanh trượt Bộ lọc, hình xem ngay chỉ là <i>bản xem nhanh</i>; màu chuẩn hiện khi <b>Áp dụng</b> hoặc <b>Xuất</b>. “Xoá gần đúng” vá vùng chữ bằng dải nền bên cạnh nên hợp với nền đơn giản — đây <b>không phải</b> xoá bằng AI. Phụ đề nhận file <b>.srt</b>; watermark chọn trong 8 font có sẵn.
+              </div>
+
+              <div class="guide">
+                <b>6. Cắt video</b><br>
+                • Màn hình đầu: bấm <b>Chọn từ file</b> hoặc <b>Chọn từ Kho video</b> (cũng có nút ở góc trên phải). Sau khi nạp, timeline hiện nhiều khung hình và <b>sóng âm thật</b>; thanh trạng thái báo “Sẽ chia đều thành N video”. Bấm <b>Chế độ cắt</b> và chọn: <i>Chia đều</i>, <i>Theo thời lượng</i>, <i>Chuyển cảnh</i> hoặc <i>Theo mốc</i> (cắm cờ tay trên timeline), rồi <b>Cắt &amp; Xuất Video</b>. Chạy hoàn toàn trên máy bằng FFmpeg, không cần tài khoản.<br>
+                • <b>Chuyển cảnh</b>: bấm <b>🔍 Dò chuyển cảnh ngay</b> (hoặc để app tự dò khi chọn chế độ này): app tìm các điểm đổi cảnh và tách video thành từng cảnh. Đổi sang video khác thì phải dò lại.<br>
+                • <b>Cách cắt:</b> khi chỉ cắt (không lật/xoay/đổi tỉ lệ/tốc độ/âm lượng) app dùng <b>stream copy</b> — không mã hoá lại, giữ nguyên chất lượng; mốc cắt được căn vào khung hình khoá (keyframe) gần nhất nên có thể lệch vài giây, app báo rõ từng mốc lệch bao nhiêu. Khi có chỉnh sửa hình/tiếng app mã hoá lại H.264 để cắt đúng mốc.<br>
+                • Video nạp từ <b>Kho video</b>: sau khi cắt, app hỏi có thay video gốc không — nếu đồng ý các phần mới thay gốc trong Kho và file gốc vào Thùng rác (khôi phục được). Video chọn từ máy thì giữ nguyên gốc, các phần xuất vào thư mục riêng. Chế độ Chuyển cảnh: nếu không dò thấy điểm nào app báo lỗi, không tự bịa mốc.<br>
+                • Các nút <b>Giữ gốc / Ngang / Dọc</b> đổi tỉ lệ khung xuất. <b>Lật ngang, Lật dọc, Xoay 90°</b> và <b>Tốc độ</b> áp dụng cho mọi phần xuất (app mã hoá lại H.264 để làm việc này).<br>
+                • <b>Lưu ý:</b> khi chỉ cắt (không chỉnh gì), điểm cắt bám vào khung hình khoá nên độ dài mỗi phần có thể lệch vài giây so với yêu cầu; app báo độ lệch của từng mốc.
+              </div>
+
+              <div class="guide">
+                <b>7. Text to Speech — giọng đọc</b><br>
+                1. <b>Từ SRT / TXT có timecode</b> (mặc định): bấm <b>Chọn file</b> chọn 1 file .srt/.txt. Chọn <b>Cách đọc</b>: <i>Giữ timeline</i> (mỗi câu đúng mốc), <i>Khớp thời gian tuyệt đối</i> (tự tăng tốc tối đa 1.45× để vừa ô), <i>Mode Pro</i> (đọc liên tục, cách nhau khoảng nghỉ đã chọn).<br>
+                2. <b>Xử lý hàng loạt</b>: <b>＋ Thêm nhiều SRT</b>, mỗi file chọn <b>ngôn ngữ</b> và <b>giọng</b> riêng (app đoán ngôn ngữ từ tên file: _en, _zh, _ja, _ko…); đọc lần lượt hoặc song song 2–3 file tuỳ cài đặt; cột Trạng thái báo <i>Xong / Lỗi</i>. Khi bảng có file, <b>Tạo giọng đọc</b> chạy cả lô.<br>
+                3. <b>Nhập văn bản</b>: dán chữ, chèn thẻ <code>[nghỉ 0.5s]</code>, <code>[nhấn mạnh]</code>…; <b>✨ Chuẩn hóa AI</b> đổi số sang chữ và ngắt nhịp.<br>
+                4. <b>⚙ Cài đặt giọng riêng…</b> (lưu lại cho lần sau): chọn <b>nguồn giọng</b> → <b>ngôn ngữ</b> → <b>giọng</b>, bấm <b>▶ Nghe thử</b> để nghe đúng cấu hình rồi <b>Lưu cài đặt</b>; chỉnh <b>tốc độ</b> (−50% … +100%), <b>cao độ</b>, <b>nhịp nghỉ</b> và <b>số file chạy song song</b>.<br>
+                • Nguồn giọng dùng được: <b>Edge</b> (Microsoft, 322 giọng, 142 ngôn ngữ, chỉnh được tốc độ + cao độ, cần mạng) · <b>Google</b> (Google Dịch, mỗi ngôn ngữ 1 giọng, chỉnh tốc độ, không chỉnh cao độ, cần mạng, không chính thức nên có thể bị chặn tạm) · <b>VieNeu</b> (chạy trên máy, chỉ tiếng Việt, 9 giọng 48kHz, chỉnh tốc độ; mỗi lần nạp model mất vài giây nên chạy lần lượt).<br>
+                • <b>Lưu ý:</b> <b>Edge cần Python 3 + gói edge-tts</b> (<code>pip install edge-tts</code>) và <b>VieNeu cần Python 3.12</b>; nguồn <b>Google</b> không cần Python. Thiếu thì app hiện hướng dẫn cài.<br>
+                • Các nguồn Piper, Kokoro, CapCut, FPT AI, Vbee, ElevenLabs hiện chưa dùng được (hiển thị khoá). App chưa tự nhận diện người nói hay tự chia giọng nam–nữ.
+              </div>
+
+<div class="guide">
+                <b>8. Đăng Reels và Cài đặt</b><br>
+                • <b>Cài đặt</b>: chọn thư mục lưu, số lần thử khi lỗi, giới hạn thời gian tạo ảnh/video, dán <b>Facebook token</b> rồi <b>Quét Fanpage</b> và <b>Lưu Fanpage đã chọn</b>.<br>
+                • <b>Đăng Reels</b>: chọn video trong kho (hoặc file khác), nhập caption, <b>Đăng lên Reels</b> (video dọc 9:16 qua Graph API). Cần token có quyền <code>pages_manage_posts</code> và <code>publish_video</code>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <dialog id="prj-dlg" class="modal">
+    <div class="stack">
+      <h3>Dự án</h3>
+      <div id="prj-list" class="stack"></div>
+      <div class="row"><input id="prj-new" class="input" placeholder="Tên dự án mới"><button type="button" id="prj-add" class="btn btn-sm">Thêm</button></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">Đóng</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="name-dlg" class="modal">
+    <form method="dialog" class="stack">
+      <h3 id="name-dlg-title"></h3>
+      <input id="name-dlg-input" class="input" maxlength="60">
+      <div class="row" style="justify-content:flex-end">
+        <button value="cancel" class="btn-ghost" formnovalidate>Huỷ</button>
+        <button value="ok" class="btn">Lưu</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="merge-dlg" class="modal" style="max-width: 640px;">
+    <div class="stack">
+      <div class="row-between">
+        <h3>Ghép video</h3>
+        <div class="row" style="gap:6px;">
+          <button type="button" id="merge-sort-timeline" class="btn-ghost btn-sm" title="Tự động xếp theo số cảnh (Cảnh 1, 2, 3...) hoặc mốc thời gian (0s-10s, 10s-20s...)">⚡ Sắp xếp timeline</button>
+          <button type="button" id="merge-sort-az" class="btn-ghost btn-sm" title="Sắp xếp theo tên A-Z">A → Z</button>
+          <button type="button" id="merge-sort-rev" class="btn-ghost btn-sm" title="Đảo ngược thứ tự">Đảo</button>
+        </div>
+      </div>
+      <p class="muted small">Ghép theo thứ tự dưới đây. Bấm <strong>⚡ Sắp xếp timeline</strong> để tự động căn chỉnh lại các cảnh bị tạo sau do lỗi.</p>
+      <div id="merge-list" class="stack merge-list"></div>
+      <label class="check" style="font-size:13px;font-weight:600;color:var(--ink);" title="Khắc phục triệt để hiện tượng video sau khi ghép bị tua nhanh, giật hình hoặc lệch tiếng">
+        <input type="checkbox" id="merge-normalize" checked>
+        <span></span>Chuẩn hóa timeline 30fps (Chống tua nhanh / lệch tiếng)
+      </label>
+      <div class="stack" style="gap:6px; padding:10px; border:1px solid var(--line, #e2e8f0); border-radius:8px;">
+        <div class="row-between">
+          <label class="label" for="merge-voice" style="margin:0;">🎙️ Lồng giọng đọc AI VieNeu-TTS v3 Turbo (48kHz — Tuỳ chọn)</label>
+          <button type="button" id="btn-merge-preview-voice" class="btn-ghost btn-sm" style="padding:2px 6px; font-size:11px;">🔊 Nghe thử</button>
+        </div>
+        <select id="merge-voice" class="select">
+          <option value="" selected>— Không lồng tiếng mới (giữ nguyên âm thanh gốc) —</option>
+          <option value="vieneu:Quỳnh Anh">Quỳnh Anh (48kHz) — Nữ · miền Bắc, truyền cảm, ngôn tình</option>
+          <option value="vieneu:Mỹ Duyên">Mỹ Duyên (48kHz) — Nữ · miền Nam, ngọt ngào, cảm xúc</option>
+          <option value="vieneu:Ngọc Linh">Ngọc Linh (48kHz) — Nữ · sâu lắng, kể chuyện đêm khuya</option>
+          <option value="vieneu:Thục Đoan">Thục Đoan (48kHz) — Nữ · thanh lịch, cổ trang / cung đấu</option>
+          <option value="vieneu:Ngọc Huyền">Ngọc Huyền (48kHz) — Nữ · tự nhiên, ấm áp, đời thường</option>
+          <option value="vieneu:Kim Thanh">Kim Thanh (48kHz) — Nữ · sắc sảo, review / chốt đơn</option>
+          <option value="vieneu:Thiện Minh">Thiện Minh (48kHz) — Nam · trầm ấm, tổng tài / thuyết minh</option>
+          <option value="vieneu:Đức Trí">Đức Trí (48kHz) — Nam · đĩnh đạc, kịch tính, điểm tin</option>
+          <option value="vieneu:Hải Đăng">Hải Đăng (48kHz) — Nam · miền Nam, hào sảng, năng động</option>
+          <option value="vieneu:rotate">🎲 Luân phiên giọng 48kHz tự động (Đổi giọng theo từng clip)</option>
+        </select>
+        <textarea id="merge-voice-text" class="textarea" rows="3" placeholder="Nhập lời đọc thuyết minh (mỗi dòng 1 câu/cảnh) để tự động lồng tiếng VieNeu-TTS 48kHz sau khi ghép..."></textarea>
+      </div>
+      <div><label class="label" for="merge-name">Tên file</label><input id="merge-name" class="input" placeholder="Để trống = tự đặt tên"></div>
+      <div class="merge-bar" hidden><span id="merge-pct"></span></div>
+      <div class="row" style="justify-content:flex-end">
+        <button type="button" id="merge-cancel" class="btn-ghost">Huỷ</button>
+        <button type="button" id="merge-go" class="btn">Ghép</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="flow-chatgpt-dlg" class="dlg">
+    <div class="dlg-box stack">
+      <div class="row-between">
+        <h3>📥 Dán kịch bản / Bộ Prompt từ ChatGPT</h3>
+        <button type="button" id="flow-chatgpt-close" class="btn-ghost btn-sm">✕</button>
+      </div>
+      <p class="muted small">Dán trực tiếp JSON hoặc danh sách Scene từ ChatGPT vào ô dưới đây. App sẽ tự động bóc tách từng Scene, gán thời lượng, nội dung, hành động, prompt và khóa đồng nhất nhân vật/sản phẩm.</p>
+      <textarea id="flow-chatgpt-raw" class="textarea" rows="10" placeholder="Dán kết quả từ ChatGPT vào đây..."></textarea>
+      <div class="row" style="justify-content:flex-end; gap: 8px;">
+        <button type="button" id="flow-chatgpt-cancel" class="btn-ghost">Huỷ</button>
+        <button type="button" id="flow-chatgpt-apply" class="btn">✨ Áp dụng vào Danh sách Scene</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- MODAL: TRUNG TÂM TÀI NGUYÊN (CHUẨN TOOLKIT MODEL & RUNTIME — TỰ KIỂM TRA & CÀI ĐẶT 1 CHẠM CHO NGƯỜI MỚI) -->
+  <div class="sesame-modal-overlay" id="modal-resources" style="display: none;">
+    <div class="sesame-modal-box">
+      <div class="sesame-modal-header">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#0891b2;letter-spacing:0.06em;text-transform:uppercase;">📦 MODEL &amp; RUNTIME</div>
+          <div class="sesame-modal-title" id="res-modal-title" style="margin-top:2px;">Trung tâm tài nguyên</div>
+          <div class="muted small" style="margin-top:4px;">Tự động kiểm tra và tải các gói cần thiết cho Xử lý video (FFmpeg), Lồng tiếng AI (VieNeu 48kHz / Edge-TTS) và Tải video sạch không logo.</div>
+        </div>
+        <div class="row" style="gap:8px;align-items:center;">
+          <span class="res-status-chip" id="res-ready-pill">Sẵn sàng 0/0</span>
+          <span class="res-tag-pill" id="res-missing-pill">Chưa tải 0</span>
+          <button type="button" class="sesame-modal-close" id="btn-close-resources" title="Đóng">✕</button>
+        </div>
+      </div>
+
+      <div style="padding:12px 22px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div class="small" style="min-width:0;flex:1;">
+          <span class="muted">Thư mục lưu model &amp; runtime:</span>
+          <code id="res-storage-path" style="margin-left:6px;word-break:break-all;">(thư mục bin của ứng dụng)</code>
+        </div>
+        <div class="row" style="gap:8px;">
+          <button type="button" class="btn-ghost btn-sm" id="btn-res-open-dir">📂 Mở thư mục</button>
+          <button type="button" class="btn-ghost btn-sm" id="btn-res-recheck">🔄 Kiểm tra lại</button>
+          <button type="button" class="btn btn-sm" id="btn-res-install-all">⬇️ Tải tài nguyên cần thiết</button>
+        </div>
+      </div>
+
+      <div class="sesame-modal-content" id="res-items-list">
+        <div class="muted small" style="padding:16px;text-align:center;">Đang kiểm tra môi trường và tài nguyên máy...</div>
+      </div>
+
+      <div class="sesame-modal-footer">
+        <span class="muted small" id="res-footer-note">💡 Khi sang máy mới chưa cài đặt, cửa sổ này sẽ tự động hiện lên để bạn bấm cài đặt 1 chạm.</span>
+        <button type="button" class="btn-ghost btn-sm" id="btn-close-resources-btm">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="compose.js"></script>
+  <script src="../engine/drama-compiler.js"></script>
+  <script src="../engine/script-judge.js"></script>
+  <script src="assets.js"></script>
+  <script src="merge.js"></script>
+  <script src="flow-builder.js"></script>
+  <script src="studio.js"></script>
+  <script src="script.js"></script>
+  <script src="assets/sample-spec.js"></script>
+  <script src="drama.js"></script>
+  <script src="film-projects.js"></script>
+  <script src="toolkit-tools.js"></script>
+  <script src="edit.js"></script>
+  <script src="promptsync.js"></script>
+  <script src="fb.js"></script>
+  <script src="accounts.js"></script>
+  <script src="library.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>
+

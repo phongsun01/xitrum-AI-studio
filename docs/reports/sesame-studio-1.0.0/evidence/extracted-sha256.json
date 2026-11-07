@@ -1,0 +1,617 @@
+[
+  {
+    "path": "Sesame Studio.exe",
+    "bytes": 188867584,
+    "sha256": "66dc600a1ec2e86a2b5e73cd0a7fd1534f9b90439dcc25b149ec5a4aa1b05622"
+  },
+  {
+    "path": "resources/LICENSE.txt",
+    "bytes": 4152,
+    "sha256": "281e5ea209c7a9ec5bf374329f34c124dc9940020ed0683244c15c4a0924d2d7"
+  },
+  {
+    "path": "resources/README.md",
+    "bytes": 1903,
+    "sha256": "af920d0553da88e6a41d9844d646f7805485567b93b35a7f9a84457ce6f6eba9"
+  },
+  {
+    "path": "resources/THIRD_PARTY_NOTICES.md",
+    "bytes": 2290,
+    "sha256": "b0ba4641835eedfd22db4c907fc82714403728ecc8ba046c0920f51fd83e9f52"
+  },
+  {
+    "path": "resources/app/engine/accounts.js",
+    "bytes": 5712,
+    "sha256": "91cffa12c68f0446dd0d3bae8be2728a1eb0342f2750b24bcd37cec86a259b83"
+  },
+  {
+    "path": "resources/app/engine/ai-video-engine.js",
+    "bytes": 11115,
+    "sha256": "b9725393ac1da4c379c282a9041223054dea888588f2e6289a237ad3b47c6d56"
+  },
+  {
+    "path": "resources/app/engine/chrome.js",
+    "bytes": 13045,
+    "sha256": "de11de94997fbba13e7af86ff8a79a1fcb42556e383bbfabe2cc0974db69b9b2"
+  },
+  {
+    "path": "resources/app/engine/config-manager.js",
+    "bytes": 1384,
+    "sha256": "8c9af10b749e4a0056c2639451c27a9bcb58dc0d0da7731c2dda05551c8c4834"
+  },
+  {
+    "path": "resources/app/engine/crm-server.js",
+    "bytes": 7531,
+    "sha256": "f49c01ed8f47b25ed859396a316476fbdee1dcda66f7a43465db3f15905f614d"
+  },
+  {
+    "path": "resources/app/engine/dola-runner.js",
+    "bytes": 21035,
+    "sha256": "f5c2796e68509dd1794c80e3c0532e2c9b1d9bc7ce5c93dd4f9b1203ab11d4cf"
+  },
+  {
+    "path": "resources/app/engine/drama-compiler.js",
+    "bytes": 80261,
+    "sha256": "374ffeb355938c1c1384aef5d031ee3ddef31689eebdd383408b47c8a94e5cbd"
+  },
+  {
+    "path": "resources/app/engine/edge_tts_cli.py",
+    "bytes": 262,
+    "sha256": "e46932238f78539c8dc5ce55aa454e0fa63391a710c657142fea96efdeab0f83"
+  },
+  {
+    "path": "resources/app/engine/facebook-poster.js",
+    "bytes": 6274,
+    "sha256": "6d5162738c5146990807ff1a702786674205b76324998e99cb5da7d3755fb211"
+  },
+  {
+    "path": "resources/app/engine/film-project-service.js",
+    "bytes": 8222,
+    "sha256": "ddd76d74b38b11f439651a35e0759879c2ee697d7cdaff4c4aaeedf0394988ac"
+  },
+  {
+    "path": "resources/app/engine/film-project-store.js",
+    "bytes": 15148,
+    "sha256": "d91bc4447ea9a9b0cb6f1ef003083a97c27abc26260766a0e76f62a6d444356d"
+  },
+  {
+    "path": "resources/app/engine/flow-builder-ai.js",
+    "bytes": 39219,
+    "sha256": "52a9d8c2b106522ad45011104c4bb31ccf7628ae5136bc11edc47bf9fe113ede"
+  },
+  {
+    "path": "resources/app/engine/gflow-runner.js",
+    "bytes": 52164,
+    "sha256": "b5357cad9056547cd5fd4f6c14ef3f6817d2adf73744da3dc1910a951c73bf9a"
+  },
+  {
+    "path": "resources/app/engine/h264.js",
+    "bytes": 1997,
+    "sha256": "12b3ba4c32fa524de75aa81d1402d0f7a820bd5ea5435e1d3ad819aa1ae06ef6"
+  },
+  {
+    "path": "resources/app/engine/ipc-aivideo.js",
+    "bytes": 33695,
+    "sha256": "15ac0daf6ff98c33e6eaab0e119640a2f7f367e544b053eb626c912b23fd78df"
+  },
+  {
+    "path": "resources/app/engine/ipc-dub.js",
+    "bytes": 13090,
+    "sha256": "1e4ab3784cf70f5cd092eb3d45e6d52e9a0e72a146195eee83668a645125d547"
+  },
+  {
+    "path": "resources/app/engine/ipc-features.js",
+    "bytes": 8719,
+    "sha256": "f7f3d1406fd711cd6aef243d6eeef076918bd928cf657d940a341a49ce5c4d9c"
+  },
+  {
+    "path": "resources/app/engine/ipc-review.js",
+    "bytes": 6490,
+    "sha256": "8ef9fa20a2025c86434eab82f2d43b7d1c999621ae589b0da3e902235dffb82e"
+  },
+  {
+    "path": "resources/app/engine/ipc-tools.js",
+    "bytes": 12490,
+    "sha256": "31c5ea39936a273edb62ac318eeed79eba72888a4d3c0fd99f372477eff608d8"
+  },
+  {
+    "path": "resources/app/engine/ipc-tts.js",
+    "bytes": 6212,
+    "sha256": "7290830b640e1739e5375c8c685deb743e2dc847362b134855768221b43f974b"
+  },
+  {
+    "path": "resources/app/engine/ladi-crawler.js",
+    "bytes": 6435,
+    "sha256": "dd5c83f8256919c4754c9137615bfa5b29d30e6093fd400d3e2e9425878a260d"
+  },
+  {
+    "path": "resources/app/engine/merge.js",
+    "bytes": 8702,
+    "sha256": "61898fb5033ff8aee865f2176c4109ee1b9f2964fd152e7418ae477a5e929873"
+  },
+  {
+    "path": "resources/app/engine/multi-engine.js",
+    "bytes": 3626,
+    "sha256": "8b03852431acc84b715a39b474dc07468488668c3e51ed6251bdb5b9223620fc"
+  },
+  {
+    "path": "resources/app/engine/muse-page.js",
+    "bytes": 14430,
+    "sha256": "346d9fffafdc0390f95a7c813491000136174dafbce8ad71e079739c49f979d7"
+  },
+  {
+    "path": "resources/app/engine/muse-runner.js",
+    "bytes": 13650,
+    "sha256": "bdfdd84785eaf0c2b856515d0902a04b733fd1218933233d6815943a4bd4d3da"
+  },
+  {
+    "path": "resources/app/engine/pool.js",
+    "bytes": 6965,
+    "sha256": "459dd5116b6484540fbc986b2a44bed6adec512699f283405928c2fdb83f44fd"
+  },
+  {
+    "path": "resources/app/engine/post-qa.js",
+    "bytes": 7171,
+    "sha256": "13b154c34ab5841f0460560e669826e83c07a4be47b98af4d1fc85fd68b59c5d"
+  },
+  {
+    "path": "resources/app/engine/product-ai-grounded.js",
+    "bytes": 9583,
+    "sha256": "6ba7b2dd698f91c085b4c8c139930442f8ef84b97b2c29eb28300403f38f84dd"
+  },
+  {
+    "path": "resources/app/engine/product-ai.js",
+    "bytes": 33399,
+    "sha256": "a5a5cab11dfe8d8dc90f41a44c2dcdd676a807e1017b71b507e2473be1eb860c"
+  },
+  {
+    "path": "resources/app/engine/prompt-sync.js",
+    "bytes": 9278,
+    "sha256": "fae0200dced30b94a0e8575f07347b2cc21f2402f95fae56a13b5193e7eb8fa6"
+  },
+  {
+    "path": "resources/app/engine/proxy.js",
+    "bytes": 4928,
+    "sha256": "d1d5a924ba5d6212ec11a2294bf2743a129d3fb0bbeba4abd4a2c61822b03c09"
+  },
+  {
+    "path": "resources/app/engine/scene-compose.js",
+    "bytes": 16409,
+    "sha256": "374481a63a1e3043a9eb44e6b8d360529b2b4f58c1313725fa1c82cc169f3f52"
+  },
+  {
+    "path": "resources/app/engine/scene-helper.js",
+    "bytes": 8503,
+    "sha256": "d0c1aa0bdc4e7ce455354eaa11f23a04fa902c50dd8499acd949fa71420a5afd"
+  },
+  {
+    "path": "resources/app/engine/scheduler.js",
+    "bytes": 3502,
+    "sha256": "793949e7f983b3800ede5e209fb4edb9db5a31dd1e5fd9c92b35940167d9d17d"
+  },
+  {
+    "path": "resources/app/engine/script-judge.js",
+    "bytes": 8880,
+    "sha256": "a0f715565bd24bdedbc54ee2cdd1e96af16937467975f7f2e9052d9cb5a6202e"
+  },
+  {
+    "path": "resources/app/engine/seedance-runner.js",
+    "bytes": 23367,
+    "sha256": "3914f92266b8f04be411ba805a16f63e7b449e388034e4d0560ee94395a6293f"
+  },
+  {
+    "path": "resources/app/engine/sesame-core.js",
+    "bytes": 70642,
+    "sha256": "f76cba4f2d2d15abfc00968193c354b0a990df6adf41a3801f5ddb18aa6631f2"
+  },
+  {
+    "path": "resources/app/engine/studio-store.js",
+    "bytes": 4393,
+    "sha256": "95afc64fa0ba02a4210446010f046bbb8492e808d9485153679cf3528720ef96"
+  },
+  {
+    "path": "resources/app/engine/task-store.js",
+    "bytes": 5801,
+    "sha256": "61c51695d6719b5c11a5eafdf6893cb592fa0ee0308586e8d6168ba92d6268e8"
+  },
+  {
+    "path": "resources/app/engine/toolkit/toolkit-capcut-tts.js",
+    "bytes": 29588,
+    "sha256": "a9f5bb6b95f1a4ba9518f0b37e9c8ae54b35cdd469ebd426903c880e5a89dc4c"
+  },
+  {
+    "path": "resources/app/engine/toolkit/toolkit-core.js",
+    "bytes": 3253,
+    "sha256": "346315150cd79d64b0d3dad538c5cab7beecab28bf37253bc8136128fe786cb6"
+  },
+  {
+    "path": "resources/app/engine/toolkit/toolkit-cut.js",
+    "bytes": 25035,
+    "sha256": "88a9e2365b36ca53efddf4e63138d1007d29bad8568d6877da80f2061197f6a1"
+  },
+  {
+    "path": "resources/app/engine/toolkit/toolkit-ocr.js",
+    "bytes": 2232,
+    "sha256": "6ea0402090b0401156b916cc6bdea11696fe1be920bf03c5534cf5e278f7df40"
+  },
+  {
+    "path": "resources/app/engine/toolkit/toolkit-translator.js",
+    "bytes": 9858,
+    "sha256": "87f3c191469244d123fe36e8776eb8dcea46266db8bc1f5761a177e23f053fdf"
+  },
+  {
+    "path": "resources/app/engine/toolkit/tts-sources.js",
+    "bytes": 13691,
+    "sha256": "19e4262cc02ee62e9b437776ed414d5219f30e35e7048ebf7fa772d8c7bc4c71"
+  },
+  {
+    "path": "resources/app/engine/video-editor-plan.js",
+    "bytes": 20362,
+    "sha256": "38bbfe68ae1e26edc680da16d19b39869fae69e8e5cee4dc76492d88e0779b43"
+  },
+  {
+    "path": "resources/app/engine/video-editor.js",
+    "bytes": 7905,
+    "sha256": "834fd82eadf493dbe5728ee45bf4362e046b625812b89ad58744c1de270f6f35"
+  },
+  {
+    "path": "resources/app/engine/vieneu-tts.js",
+    "bytes": 23099,
+    "sha256": "12772489336a84f0f98b40b36a8e3c58f96cc88ad3f519c479b7a19d3cee9bf9"
+  },
+  {
+    "path": "resources/app/engine/vieneu_tts_cli.py",
+    "bytes": 2319,
+    "sha256": "37faf54978f53e6867ea378e0207257a5151a5ddfc464236e278200df331b5b0"
+  },
+  {
+    "path": "resources/app/main.js",
+    "bytes": 63658,
+    "sha256": "f7bb59fcf65457ffe77c645f0cde876a4e989f965a310a3895024f3ad6b21210"
+  },
+  {
+    "path": "resources/app/package.json",
+    "bytes": 347,
+    "sha256": "db6827d043169728753cddaa0d54806979b09d3793878c2f3cf03bde3ee4a1f6"
+  },
+  {
+    "path": "resources/app/preload.js",
+    "bytes": 11881,
+    "sha256": "c684cb6b3f4609aafbf173d6a70837db697615e364086e04abe2e8368836981a"
+  },
+  {
+    "path": "resources/app/ui/accounts.js",
+    "bytes": 15506,
+    "sha256": "2c4ce098a6ec14421e897d211dd49117237cc46d189d8e89098c19a3bede88ec"
+  },
+  {
+    "path": "resources/app/ui/aivideo.css",
+    "bytes": 13866,
+    "sha256": "56862126719a065671733391670512862d65e79491473973af77d91b2a01c262"
+  },
+  {
+    "path": "resources/app/ui/aivideo.js",
+    "bytes": 43238,
+    "sha256": "5630cfc7b1878d908f200737084c4762b32ff168e3f0b659271a5a476107dd53"
+  },
+  {
+    "path": "resources/app/ui/app-dark.css",
+    "bytes": 39257,
+    "sha256": "e95e45b62e9c0ce94578447a7365872dc1d1cec5fc8be5d288dff78961543e9a"
+  },
+  {
+    "path": "resources/app/ui/app.css",
+    "bytes": 76869,
+    "sha256": "80c19c9d4e155b2f21c43b8679f2e29b7d4ef057e7ef535af5ef4ff6a70b6e9e"
+  },
+  {
+    "path": "resources/app/ui/app.js",
+    "bytes": 5687,
+    "sha256": "3755bb9c92948ca0738e28fddc138261d37fc614f472ef253773d9301c8ec9ca"
+  },
+  {
+    "path": "resources/app/ui/assets/fonts/BeVietnamPro-ExtraBold.ttf",
+    "bytes": 139680,
+    "sha256": "44dbfa01553d227bec76ba6446c5618870a76a4a3297f41630dde859d0650d02"
+  },
+  {
+    "path": "resources/app/ui/assets/fonts/OFL-BeVietnamPro.txt",
+    "bytes": 4397,
+    "sha256": "6b7f8f73609a25ea78c891e34cf37b06f8a676b7ea986e941e43b009110f2a85"
+  },
+  {
+    "path": "resources/app/ui/assets/icon48.png",
+    "bytes": 433014,
+    "sha256": "29ef8d320b09d51b9f18d68a79d860b238520e750838c1d94b1a5e11dfec8502"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/de.svg",
+    "bytes": 218,
+    "sha256": "9b7bef9dcd2efbd045b2458ee377a6f51ce866d5b5b67ed541ad37d4bae18a32"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/en.svg",
+    "bytes": 447,
+    "sha256": "cdb121e5440176792246b55e7c6f649aeba2df4ee1da5fd16b97ece4f730a2f7"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/es.svg",
+    "bytes": 239,
+    "sha256": "9bdf9e2cd7cf038b9905671bed0ef3d1dce231e753d26dbcec971181042fe3d4"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/fr.svg",
+    "bytes": 224,
+    "sha256": "e2a813b5832d62daa15b13db8cb9867dd74c296638fb97e81ef19a967ba3a97d"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/id.svg",
+    "bytes": 187,
+    "sha256": "32a50a11fad237000f5d70a8daceebde23347cec0569e3fd0a95923146855b7a"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/ja.svg",
+    "bytes": 192,
+    "sha256": "f21fa41689ba4abc9add0dfe0c46c3d0d141f91ef514edfc2353ebfa99ee9de3"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/ko.svg",
+    "bytes": 350,
+    "sha256": "94de214bb21f22456e9a5c74bd81a19ea6d15c7d117b64615751ca1a23470c4d"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/ru.svg",
+    "bytes": 227,
+    "sha256": "509c162cea318a427f257a061e62fa244206b3dd83b60b46f1fbe5fdfe477752"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/th.svg",
+    "bytes": 223,
+    "sha256": "87949500b0509eb038570dfb1cd64cfa054eef8f46e7f523159937b5835e3ab5"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/vi.svg",
+    "bytes": 253,
+    "sha256": "4ca3ea3c200746ded754e3846389097571bb84d686001dc5def448b83a7f9e26"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/yue.svg",
+    "bytes": 318,
+    "sha256": "71e291a792ad15ee758e5d2febcdb44cfd13acc61a8b1dbec9cedeacbcf9ebfc"
+  },
+  {
+    "path": "resources/app/ui/assets/languages/zh.svg",
+    "bytes": 420,
+    "sha256": "e077ec99306d6b689fdf1d7dbed2ce8d8e3d5b4bd37c92c80558c865ad2f466b"
+  },
+  {
+    "path": "resources/app/ui/assets/platforms/bilibili.svg",
+    "bytes": 1367,
+    "sha256": "cebecd671b00120ae1993b5581393a30a166f67e6169f3f53b4f80de168476fb"
+  },
+  {
+    "path": "resources/app/ui/assets/platforms/facebook.svg",
+    "bytes": 1005,
+    "sha256": "1b73f414f8c3f9397b4502539e8cee275919ce13529c04db45c0c4af22a92fec"
+  },
+  {
+    "path": "resources/app/ui/assets/platforms/iqiyi.svg",
+    "bytes": 1346,
+    "sha256": "136cb59ac72bd94d57608bb5a09aeed45bb89aab552bcc373b0a4b164638bf47"
+  },
+  {
+    "path": "resources/app/ui/assets/platforms/kylin.svg",
+    "bytes": 1128,
+    "sha256": "5bf8e2fc168f9b7d964539ad6e5f10881f15d64cdeb347ef0c81f1db13a6db73"
+  },
+  {
+    "path": "resources/app/ui/assets/platforms/tencent-video.svg",
+    "bytes": 2001,
+    "sha256": "0e87bbb4a78c6676a98478b67eb0802c28f8f3b5750f940b9370f8923291da9b"
+  },
+  {
+    "path": "resources/app/ui/assets/platforms/tiktok.svg",
+    "bytes": 1777,
+    "sha256": "3ecd4ec0236b95bb917019bffa6605f1286d48d14cf47f7a04c1b6da1c444e59"
+  },
+  {
+    "path": "resources/app/ui/assets/platforms/xiaohongshu.svg",
+    "bytes": 3567,
+    "sha256": "4807ec266e1a21364bb40f3e7d0285d0c310fb213a213be4c4debd9ae3c7fb38"
+  },
+  {
+    "path": "resources/app/ui/assets/platforms/youku.svg",
+    "bytes": 856,
+    "sha256": "8b34eba97d7fd1eef113ff329e5fcefe2e497680bb00da35ddee733e89e598d5"
+  },
+  {
+    "path": "resources/app/ui/assets/platforms/youtube.svg",
+    "bytes": 528,
+    "sha256": "dfb31b0c0f6e503f716b5bf9f53de137f66313be850e930df9b8c9e5b5773ca3"
+  },
+  {
+    "path": "resources/app/ui/assets/platforms/zalo.svg",
+    "bytes": 1083,
+    "sha256": "ce55da4db6a99d9d6659255affd855dca5417bb9733d8e7f33efb32af9739f6f"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/capcut.svg",
+    "bytes": 430,
+    "sha256": "b8a26b4b5f686ac71ce31fb829e7decf913659c78ac97f7bb3e1b5aacdb40c30"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/chatgpt.svg",
+    "bytes": 1748,
+    "sha256": "33205c55a2ecc9b410d61192919cabe9153d7d12d4c50896b713dbf9f4e685ab"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/deepseek.svg",
+    "bytes": 2118,
+    "sha256": "48fba1fef06c993dca6204d7495e2b05f74edccf917aaeec03f2e079a2d2ac42"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/fpt.png",
+    "bytes": 52193,
+    "sha256": "fa0e1e6d48e780bcd4d609def6a47e7b1f097e9a8d157fc5d7dadf3032c27ca2"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/gemini.svg",
+    "bytes": 783,
+    "sha256": "ec71d11ec44901b1dac642b8cb35a024d04da2aa3ea17cedbc31704b5ab71533"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/google.svg",
+    "bytes": 8169,
+    "sha256": "a60266dab17c1c00981c7077fa025aa84c92782e0657ca2f78b7f70cbb8d5a56"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/grok.svg",
+    "bytes": 965,
+    "sha256": "956259bd22d3f3afe5eaf45c2f9afadedbb9052f5bd77c65332196f91d89c48b"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/local.svg",
+    "bytes": 328,
+    "sha256": "471ec6f87de0196c7065e8c599a686e11e8ddfb6cca5bef94bf50f1ff0f10126"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/multi-source.svg",
+    "bytes": 623,
+    "sha256": "1375d07e4b5b6d0f0ccaac5856a3f5be320d3bdf2f2baa1830708b9361919f4d"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/openai.svg",
+    "bytes": 894,
+    "sha256": "65e51b8f184d75dac46a0e88d2c0fe3b3e10f05862aa7045ce9a1f16dd7d1a7c"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/vbee.svg",
+    "bytes": 3591,
+    "sha256": "c2de2a71cf8d4c1f97e33dbd5b945d1c4ea524ea32a39b46d3eb6837ab03f5f1"
+  },
+  {
+    "path": "resources/app/ui/assets/providers/zalo.png",
+    "bytes": 1210,
+    "sha256": "cce2f4c9c879938f75e40eba947375530ce58ac178bb57d3fc928067314b28fe"
+  },
+  {
+    "path": "resources/app/ui/assets/sample-spec.js",
+    "bytes": 9769,
+    "sha256": "79374c45626b879541243505c5da8f4f880a67221d25ccf504224f5abfe84e55"
+  },
+  {
+    "path": "resources/app/ui/assets/sesame_icon.ico",
+    "bytes": 120265,
+    "sha256": "88ad01c422b65a1650b50eda3973e633216eb6a26b23d2d904cafb1518dbb669"
+  },
+  {
+    "path": "resources/app/ui/assets/sesame_icon.png",
+    "bytes": 433014,
+    "sha256": "29ef8d320b09d51b9f18d68a79d860b238520e750838c1d94b1a5e11dfec8502"
+  },
+  {
+    "path": "resources/app/ui/assets.js",
+    "bytes": 7964,
+    "sha256": "bea64a9d74e7d89a8b20fcae9e0625fea1d2956c6ffb392e3f36ed750527e7e6"
+  },
+  {
+    "path": "resources/app/ui/compose.js",
+    "bytes": 1959,
+    "sha256": "d1ff07852532bd745e9fe3ff9f117ae56f07ea132c505d265313be7171e18ffc"
+  },
+  {
+    "path": "resources/app/ui/drama.js",
+    "bytes": 15825,
+    "sha256": "b2e1133e7037bfcc88e05839de08fb346dda168a3ad162b9e7513e5dee5db4ef"
+  },
+  {
+    "path": "resources/app/ui/edit.js",
+    "bytes": 77761,
+    "sha256": "c8fb669e0ecacf96b387d8064eb6eafebc761d978ec53c38d6e64c3efdcb1aea"
+  },
+  {
+    "path": "resources/app/ui/fb.js",
+    "bytes": 19139,
+    "sha256": "9b67fcf343e8a894425b7c3c9d4d2dd5c0ea461dd900353a202d42058170f99b"
+  },
+  {
+    "path": "resources/app/ui/features.js",
+    "bytes": 31499,
+    "sha256": "9f4023e7ce6a7526bb4ad89dbd076b041b90c94cbaf897ef1969f08d0329318f"
+  },
+  {
+    "path": "resources/app/ui/film-projects.js",
+    "bytes": 12432,
+    "sha256": "671368a0aad189230379b9eaa33d081add754b68eee4402f89fe7dd4edd2fe21"
+  },
+  {
+    "path": "resources/app/ui/flow-builder.js",
+    "bytes": 57422,
+    "sha256": "b77d42f4505665a97942f072b6b53a78334d91157deadeab8f09e211923b6a18"
+  },
+  {
+    "path": "resources/app/ui/haohao-features.css",
+    "bytes": 11333,
+    "sha256": "d45eb61ae17f9a495050172472263d232de99f9aeac14757e511d754149ffa59"
+  },
+  {
+    "path": "resources/app/ui/hongguo.css",
+    "bytes": 10934,
+    "sha256": "95b4c3e086d837daddda2e2cd5395a8958cc72e9c8fa5addd782a0655fe59ac2"
+  },
+  {
+    "path": "resources/app/ui/index.html",
+    "bytes": 160518,
+    "sha256": "9af5c11e64b7a920126087f0200032f87e502b059a31044ab5421690108ae767"
+  },
+  {
+    "path": "resources/app/ui/library.css",
+    "bytes": 6045,
+    "sha256": "a7980a1e1b48ad95ac76e8f46a080de3c2e9a97a4fcebc89565dd9996ac58e21"
+  },
+  {
+    "path": "resources/app/ui/library.js",
+    "bytes": 7178,
+    "sha256": "be505a671fd106b60bd59e1161bf0943b647c652afc24ea9e65e7b09f78e079d"
+  },
+  {
+    "path": "resources/app/ui/merge.js",
+    "bytes": 6572,
+    "sha256": "760ad29480c1512d89ceca0948fc53c836388530d89ce9604f4cd197eac7cbc7"
+  },
+  {
+    "path": "resources/app/ui/promptsync.js",
+    "bytes": 17446,
+    "sha256": "ad54ce621787d9c1d33ab3577520b07a6120efc4e2aad1a75eab3bdcd82f67e3"
+  },
+  {
+    "path": "resources/app/ui/sample-spec.js",
+    "bytes": 9769,
+    "sha256": "79374c45626b879541243505c5da8f4f880a67221d25ccf504224f5abfe84e55"
+  },
+  {
+    "path": "resources/app/ui/script.js",
+    "bytes": 70420,
+    "sha256": "c22dd04458c3641044c777118ff3485e13cbfc52ed1d9352ce3f13cfa41f41ea"
+  },
+  {
+    "path": "resources/app/ui/settings.js",
+    "bytes": 1263,
+    "sha256": "7a123fc1b2fb8c8f9b9d81bf305814a0c2ce99085b84962a677403f75538ff63"
+  },
+  {
+    "path": "resources/app/ui/studio.js",
+    "bytes": 19597,
+    "sha256": "47445cb3b769aa0dca7064ae7026b94c0f8bc3920ed9d60de4fa16923119c517"
+  },
+  {
+    "path": "resources/app/ui/theme.js",
+    "bytes": 1078,
+    "sha256": "51f82e689aed59b88033a64bfaa959f54b8ae931c22574621af2b49c23b2251c"
+  },
+  {
+    "path": "resources/app/ui/toolkit-tools.js",
+    "bytes": 83966,
+    "sha256": "2787b957de3c318a9bfcde10d0f254ccd25b70c68ba2f3974369051236603b7b"
+  }
+]

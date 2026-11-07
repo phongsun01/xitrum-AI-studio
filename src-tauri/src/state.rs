@@ -12,8 +12,8 @@ pub struct AppState {
 impl AppState {
     pub fn new(db_path: &str, app_handle: tauri::AppHandle) -> Self {
         let db = Arc::new(Database::new(db_path).expect("Failed to initialize SQLite database"));
-        let queue = Arc::new(QueueManager::new(Arc::clone(&db), app_handle));
-        let whiteboard = Arc::new(WhiteboardPipeline::new());
+        let queue = Arc::new(QueueManager::new(Arc::clone(&db), app_handle.clone()));
+        let whiteboard = Arc::new(WhiteboardPipeline::with_app_handle(&app_handle));
         Self { db, queue, whiteboard }
     }
 }

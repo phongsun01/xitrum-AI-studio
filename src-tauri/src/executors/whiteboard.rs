@@ -127,6 +127,16 @@ impl WhiteboardPipeline {
         }
     }
 
+    pub fn with_app_handle(app_handle: &tauri::AppHandle) -> Self {
+        let runner_path = crate::paths::PathResolver::resolve_whiteboard_runner(app_handle)
+            .unwrap_or_else(|| PathBuf::from("sidecar-whiteboard/whiteboard_runner.py"));
+
+        Self {
+            runner_path,
+            process: Mutex::new(None),
+        }
+    }
+
     fn spawn_process(&self) -> Result<(Child, ChildStdin, BufReader<std::process::ChildStdout>)> {
         let py_cmd = if cfg!(target_os = "windows") { "py" } else { "python3" };
 

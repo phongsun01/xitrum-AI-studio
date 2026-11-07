@@ -81,6 +81,7 @@ pub enum RunnerMessage {
 pub struct MuseRunner {
     child: Option<Child>,
     stdin: Option<ChildStdin>,
+    app_handle: Option<tauri::AppHandle>,
 }
 
 impl MuseRunner {
@@ -88,6 +89,15 @@ impl MuseRunner {
         Self {
             child: None,
             stdin: None,
+            app_handle: None,
+        }
+    }
+
+    pub fn with_app_handle(app_handle: tauri::AppHandle) -> Self {
+        Self {
+            child: None,
+            stdin: None,
+            app_handle: Some(app_handle),
         }
     }
 
@@ -105,17 +115,21 @@ impl MuseRunner {
             }
         }
 
-        // Tự động tìm đường dẫn tới file sidecar-muse/runner.mjs tương đối theo thư mục app (B3)
-        let current_dir = std::env::current_dir().unwrap_or_default();
-        let candidate_1 = current_dir.join("sidecar-muse").join("runner.mjs");
-        let candidate_2 = current_dir.join("..").join("sidecar-muse").join("runner.mjs");
-
-        let script_path = if candidate_1.exists() {
-            candidate_1
-        } else if candidate_2.exists() {
-            candidate_2
+        // Tự động tìm đường dẫn tới file sidecar-muse/runner.mjs linh hoạt (bundle resources hoặc dev)
+        let script_path = if let Some(ref app) = self.app_handle {
+            crate::paths::PathResolver::resolve_muse_runner(app)
+                .unwrap_or_else(|| PathBuf::from("sidecar-muse/runner.mjs"))
         } else {
-            PathBuf::from("sidecar-muse/runner.mjs")
+            let current_dir = std::env::current_dir().unwrap_or_default();
+            let candidate_1 = current_dir.join("sidecar-muse").join("runner.mjs");
+            let candidate_2 = current_dir.join("..").join("sidecar-muse").join("runner.mjs");
+            if candidate_1.exists() {
+                candidate_1
+            } else if candidate_2.exists() {
+                candidate_2
+            } else {
+                PathBuf::from("sidecar-muse/runner.mjs")
+            }
         };
         tracing::info!("Starting Muse Node.js runner: {:?}", script_path);
 

@@ -1,4 +1,5 @@
 use crate::errors::AppError;
+use crate::migrations::MigrationManager;
 use crate::models::{
     AppConfig, AudioJobItem, AudioSegmentItem, CharacterItem, ProductItem, ProxyItem, ScriptProjectItem,
     ScriptSceneItem, TaskItem, TaskKind, TaskStatus, TemplateItem,
@@ -17,57 +18,23 @@ impl Database {
     }
 
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, AppError> {
-        let conn = Connection::open(path)?;
+        let mut conn = Connection::open(path.as_ref())?;
         // S7: Kích hoạt PRAGMA foreign_keys = ON để cascading delete và quan hệ khóa ngoại có hiệu lực
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+
+        // Chạy versioned migration có backup an toàn và rollback khi lỗi
+        MigrationManager::migrate(&mut conn, path.as_ref())
+            .map_err(|e| AppError::Other(format!("Database migration failed: {e}")))?;
+
         let db = Self {
             conn: Mutex::new(conn),
         };
-        db.init_tables()?;
+        db.init_defaults()?;
         Ok(db)
     }
 
-    fn init_tables(&self) -> Result<(), AppError> {
+    fn init_defaults(&self) -> Result<(), AppError> {
         let conn = self.conn.lock().unwrap();
-
-        // 1. Bảng Tasks
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS tasks (
-                id TEXT PRIMARY KEY,
-                kind TEXT NOT NULL,
-                status TEXT NOT NULL,
-                prompt TEXT,
-                ratio TEXT,
-                input_path TEXT,
-                output_path TEXT,
-                progress INTEGER NOT NULL DEFAULT 0,
-                error_msg TEXT,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-            )",
-            [],
-        )?;
-
-        // 2. Bảng Settings
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )",
-            [],
-        )?;
-
-        // 3. Bảng Templates (v0.2.0 F6)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS templates (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                prompt TEXT NOT NULL,
-                ratio TEXT,
-                created_at INTEGER NOT NULL
-            )",
-            [],
-        )?;
 
         // Khởi tạo các template mẫu chất lượng cao nếu bảng templates còn trống
         let tpl_count: i64 = conn.query_row(
@@ -121,139 +88,6 @@ impl Database {
                 );
             }
         }
-
-        // 4. Bảng Audio Jobs (v0.3.0 F7)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS audio_jobs (
-                id TEXT PRIMARY KEY,
-                audio_path TEXT NOT NULL,
-                status TEXT NOT NULL,
-                created_at INTEGER NOT NULL
-            )",
-            [],
-        )?;
-
-        // 5. Bảng Audio Segments (v0.3.0 F7 & F10, v0.4.0 F12)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS audio_segments (
-                id TEXT PRIMARY KEY,
-                job_id TEXT NOT NULL,
-                seq INTEGER NOT NULL,
-                start_ms INTEGER NOT NULL,
-                end_ms INTEGER NOT NULL,
-                text TEXT NOT NULL,
-                prompt TEXT,
-                ref_image_path TEXT,
-                queue_task_id TEXT,
-                output_video_path TEXT,
-                approval TEXT,
-                FOREIGN KEY (job_id) REFERENCES audio_jobs(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-
-        // Tự động kiểm tra bổ sung cột output_video_path nếu bảng đã tồn tại từ trước
-        let _ = conn.execute("ALTER TABLE audio_segments ADD COLUMN output_video_path TEXT", []);
-
-        // 6. Bảng Scripts (Mốc 1 - Ý tưởng -> Kịch bản)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS scripts (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                idea TEXT,
-                genre TEXT,
-                target_duration_sec INTEGER,
-                ratio TEXT NOT NULL DEFAULT '16:9',
-                status TEXT NOT NULL DEFAULT 'draft',
-                environment_lock_en TEXT,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-            )",
-            [],
-        )?;
-
-        // 7. Bảng Characters (Mốc 1 - Character Bible)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS characters (
-                id TEXT PRIMARY KEY,
-                script_id TEXT,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL,
-                voice TEXT,
-                ref_image_path TEXT,
-                identity_lock_en TEXT,
-                locked INTEGER NOT NULL DEFAULT 0,
-                created_at INTEGER NOT NULL,
-                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-
-        // Bảng Products (Phase 3)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS products (
-                id TEXT PRIMARY KEY,
-                script_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                description TEXT,
-                image_path TEXT,
-                product_lock_en TEXT,
-                locked INTEGER NOT NULL DEFAULT 0,
-                created_at INTEGER NOT NULL,
-                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-
-        // 8. Bảng Script Scenes (Mốc 1 - Phân cảnh kịch bản)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS script_scenes (
-                id TEXT PRIMARY KEY,
-                script_id TEXT NOT NULL,
-                scene_no INTEGER NOT NULL,
-                narration TEXT NOT NULL,
-                visual_prompt TEXT NOT NULL,
-                video_prompt TEXT NOT NULL,
-                character TEXT,
-                duration_sec REAL NOT NULL DEFAULT 5.0,
-                ref_image_path TEXT,
-                audio_path TEXT,
-                video_path TEXT,
-                queue_task_id TEXT,
-                product_id TEXT,
-                camera_moves TEXT NOT NULL DEFAULT '[]',
-                style TEXT NOT NULL DEFAULT 'default',
-                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-
-        // Migration nhẹ cho các database đã tồn tại
-        let _ = conn.execute("ALTER TABLE scripts ADD COLUMN environment_lock_en TEXT", []);
-        let _ = conn.execute("ALTER TABLE characters ADD COLUMN identity_lock_en TEXT", []);
-        let _ = conn.execute("ALTER TABLE characters ADD COLUMN locked INTEGER NOT NULL DEFAULT 0", []);
-        let _ = conn.execute("ALTER TABLE script_scenes ADD COLUMN product_id TEXT", []);
-        let _ = conn.execute("ALTER TABLE script_scenes ADD COLUMN camera_moves TEXT NOT NULL DEFAULT '[]'", []);
-        let _ = conn.execute("ALTER TABLE script_scenes ADD COLUMN style TEXT NOT NULL DEFAULT 'default'", []);
-
-        // 9. Bảng Proxies (Mốc 3 - Quản lý Proxy Bảo Mật)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS proxies (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT,
-                raw_masked TEXT NOT NULL,
-                scheme TEXT DEFAULT 'http',
-                host TEXT NOT NULL,
-                port INTEGER NOT NULL,
-                username TEXT,
-                encrypted_password TEXT,
-                status TEXT DEFAULT 'unknown',
-                ip TEXT,
-                latency_ms INTEGER,
-                checked_at REAL
-            )",
-            [],
-        )?;
 
         // Khôi phục trạng thái: Khi app khởi động lại, các task đang 'running' được reset về 'queued'
         conn.execute(

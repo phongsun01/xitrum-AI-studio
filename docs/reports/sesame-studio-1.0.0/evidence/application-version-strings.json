@@ -1,0 +1,30 @@
+[
+  {
+    "offset": 187864844,
+    "bytes": 972,
+    "sha256": "7ad3a4860473c3d920e952a5473010bf42dfbe3aeafe0721d883fe77c1ca8cf7",
+    "strings": [
+      "VS_VERSION_INFO",
+      "StringFileInfo",
+      "040904b0",
+      "CompanyName",
+      "Lan Phương Nguyễn",
+      "FileDescription",
+      "Sesame Studio — bộ công cụ video AI miễn phí: tạo cảnh, prompt đồng bộ, ghép/chỉnh sửa, cắt video, đọc giọng.",
+      "FileVersion",
+      "1.0.0",
+      "InternalName",
+      "Sesame Studio",
+      "LegalCopyright",
+      "Copyright © 2026 Lan Phương Nguyễn",
+      "OriginalFilename",
+      "ProductName",
+      "Sesame Studio",
+      "ProductVersion",
+      "1.0.0.0",
+      "SquirrelAwareVersion",
+      "VarFileInfo",
+      "Translation"
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "name": "sesame-studio",
+  "productName": "Sesame Studio",
+  "version": "1.0.0",
+  "description": "Sesame Studio — bộ công cụ video AI miễn phí: tạo cảnh, prompt đồng bộ, ghép/chỉnh sửa, cắt video, đọc giọng.",
+  "main": "main.js",
+  "author": "Lan Phương Nguyễn",
+  "license": "SEE LICENSE IN LICENSE.txt"
+}

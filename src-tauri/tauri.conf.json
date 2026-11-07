@@ -34,7 +34,14 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/*"
+      "resources/*",
+      "../sidecar-muse/runner.mjs",
+      "../sidecar-tts/tts_runner.py",
+      "../sidecar-tts/requirements.txt",
+      "../sidecar-whiteboard/whiteboard_runner.py",
+      "../sidecar-whiteboard/requirements.txt",
+      "../sidecar-whiteboard/scripts/*",
+      "../sidecar-whiteboard/assets/*"
     ],
     "externalBin": [
       "binaries/ffmpeg",

@@ -54,7 +54,6 @@ pub struct TtsPipeline {
 
 impl TtsPipeline {
     pub fn new() -> Self {
-        // Tự động tìm đường dẫn tới file sidecar-tts/tts_runner.py
         let current_dir = std::env::current_dir().unwrap_or_default();
         let candidate_1 = current_dir.join("sidecar-tts").join("tts_runner.py");
         let candidate_2 = current_dir.join("..").join("sidecar-tts").join("tts_runner.py");
@@ -67,6 +66,12 @@ impl TtsPipeline {
             PathBuf::from("sidecar-tts/tts_runner.py")
         };
 
+        Self { script_path }
+    }
+
+    pub fn with_app_handle(app_handle: &tauri::AppHandle) -> Self {
+        let script_path = crate::paths::PathResolver::resolve_tts_runner(app_handle)
+            .unwrap_or_else(|| PathBuf::from("sidecar-tts/tts_runner.py"));
         Self { script_path }
     }
 

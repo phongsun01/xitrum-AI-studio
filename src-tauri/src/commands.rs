@@ -39,10 +39,29 @@ pub async fn check_muse_session(
 ) -> Result<serde_json::Value, AppError> {
     let cfg = state.db.get_config().unwrap_or_default();
     let proxy_config = if let Some(proxy_id) = cfg.active_proxy_id {
-        state.db.get_proxy(proxy_id).ok().flatten().map(|p| crate::executors::muse_runner::ProxyConfig {
-            server: format!("{}://{}:{}", p.scheme, p.host, p.port),
-            username: p.username,
-            password: p.encrypted_password,
+        state.db.get_proxy(proxy_id).ok().flatten().map(|p| {
+            let pwd = if let Ok(Some(secret)) = crate::secret_store::SecretStore::get_secret(&format!("proxy_{}", p.id)) {
+                Some(secret)
+            } else {
+                p.encrypted_password.as_ref().map(|enc| {
+                    use base64::{engine::general_purpose, Engine as _};
+                    if let Ok(bytes) = general_purpose::STANDARD.decode(enc) {
+                        let salt = b"xitrum_secret_salt_2026";
+                        let mut unxored = Vec::new();
+                        for (i, b) in bytes.iter().enumerate() {
+                            unxored.push(b ^ salt[i % salt.len()]);
+                        }
+                        String::from_utf8_lossy(&unxored).to_string()
+                    } else {
+                        enc.clone()
+                    }
+                })
+            };
+            crate::executors::muse_runner::ProxyConfig {
+                server: format!("{}://{}:{}", p.scheme, p.host, p.port),
+                username: p.username,
+                password: pwd,
+            }
         })
     } else {
         None
@@ -758,7 +777,7 @@ pub async fn add_proxies(
         });
 
         let name = format!("Proxy {}:{}", host, port);
-        if let Ok(_) = state.db.insert_proxy(
+        if let Ok(inserted_id) = state.db.insert_proxy(
             Some(&name),
             &raw_masked,
             &scheme,
@@ -767,6 +786,16 @@ pub async fn add_proxies(
             username.as_deref(),
             encrypted_pass.as_deref(),
         ) {
+            // Lưu mật khẩu vào kho bí mật OS Keychain / DPAPI
+            if let Some(ref pwd) = password {
+                if let Ok(()) = crate::secret_store::SecretStore::set_secret(&format!("proxy_{}", inserted_id), pwd) {
+                    // Xóa mật khẩu XOR cũ trong SQLite sau khi đã lưu thành công vào OS Keychain/DPAPI
+                    let _ = state.db.conn().execute(
+                        "UPDATE proxies SET encrypted_password = NULL WHERE id = ?1",
+                        rusqlite::params![inserted_id],
+                    );
+                }
+            }
             added += 1;
         }
     }
@@ -796,20 +825,24 @@ pub async fn test_proxy(
 
     let start = std::time::Instant::now();
     let proxy_url_str = if let Some(ref u) = proxy.username {
-        // Giải mã mật khẩu tạm để test kết nối
-        let pass = proxy.encrypted_password.as_ref().map(|enc| {
-            use base64::{engine::general_purpose, Engine as _};
-            if let Ok(bytes) = general_purpose::STANDARD.decode(enc) {
-                let salt = b"xitrum_secret_salt_2026";
-                let mut unxored = Vec::new();
-                for (i, b) in bytes.iter().enumerate() {
-                    unxored.push(b ^ salt[i % salt.len()]);
+        // Ưu tiên lấy mật khẩu an toàn từ kho bí mật OS
+        let pass = if let Ok(Some(secret)) = crate::secret_store::SecretStore::get_secret(&format!("proxy_{}", proxy_id)) {
+            secret
+        } else {
+            proxy.encrypted_password.as_ref().map(|enc| {
+                use base64::{engine::general_purpose, Engine as _};
+                if let Ok(bytes) = general_purpose::STANDARD.decode(enc) {
+                    let salt = b"xitrum_secret_salt_2026";
+                    let mut unxored = Vec::new();
+                    for (i, b) in bytes.iter().enumerate() {
+                        unxored.push(b ^ salt[i % salt.len()]);
+                    }
+                    String::from_utf8_lossy(&unxored).to_string()
+                } else {
+                    enc.clone()
                 }
-                String::from_utf8_lossy(&unxored).to_string()
-            } else {
-                enc.clone()
-            }
-        }).unwrap_or_default();
+            }).unwrap_or_default()
+        };
         format!("{}://{}:{}@{}:{}", proxy.scheme, u, pass, proxy.host, proxy.port)
     } else {
         format!("{}://{}:{}", proxy.scheme, proxy.host, proxy.port)
@@ -1036,12 +1069,18 @@ pub async fn analyze_image(
     kind: String, // "character", "product", "environment"
     gemini_api_key: Option<String>,
 ) -> Result<AnalyzeImageResult, AppError> {
-    let key = gemini_api_key.unwrap_or_default().trim().to_string();
+    // Ưu tiên đọc key từ OS Secret Store (Keychain/DPAPI); nếu không có thì dùng param từ request
+    let key = if let Ok(Some(secret)) = crate::secret_store::SecretStore::get_secret("gemini_api_key") {
+        secret
+    } else {
+        gemini_api_key.unwrap_or_default().trim().to_string()
+    };
+
     if key.is_empty() {
         return Ok(AnalyzeImageResult {
             ok: false,
             descriptor: None,
-            message: "Chưa cấu hình Gemini API Key. Bạn có thể nhập key trong Cài Đặt hoặc nhập khóa bằng tay.".to_string(),
+            message: "Chưa cấu hình Gemini API Key trong Kho bảo mật hệ điều hành. Hãy lưu API key trong Cài Đặt.".to_string(),
         });
     }
 
@@ -1567,3 +1606,36 @@ pub async fn merge_whiteboard_scenes(
 ) -> Result<serde_json::Value, AppError> {
     state.whiteboard.merge_scenes(video_paths, output_path).map_err(|e| AppError::Other(e.to_string()))
 }
+
+// ==========================================
+// G0: SYSTEM DIAGNOSTICS & SECRET MANAGEMENT
+// ==========================================
+
+#[tauri::command]
+pub fn check_system_dependencies(app: tauri::AppHandle) -> crate::diagnostics::SystemDiagnostics {
+    crate::diagnostics::DiagnosticsManager::run_diagnostics(&app)
+}
+
+#[tauri::command]
+pub fn save_os_secret(key: String, value: String) -> Result<bool, AppError> {
+    crate::secret_store::SecretStore::set_secret(&key, &value)
+        .map(|_| true)
+        .map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub fn delete_os_secret(key: String) -> Result<bool, AppError> {
+    crate::secret_store::SecretStore::delete_secret(&key)
+        .map(|_| true)
+        .map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub fn has_os_secret(key: String) -> Result<bool, AppError> {
+    match crate::secret_store::SecretStore::get_secret(&key) {
+        Ok(Some(s)) => Ok(!s.trim().is_empty()),
+        Ok(None) => Ok(false),
+        Err(e) => Err(AppError::Other(e.to_string())),
+    }
+}
+

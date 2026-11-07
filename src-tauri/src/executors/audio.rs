@@ -98,16 +98,7 @@ impl AudioPipeline {
             _ => "ggml-tiny.bin",
         };
 
-        let mut candidate_dirs = vec![
-            PathBuf::from("resources"),
-            PathBuf::from("src-tauri/resources"),
-            PathBuf::from("../src-tauri/resources"),
-            PathBuf::from("models"),
-        ];
-
-        if let Some(data_dir) = dirs::data_local_dir() {
-            candidate_dirs.push(data_dir.join("XitrumAI").join("models"));
-        }
+        let candidate_dirs = crate::paths::PathResolver::whisper_model_search_dirs(&self.app);
 
         let mut final_model_path: Option<PathBuf> = None;
         for dir in &candidate_dirs {

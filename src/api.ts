@@ -375,5 +375,31 @@ export const api = {
       videoPaths,
       outputPath,
     }),
+
+  // G0: Diagnostics & Secret Store
+  checkSystemDependencies: () =>
+    invoke<{
+      os: string;
+      arch: string;
+      all_ready: boolean;
+      dependencies: {
+        name: string;
+        category: string;
+        status: "Ready" | "Missing" | "Corrupted" | "MissingModel" | { Error: string };
+        version: string | null;
+        resolved_path: string | null;
+        details: string;
+        affected_features: string[];
+      }[];
+    }>("check_system_dependencies"),
+
+  saveOsSecret: (key: string, value: string) =>
+    invoke<boolean>("save_os_secret", { key, value }),
+
+  deleteOsSecret: (key: string) =>
+    invoke<boolean>("delete_os_secret", { key }),
+
+  hasOsSecret: (key: string) =>
+    invoke<boolean>("has_os_secret", { key }),
 };
 

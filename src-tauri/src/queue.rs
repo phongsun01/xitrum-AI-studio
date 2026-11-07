@@ -43,23 +43,8 @@ impl QueueManager {
         let muse_sem_worker = Arc::clone(&muse_semaphore);
         let local_sem_worker = Arc::clone(&local_semaphore);
 
-        // B6: Tìm model Rembg theo đường dẫn linh hoạt tương đối app hoặc resources
-        let candidate_rembg_1 = std::path::PathBuf::from("resources/u2netp.onnx");
-        let candidate_rembg_2 = std::path::PathBuf::from("src-tauri/resources/u2netp.onnx");
-        let candidate_rembg_3 = std::path::PathBuf::from("../src-tauri/resources/u2netp.onnx");
-        let candidate_rembg_4 = dirs::data_local_dir().map(|d| d.join("XitrumAI").join("models").join("u2netp.onnx"));
-
-        let resolved_rembg_path = if candidate_rembg_1.exists() {
-            Some(candidate_rembg_1)
-        } else if candidate_rembg_2.exists() {
-            Some(candidate_rembg_2)
-        } else if candidate_rembg_3.exists() {
-            Some(candidate_rembg_3)
-        } else if candidate_rembg_4.as_ref().map(|p| p.exists()).unwrap_or(false) {
-            candidate_rembg_4
-        } else {
-            None
-        };
+        // Định vị model Rembg qua PathResolver hỗ trợ cả app đã đóng gói và dev
+        let resolved_rembg_path = crate::paths::PathResolver::resolve_rembg_model(&app_handle);
 
         let rembg_engine = if let Some(path) = resolved_rembg_path {
             RembgEngine::new(path.to_string_lossy().as_ref()).ok().map(Arc::new)
@@ -68,7 +53,7 @@ impl QueueManager {
         };
 
         let rembg_worker = rembg_engine.clone();
-        let muse_runner = Arc::new(Mutex::new(MuseRunner::new()));
+        let muse_runner = Arc::new(Mutex::new(MuseRunner::with_app_handle(app_handle.clone())));
         let muse_worker = Arc::clone(&muse_runner);
 
         tokio::spawn(async move {
@@ -348,19 +333,25 @@ async fn run_task(
             let proxy_config = if let Some(proxy_id) = config.active_proxy_id {
                 db.get_proxy(proxy_id).ok().flatten().map(|p| {
                     // S4: Giải mã mật khẩu proxy trước khi đưa sang runner
-                    let decrypted_pass = p.encrypted_password.as_ref().map(|enc| {
-                        use base64::{engine::general_purpose, Engine as _};
-                        if let Ok(bytes) = general_purpose::STANDARD.decode(enc) {
-                            let salt = b"xitrum_secret_salt_2026";
-                            let mut unxored = Vec::new();
-                            for (i, b) in bytes.iter().enumerate() {
-                                unxored.push(b ^ salt[i % salt.len()]);
+                    // Ưu tiên đọc mật khẩu từ OS Keychain / DPAPI trước
+                    let decrypted_pass = if let Ok(Some(secret)) = crate::secret_store::SecretStore::get_secret(&format!("proxy_{}", p.id)) {
+                        Some(secret)
+                    } else {
+                        // Fallback tương thích với bản cũ nếu chưa migrate
+                        p.encrypted_password.as_ref().map(|enc| {
+                            use base64::{engine::general_purpose, Engine as _};
+                            if let Ok(bytes) = general_purpose::STANDARD.decode(enc) {
+                                let salt = b"xitrum_secret_salt_2026";
+                                let mut unxored = Vec::new();
+                                for (i, b) in bytes.iter().enumerate() {
+                                    unxored.push(b ^ salt[i % salt.len()]);
+                                }
+                                String::from_utf8_lossy(&unxored).to_string()
+                            } else {
+                                enc.clone()
                             }
-                            String::from_utf8_lossy(&unxored).to_string()
-                        } else {
-                            enc.clone()
-                        }
-                    });
+                        })
+                    };
 
                     crate::executors::muse_runner::ProxyConfig {
                         server: format!("{}://{}:{}", p.scheme, p.host, p.port),

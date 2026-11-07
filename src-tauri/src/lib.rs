@@ -1,9 +1,13 @@
 pub mod commands;
 pub mod db;
+pub mod diagnostics;
 pub mod errors;
 pub mod executors;
+pub mod migrations;
 pub mod models;
+pub mod paths;
 pub mod queue;
+pub mod secret_store;
 pub mod state;
 
 use commands::*;
@@ -118,7 +122,11 @@ pub fn run() {
             parse_whiteboard_srt,
             generate_whiteboard_annotation,
             render_whiteboard_scene,
-            merge_whiteboard_scenes
+            merge_whiteboard_scenes,
+            check_system_dependencies,
+            save_os_secret,
+            delete_os_secret,
+            has_os_secret
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

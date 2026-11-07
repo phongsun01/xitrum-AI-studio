@@ -1,0 +1,60 @@
+SESAME STUDIO — GIẤY PHÉP SỬ DỤNG MIỄN PHÍ / FREEWARE LICENSE
+
+Bản quyền © 2026 Lan Phương Nguyễn. Bảo lưu mọi quyền.
+Copyright © 2026 Lan Phương Nguyễn. All rights reserved.
+
+──────────────────────────────────────────────
+TIẾNG VIỆT
+──────────────────────────────────────────────
+
+1. QUYỀN ĐƯỢC CẤP
+   Bạn được tải, cài đặt và sử dụng Sesame Studio miễn phí, cho mục đích cá nhân
+   hoặc công việc, trên số lượng máy tuỳ ý của bạn. Bạn được sao chép và chia sẻ
+   miễn phí bản cài đặt gốc do tác giả phát hành, với điều kiện giữ nguyên vẹn
+   bản cài đặt, tên phần mềm, tệp giấy phép này và thông báo bản quyền.
+
+2. NỘI DUNG BẠN TẠO RA
+   Video, hình ảnh, âm thanh và dự án bạn tạo bằng phần mềm thuộc quyền của bạn;
+   tác giả không đòi quyền gì với các nội dung đó. Bạn tự chịu trách nhiệm về nội
+   dung, về việc tuân thủ pháp luật, quyền tác giả và điều khoản sử dụng của các
+   nền tảng/dịch vụ bạn kết nối (ví dụ Muse, Google Flow, Facebook, TikTok, YouTube).
+
+3. ĐIỀU KHÔNG ĐƯỢC LÀM
+   a) Bán, cho thuê hoặc thu phí khi phân phối phần mềm.
+   b) Sửa đổi, đổi tên, đổi thương hiệu hoặc phát hành lại phiên bản đã sửa đổi.
+   c) Gỡ bỏ thông báo bản quyền hoặc tên tác giả.
+   d) Dịch ngược, tháo rời hoặc trích xuất mã nguồn của phần mềm, trừ khi pháp luật
+      cho phép hoặc giấy phép của thành phần bên thứ ba cho phép.
+
+4. THÀNH PHẦN BÊN THỨ BA
+   Phần mềm có kèm các thành phần mã nguồn mở theo giấy phép riêng (xem tệp
+   THIRD_PARTY_NOTICES.md). Điều khoản của từng giấy phép đó áp dụng cho thành phần
+   tương ứng. Giấy phép này không thu hẹp các quyền mà giấy phép bên thứ ba trao
+   cho bạn (ví dụ quyền thay thế các thư viện FFmpeg theo giấy phép LGPL).
+
+5. KHÔNG BẢO ĐẢM
+   Phần mềm được cung cấp "NGUYÊN TRẠNG", không có bảo đảm dưới bất kỳ hình thức
+   nào. Tác giả không chịu trách nhiệm về thiệt hại phát sinh từ việc sử dụng,
+   bao gồm mất dữ liệu hoặc việc tài khoản dịch vụ của bạn bị hạn chế do vi phạm
+   điều khoản của bên thứ ba.
+
+6. KHÔNG LIÊN KẾT
+   Phần mềm không do, không liên kết với và không được bảo trợ bởi Google,
+   Meta/Facebook, ByteDance/TikTok, CapCut, Microsoft hay bất kỳ dịch vụ nào được
+   nhắc tới. Tên và logo thuộc về chủ sở hữu tương ứng, chỉ dùng để nhận diện.
+
+──────────────────────────────────────────────
+ENGLISH (SUMMARY)
+──────────────────────────────────────────────
+
+You may download, install and use Sesame Studio free of charge, for personal or
+work purposes, on any number of your own computers, and share the unmodified
+original installer free of charge with this license and the copyright notice
+intact. Content you create is yours; you are responsible for it and for complying
+with law and the terms of any service you connect. You may not sell, rent, modify,
+rebrand, redistribute modified versions, remove notices, or reverse engineer the
+software, except where law or a third-party license allows. Bundled third-party
+components remain under their own licenses (see THIRD_PARTY_NOTICES.md), and this
+license does not limit the rights those licenses give you. The software is provided
+"AS IS" without warranty of any kind. It is not affiliated with or endorsed by any
+service it mentions.

@@ -1,0 +1,495 @@
+/* ==========================================================================
+   Tab "Tạo video AI" — Giao diện 3 cột
+   ========================================================================== */
+
+#tab-aivideo {
+  display: none !important;
+}
+
+#tab-aivideo.active {
+  height: 100% !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+  box-sizing: border-box;
+}
+
+#aivideo-root {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 10px 12px;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--text);
+}
+
+.aiv-wrap {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  width: 100%;
+}
+
+/* ---------- 1. Thanh Chip Engine AI (Compact Top Bar) ---------- */
+.aiv-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: center;
+  flex-shrink: 0;
+  overflow-x: auto;
+  padding: 2px 2px 4px 2px;
+}
+.aiv-chips::-webkit-scrollbar { height: 4px; }
+.aiv-chips::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.aiv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.aiv-chip-info {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.aiv-chip-name { font-weight: 600; font-size: 12.5px; }
+.aiv-chip-state { font-size: 11px; color: var(--text-muted); }
+.aiv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+.aiv-dot.aiv-ok { background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.5); }
+.aiv-dot.aiv-bad { background: #f59e0b; }
+.aiv-chip .aiv-btn { padding: 2px 8px; font-size: 11.5px; }
+
+/* ---------- 2. Bố Cục 3 Cột (HaoHao Studio 3-Column Grid) ---------- */
+.aiv-cols {
+  display: grid;
+  grid-template-columns: minmax(290px, 320px) minmax(360px, 1fr) minmax(300px, 350px);
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  height: calc(100% - 42px);
+  overflow: hidden;
+}
+
+@media (max-width: 1200px) {
+  .aiv-cols {
+    grid-template-columns: 280px minmax(320px, 1fr) 290px;
+  }
+}
+
+.aiv-col {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* Custom Sleek Scrollbars */
+.aiv-col::-webkit-scrollbar,
+.aiv-list::-webkit-scrollbar,
+.aiv-prompt-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.aiv-col::-webkit-scrollbar-track,
+.aiv-list::-webkit-scrollbar-track,
+.aiv-prompt-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.aiv-col::-webkit-scrollbar-thumb,
+.aiv-list::-webkit-scrollbar-thumb,
+.aiv-prompt-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.aiv-col::-webkit-scrollbar-thumb:hover,
+.aiv-list::-webkit-scrollbar-thumb:hover,
+.aiv-prompt-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+/* ---------- Cột 1: Soạn Lệnh (Compose Form) ---------- */
+.aiv-col-compose {
+  overflow-y: auto;
+  gap: 10px;
+}
+.aiv-h { margin: 0 0 6px; font-size: 14.5px; font-weight: 700; color: var(--text); }
+.aiv-label { display: block; margin: 8px 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.aiv-hint { font-size: 11.5px; color: var(--text-muted); }
+.aiv-note { margin-top: 4px; font-size: 11.5px; color: var(--text-muted); }
+.aiv-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.aiv-between { justify-content: space-between; }
+.aiv-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.aiv-textarea, .aiv-input {
+  width: 100%; box-sizing: border-box; background: var(--bg-surface-alt);
+  color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 8px 10px; font: inherit; font-size: 12.5px;
+}
+.aiv-textarea { resize: vertical; min-height: 110px; line-height: 1.45; }
+.aiv-textarea:focus, .aiv-input:focus { outline: none; border-color: var(--emerald); }
+
+.aiv-btn {
+  background: var(--bg-surface-alt); color: var(--text); border: 1px solid var(--border-light);
+  border-radius: var(--r-md); padding: 7px 12px; cursor: pointer; font: inherit;
+  font-size: 12.5px; transition: all .15s ease;
+}
+.aiv-btn:hover { border-color: var(--emerald); background: var(--border-light); }
+.aiv-btn:disabled { opacity: .55; cursor: default; }
+.aiv-btn-sm { padding: 4px 8px; font-size: 11.5px; }
+.aiv-btn-ghost { background: transparent; }
+.aiv-btn-primary {
+  background: var(--emerald); border-color: var(--emerald-dark); color: #fff;
+  font-weight: 700; width: 100%; padding: 9px;
+}
+.aiv-btn-primary:hover { background: var(--emerald-dark); }
+.aiv-btn-danger { color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
+.aiv-btn-danger:hover { background: rgba(239, 68, 68, 0.1); border-color: #ef4444; }
+
+.aiv-seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.aiv-seg-btn {
+  flex: 1 1 auto; background: var(--bg-surface-alt); color: var(--text-secondary);
+  border: 1px solid var(--border); border-radius: var(--r-md); padding: 6px 8px;
+  cursor: pointer; font: inherit; font-size: 12px; text-align: center;
+}
+.aiv-seg-btn.aiv-on {
+  background: var(--emerald-light); color: var(--emerald); border-color: var(--emerald); font-weight: 700;
+}
+
+.aiv-tpl-row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+.aiv-char-box { background: var(--bg-surface-alt); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; }
+.aiv-char-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.aiv-char-chip {
+  display: flex; align-items: center; gap: 5px; background: var(--bg-surface);
+  border: 1px solid var(--border); border-radius: var(--r-sm); padding: 3px 6px; font-size: 11.5px;
+}
+.aiv-char-chip img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.aiv-char-chip-del { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 0 2px; }
+.aiv-char-chip-del:hover { color: #ef4444; }
+.aiv-char-detected { font-size: 11.5px; color: var(--emerald); font-weight: 600; min-height: 16px; margin-top: 2px; }
+
+.aiv-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.aiv-thumb {
+  position: relative; width: 56px; height: 56px; border-radius: var(--r-sm);
+  overflow: hidden; border: 1px solid var(--border); background: var(--bg-player);
+}
+.aiv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.aiv-thumb-x {
+  position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%;
+  border: none; background: rgba(0,0,0,.7); color: #fff; cursor: pointer; line-height: 18px; padding: 0; font-size: 11px;
+}
+.aiv-warn { font-size: 11.5px; color: var(--amber); margin-top: 4px; }
+.aiv-switch { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; }
+.aiv-msg { font-size: 12px; margin-top: 6px; }
+.aiv-msg:empty { display: none; }
+.aiv-msg-err { color: #ef4444; }
+.aiv-msg-ok { color: var(--emerald); }
+.aiv-msg-info { color: var(--text-muted); }
+
+/* ---------- Cột 2: Hàng Đợi Task (Queue & Luồng) ---------- */
+.aiv-col-queue {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Thanh Luồng (Thread Selector Bar) */
+.aiv-threads-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  background: var(--bg-surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  flex-shrink: 0;
+}
+.aiv-thread-pill {
+  padding: 4px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text);
+  font-size: 11.5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all .15s ease;
+}
+.aiv-thread-pill:hover { border-color: var(--emerald); }
+.aiv-thread-pill.active {
+  border-color: var(--emerald);
+  background: var(--emerald-light);
+  color: var(--emerald);
+  font-weight: 700;
+}
+.aiv-thread-dot { width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; flex-shrink: 0; }
+.aiv-thread-dot.busy {
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25);
+  animation: aivPulse 1.5s infinite;
+}
+.aiv-thread-sub { font-size: 10.5px; color: var(--text-muted); }
+.aiv-thread-pill.active .aiv-thread-sub { color: var(--emerald); }
+
+@keyframes aivPulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+  70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* Bộ lọc & Tìm kiếm */
+.aiv-queue-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.aiv-queue-search {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  background: var(--bg-surface-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 0 8px;
+  font-size: 12px;
+}
+.aiv-queue-select {
+  height: 28px;
+  background: var(--bg-surface-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.aiv-picks-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  padding: 2px 0;
+  flex-shrink: 0;
+}
+
+/* Danh Sách Task Cuộn Độc Lập */
+.aiv-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.aiv-task-row {
+  display: grid;
+  grid-template-columns: 20px 48px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--bg-surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: all .15s ease;
+  user-select: none;
+}
+.aiv-task-row:hover {
+  background: var(--bg-panel-hover);
+  border-color: var(--border-light);
+}
+.aiv-task-row.selected {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: #10b981;
+  box-shadow: inset 3px 0 0 #10b981;
+}
+
+.aiv-task-check { width: 16px; height: 16px; accent-color: #10b981; cursor: pointer; }
+.aiv-task-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r-sm);
+  background: var(--bg-player);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--text-muted);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.aiv-task-thumb img, .aiv-task-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.aiv-task-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.aiv-task-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aiv-task-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aiv-task-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.aiv-badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  white-space: nowrap;
+}
+.aiv-b-running { color: var(--blue); border-color: var(--blue); }
+.aiv-b-done { color: #10b981; border-color: #10b981; }
+.aiv-b-queued { color: var(--text-muted); }
+.aiv-b-error { color: #ef4444; border-color: #ef4444; }
+
+.aiv-timer {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--emerald);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(16, 185, 129, 0.12);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.aiv-bar { height: 4px; background: var(--bg-surface); border-radius: 2px; overflow: hidden; margin-top: 2px; }
+.aiv-bar span { display: block; height: 100%; background: var(--emerald); transition: width .3s; }
+
+/* Chân Hàng Đợi (Queue Foot Bulk Actions) */
+.aiv-queue-foot {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* ---------- Cột 3: Khung Xem Trước Video & Chi Tiết (Detail Inspector) ---------- */
+.aiv-col-detail {
+  overflow-y: auto;
+  gap: 10px;
+}
+
+.aiv-detail-player {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  max-height: 40vh;
+  border-radius: var(--r-md);
+  background: #000;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+.aiv-detail-placeholder {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  max-height: 40vh;
+  border-radius: var(--r-md);
+  background: var(--bg-surface-alt);
+  border: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+.aiv-detail-placeholder .aiv-spin {
+  font-size: 26px;
+  animation: aivSpin 1.8s linear infinite;
+}
+@keyframes aivSpin { 100% { transform: rotate(360deg); } }
+
+.aiv-detail-prompt-box {
+  background: var(--bg-surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow-y: auto;
+  color: var(--text);
+  user-select: text;
+}
+
+.aiv-detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.aiv-empty {
+  padding: 30px 14px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+  margin-top: 10px;
+}

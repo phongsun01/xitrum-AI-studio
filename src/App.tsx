@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { api, TaskItem, AppConfig, TemplateItem } from "./api";
 import { TemplateLibrary } from "./components/TemplateLibrary";
 import { ToastContainer, ToastItem } from "./components/Toast";
@@ -81,9 +81,52 @@ function App() {
   const [cookieChecking, setCookieChecking] = useState(false);
   const [cookieStatus, setCookieStatus] = useState<{ ok: boolean; message: string; checked_at?: number } | null>(null);
 
-  // Phase 3: Gemini API Key state (In-memory)
-  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('xitrum_gemini_api_key') || '');
+  // Phase 3: Gemini API Key state (Quản lý an toàn qua OS Secret Store)
+  const [hasGeminiSecret, setHasGeminiSecret] = useState(false);
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState('');
   const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<{
+    os: string;
+    arch: string;
+    all_ready: boolean;
+    dependencies: any[];
+  } | null>(null);
+  const [loadingDiag, setLoadingDiag] = useState(false);
+
+  const checkDiagnostics = async () => {
+    setLoadingDiag(true);
+    try {
+      const diag = await api.checkSystemDependencies();
+      setDiagnostics(diag);
+    } catch (e) {
+      addToast('error', `Không thể kiểm tra dependencies: ${e}`);
+    } finally {
+      setLoadingDiag(false);
+    }
+  };
+
+  useEffect(() => {
+    // Tự động di chuyển key cũ từ localStorage sang OS Secret Store nếu có
+    const migrateOldSecret = async () => {
+      const oldKey = localStorage.getItem('xitrum_gemini_api_key');
+      if (oldKey && oldKey.trim()) {
+        try {
+          await api.saveOsSecret('gemini_api_key', oldKey.trim());
+          // Chỉ xóa sau khi đã lưu OS Secret thành công
+          localStorage.removeItem('xitrum_gemini_api_key');
+          setHasGeminiSecret(true);
+          addToast('success', 'Đã chuyển Gemini API Key vào Kho bảo mật hệ thống (Keychain/DPAPI)!');
+        } catch (e) {
+          console.error('Migration failed:', e);
+        }
+      } else {
+        const has = await api.hasOsSecret('gemini_api_key').catch(() => false);
+        setHasGeminiSecret(has);
+      }
+    };
+    migrateOldSecret();
+  }, []);
+
   const [laneStatus, setLaneStatus] = useState<{ muse_available_slots: number; local_available_slots: number }>({
     muse_available_slots: 1,
     local_available_slots: 2,
@@ -797,42 +840,114 @@ function App() {
               )}
             </div>
 
-            {/* Phase 3: Gemini Vision API Key */}
+            {/* Phase 3 & G0: Gemini Vision API Key (OS Keychain / DPAPI) */}
             <div className="form-group" style={{ marginTop: '24px', padding: '16px', background: 'var(--bg-secondary, rgba(255,255,255,0.03))', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600 }}>✨ Cấu Hình Gemini Vision API (Khóa Nhân Vật & Sản Phẩm):</label>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label style={{ fontSize: '14px', fontWeight: 600 }}>✨ Gemini Vision API Key (Kho bảo mật OS):</label>
+                <span style={{ fontSize: '12px', padding: '2px 8px', borderRadius: '4px', background: hasGeminiSecret ? 'rgba(74, 222, 128, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: hasGeminiSecret ? '#4ade80' : '#ef4444' }}>
+                  {hasGeminiSecret ? '● Đã lưu an toàn trong OS' : '○ Chưa thiết lập'}
+                </span>
+              </div>
               <p style={{ margin: '4px 0 10px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-                Dùng để tự động phân tích ảnh nhân vật & sản phẩm, sinh ra câu khóa (Lock Descriptor) tiếng Anh chuẩn giúp video đồng nhất 100%.
+                Khóa bí mật được lưu trực tiếp vào OS Keychain (macOS) hoặc DPAPI (Windows). Backend đọc trực tiếp, không lưu vào trình duyệt hay plain text.
               </p>
               <div className="input-with-button">
                 <input
                   type={showGeminiKey ? 'text' : 'password'}
-                  placeholder="AIzaSy... (Gemini API Key của bạn)"
-                  value={geminiApiKey}
-                  onChange={(e) => {
-                    const val = e.target.value.trim();
-                    setGeminiApiKey(val);
-                    localStorage.setItem('xitrum_gemini_api_key', val);
-                  }}
+                  placeholder={hasGeminiSecret ? "•••••••••••••••• (Nhập key mới nếu muốn đổi)" : "AIzaSy... (Gemini API Key)"}
+                  value={geminiApiKeyInput}
+                  onChange={(e) => setGeminiApiKeyInput(e.target.value.trim())}
                 />
                 <button
                   type="button"
                   className="secondary-btn"
                   onClick={() => setShowGeminiKey(!showGeminiKey)}
                 >
-                  {showGeminiKey ? 'Ẩn Key' : 'Hiện Key'}
+                  {showGeminiKey ? 'Ẩn' : 'Hiện'}
                 </button>
                 <button
                   type="button"
-                  className="secondary-btn"
-                  onClick={() => {
-                    setGeminiApiKey('');
-                    localStorage.removeItem('xitrum_gemini_api_key');
-                    addToast('info', 'Đã xóa Gemini API key!');
+                  className="primary-btn"
+                  onClick={async () => {
+                    if (!geminiApiKeyInput) return;
+                    try {
+                      await api.saveOsSecret('gemini_api_key', geminiApiKeyInput);
+                      setHasGeminiSecret(true);
+                      setGeminiApiKeyInput('');
+                      addToast('success', 'Đã lưu Gemini API Key vào Kho bảo mật OS thành công!');
+                    } catch (e) {
+                      addToast('error', `Lỗi lưu kho bảo mật: ${e}`);
+                    }
                   }}
                 >
-                  Xóa Key
+                  Lưu Vào OS
+                </button>
+                {hasGeminiSecret && (
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={async () => {
+                      try {
+                        await api.deleteOsSecret('gemini_api_key');
+                        setHasGeminiSecret(false);
+                        addToast('info', 'Đã xóa key khỏi Kho bảo mật OS!');
+                      } catch (e) {
+                        addToast('error', `Lỗi xóa secret: ${e}`);
+                      }
+                    }}
+                  >
+                    Xóa Key
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* G0: Chẩn đoán Dependencies Hệ Thống */}
+            <div className="form-group" style={{ marginTop: '24px', padding: '16px', background: 'var(--bg-secondary, rgba(255,255,255,0.03))', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <label style={{ fontSize: '14px', fontWeight: 600 }}>🛠️ Chẩn Đoán Hệ Thống & Dependencies (G0):</label>
+                <button
+                  type="button"
+                  className="secondary-btn sm-btn"
+                  disabled={loadingDiag}
+                  onClick={checkDiagnostics}
+                >
+                  {loadingDiag ? 'Đang kiểm tra...' : 'Kiểm Tra Ngay'}
                 </button>
               </div>
+              <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                Kiểm tra Node, Python, FFmpeg, Whisper binary, ONNX model và các runner sidecar để đảm bảo môi trường đầy đủ.
+              </p>
+              {diagnostics && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: diagnostics.all_ready ? '#4ade80' : '#f59e0b', marginBottom: '4px' }}>
+                    {diagnostics.all_ready ? '✅ Mọi thành phần đều sẵn sàng!' : '⚠️ Có một số dependency chưa sẵn sàng hoặc bị thiếu:'}
+                  </div>
+                  {diagnostics.dependencies.map((dep, idx) => {
+                    const isReady = dep.status === 'Ready';
+                    const isCorrupted = dep.status === 'Corrupted';
+                    const isMissingModel = dep.status === 'MissingModel';
+                    const badgeColor = isReady ? '#4ade80' : isCorrupted ? '#ef4444' : '#f59e0b';
+                    const statusText = isReady ? 'Sẵn Sàng' : isCorrupted ? 'File Hỏng (0 byte)' : isMissingModel ? 'Chưa Tải Model' : 'Chưa Cài Đặt';
+
+                    return (
+                      <div key={idx} style={{ padding: '8px 12px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', borderLeft: `3px solid ${badgeColor}`, fontSize: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 600 }}>{dep.name}</span>
+                          <span style={{ color: badgeColor, fontWeight: 500 }}>{statusText}</span>
+                        </div>
+                        <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>{dep.details}</div>
+                        {dep.version && <div style={{ color: 'var(--text-secondary)', fontSize: '11px', marginTop: '2px' }}>Phiên bản: {dep.version}</div>}
+                        {dep.affected_features && dep.affected_features.length > 0 && (
+                          <div style={{ color: '#f87171', fontSize: '11px', marginTop: '4px' }}>
+                            Ảnh hưởng: {dep.affected_features.join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* F13: Thư viện Nhạc Nền Tự Động */}
