@@ -1677,6 +1677,7 @@ pub async fn render_whiteboard_scene(
     color_fill: Option<String>,
     ink_weight: Option<f64>,
     color_weight: Option<f64>,
+    duration_ms: Option<i64>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
@@ -1694,6 +1695,7 @@ pub async fn render_whiteboard_scene(
             color_fill,
             ink_weight,
             color_weight,
+            duration_ms,
             &|p| {
                 let _ = app.emit("whiteboard-progress", p.clone());
             },
@@ -1837,6 +1839,9 @@ pub async fn render_whiteboard_project(
         let total_scenes = project.scenes.len();
 
         for (idx, scene) in project.scenes.iter().enumerate() {
+            if wb.is_cancelled() {
+                return Err(anyhow::anyhow!("CANCELLED: Đã hủy render dự án"));
+            }
             let scene_num = idx + 1;
             if scene.image_path.is_empty() || !std::path::Path::new(&scene.image_path).exists() {
                 return Err(anyhow::anyhow!(
@@ -1855,15 +1860,28 @@ pub async fn render_whiteboard_project(
                 out_dir.join(format!("scene_{:02}_{}.mp4", scene_num, scene.id)).to_string_lossy().to_string()
             });
 
-            // Nếu người dùng chọn resume (tạo tiếp) và video cảnh này đã tồn tại hợp lệ (> 1000 bytes)
+            // R1: Kiểm tra Resume xác thực bằng Fingerprint & Manifest complete
             if should_resume && std::path::Path::new(&scene_out).exists() {
-                if let Ok(meta) = std::fs::metadata(&scene_out) {
-                    if meta.len() > 1000 {
+                let fp_res = wb.get_fingerprint(
+                    scene.image_path.clone(),
+                    scene.annotation_path.clone(),
+                    project.fps,
+                    project.paper_color.clone(),
+                    project.hand_path.clone(),
+                    scene.audio_path.clone(),
+                    scene.ink_path.clone(),
+                    scene.color_fill.clone(),
+                    scene.ink_weight,
+                    scene.color_weight,
+                    Some(scene.duration_ms),
+                );
+                if let Ok(fp) = fp_res {
+                    if !fp.is_empty() && wb.verify_cache(scene_out.clone(), fp) {
                         let _ = app.emit(
                             "whiteboard-progress",
                             serde_json::json!({
                                 "percent": ((idx + 1) as f64) * 100.0 / (total_scenes as f64) * 0.95,
-                                "message": format!("Cảnh {}/{}: Đã render trước đó (bỏ qua)", scene_num, total_scenes),
+                                "message": format!("Cảnh {}/{}: Tái dùng output đã xác thực (cache hit)", scene_num, total_scenes),
                                 "sceneId": scene.id,
                                 "sceneIndex": scene_num,
                                 "cached": true,
@@ -1910,6 +1928,7 @@ pub async fn render_whiteboard_project(
                 scene.color_fill.clone(),
                 scene.ink_weight,
                 scene.color_weight,
+                Some(scene.duration_ms),
                 &emit_scene_progress,
             )?;
 
@@ -1961,6 +1980,12 @@ pub async fn render_whiteboard_project(
         }))
     })
     .await
+}
+
+#[tauri::command]
+pub fn check_file_exists(file_path: String) -> bool {
+    let p = std::path::Path::new(&file_path);
+    p.exists() && p.is_file()
 }
 
 /// `{ ok, python, pythonVersion?, missing[], ffmpeg?, error? }`; không bao giờ trả lỗi.

@@ -35,11 +35,15 @@ const isCancelled = (e: any): boolean => errText(e).startsWith("CANCELLED");
 export function WhiteboardEditor() {
   const [srtPath, setSrtPath] = useState("");
   const [projectPath, setProjectPath] = useState("");
+  const [projectId, setProjectId] = useState(() => "project-" + Date.now());
+  const [projectRevision, setProjectRevision] = useState(1);
   const [outputVideoPath, setOutputVideoPath] = useState("");
   const [masterAudioPath, setMasterAudioPath] = useState("");
+  const [audioExists, setAudioExists] = useState(false);
 
   const [fps, setFps] = useState(30);
   const [paperColor, setPaperColor] = useState("#F5EBD7");
+  const [penType, setPenType] = useState<"pen" | "calligraphy">("pen");
 
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -78,6 +82,25 @@ export function WhiteboardEditor() {
       setEnv({ ok: false, missing: [], error: errText(e) });
     }
   };
+
+  // Tự động kiểm tra file âm thanh master có thực sự tồn tại trên đĩa hay không
+  useEffect(() => {
+    let active = true;
+    if (!masterAudioPath) {
+      setAudioExists(false);
+      return;
+    }
+    api.checkFileExists(masterAudioPath).then((exists) => {
+      if (active) {
+        setAudioExists(Boolean(exists));
+      }
+    }).catch(() => {
+      if (active) setAudioExists(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [masterAudioPath]);
 
   useEffect(() => {
     refreshEnv();
@@ -133,11 +156,19 @@ export function WhiteboardEditor() {
       const path = await api.pickFile([{ name: "SRT Subtitle", extensions: ["srt"] }]);
       if (path) {
         setSrtPath(path);
-        // Tự động tìm kiểm file .wav hoặc .mp3 cùng tên hoặc trong thư mục
+        // Tự động kiểm tra file .wav hoặc .mp3 cùng tên có thực sự tồn tại không
         const defaultWav = path.replace(/\.[^/.]+$/, "") + ".wav";
-        // Nếu trước đó chưa chọn masterAudioPath thì gán gợi ý
+        const defaultMp3 = path.replace(/\.[^/.]+$/, "") + ".mp3";
         if (!masterAudioPath) {
-          setMasterAudioPath(defaultWav);
+          const hasWav = await api.checkFileExists(defaultWav);
+          if (hasWav) {
+            setMasterAudioPath(defaultWav);
+          } else {
+            const hasMp3 = await api.checkFileExists(defaultMp3);
+            if (hasMp3) {
+              setMasterAudioPath(defaultMp3);
+            }
+          }
         }
         setStatusMsg({ text: `Đã chọn tệp SRT: ${path}`, ok: true });
       }
@@ -409,18 +440,20 @@ export function WhiteboardEditor() {
       }
 
       setProgress({ percent: 20, message: `Bắt đầu render ${activeScene.id}...` });
+      const handParam = penType === "calligraphy" ? "calligraphy-brush.png" : "drawing-hand.png";
       const res = await api.renderWhiteboardScene(
         activeScene.imagePath,
         annoPath,
         out,
         fps,
         paperColor,
-        undefined,
+        handParam,
         activeScene.audioPath,
         activeScene.inkPath,
         activeScene.colorFill,
         activeScene.inkWeight,
-        activeScene.colorWeight
+        activeScene.colorWeight,
+        activeScene.durationMs
       );
       updateActiveScene({ annotationPath: annoPath, outputPath: res.output_path, status: "done" });
       setStatusMsg({
@@ -479,20 +512,23 @@ export function WhiteboardEditor() {
       }
     }
 
+    const nextRevision = projectRevision + 1;
     const project: WhiteboardProject = {
-      id: "project-" + Date.now(),
+      id: projectId,
       schemaVersion: 1,
-      revision: 1,
+      revision: nextRevision,
       title: projectTitle,
       fps,
       paperColor,
+      handPath: penType === "calligraphy" ? "calligraphy-brush.png" : "drawing-hand.png",
       scenes,
       masterAudioPath: masterAudioPath || undefined,
       outputVideoPath,
     };
     try {
       await api.saveWhiteboardProject(path, project);
-      setStatusMsg({ text: `Đã lưu dự án "${projectTitle}" thành công: ${path}`, ok: true });
+      setProjectRevision(nextRevision);
+      setStatusMsg({ text: `Đã lưu dự án "${projectTitle}" (rev ${nextRevision}) thành công: ${path}`, ok: true });
     } catch (e: any) {
       setStatusMsg({ text: `Lỗi lưu dự án: ${errText(e)}`, ok: false });
     }
@@ -505,11 +541,18 @@ export function WhiteboardEditor() {
       if (!path) return;
       const proj = await api.loadWhiteboardProject(path);
       setProjectPath(path);
+      if (proj.id) setProjectId(proj.id);
+      if (proj.revision) setProjectRevision(proj.revision);
       setFps(proj.fps || 30);
       setPaperColor(proj.paperColor || "#F5EBD7");
+      if (proj.handPath && proj.handPath.includes("calligraphy")) {
+        setPenType("calligraphy");
+      } else {
+        setPenType("pen");
+      }
       setScenes(proj.scenes || []);
-      if (proj.masterAudioPath) setMasterAudioPath(proj.masterAudioPath);
-      if (proj.outputVideoPath) setOutputVideoPath(proj.outputVideoPath);
+      setMasterAudioPath(proj.masterAudioPath || "");
+      setOutputVideoPath(proj.outputVideoPath || "");
       setSelectedSceneIndex(0);
       setStatusMsg({ text: `Đã mở dự án: ${path} (${proj.scenes?.length || 0} cảnh)`, ok: true });
     } catch (e: any) {
@@ -520,12 +563,13 @@ export function WhiteboardEditor() {
   // Thực thi render toàn bộ dự án
   const executeRenderProject = async (targetOut: string, resumeMode: boolean) => {
     const project: WhiteboardProject = {
-      id: "project-run",
+      id: projectId,
       schemaVersion: 1,
-      revision: 1,
+      revision: projectRevision,
       title: "Whiteboard Project",
       fps,
       paperColor,
+      handPath: penType === "calligraphy" ? "calligraphy-brush.png" : "drawing-hand.png",
       scenes,
       masterAudioPath: masterAudioPath || undefined,
       outputVideoPath: targetOut,
@@ -558,8 +602,16 @@ export function WhiteboardEditor() {
       return;
     }
 
-    // 1. Kiểm tra audio: Nếu chưa có file master và không có cảnh nào có audio
-    const hasAnyAudio = Boolean(masterAudioPath || scenes.some((s) => s.audioPath));
+    // 1. Kiểm tra audio: Nếu chưa có file master (hoặc file không tồn tại) và không có cảnh nào có audio
+    let hasValidMasterAudio = false;
+    if (masterAudioPath) {
+      try {
+        hasValidMasterAudio = await api.checkFileExists(masterAudioPath);
+      } catch {
+        hasValidMasterAudio = false;
+      }
+    }
+    const hasAnyAudio = Boolean(hasValidMasterAudio || scenes.some((s) => s.audioPath));
     if (!hasAnyAudio && !forceNoAudio) {
       setShowAudioConfirmModal(true);
       return;
@@ -691,9 +743,9 @@ export function WhiteboardEditor() {
       )}
 
       {/* Bố cục 2 Cột: Quản lý Phân Cảnh & Chi Tiết Cảnh */}
-      <div style={{ display: "grid", gridTemplateColumns: "400px 1fr", gap: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(380px, 420px) minmax(0, 1fr)", gap: "16px" }}>
         {/* Cột 1: Danh sách Phân Cảnh */}
-        <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column", gap: "10px", minWidth: 0, boxSizing: "border-box" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <Layers size={16} color="var(--primary)" />
@@ -705,19 +757,19 @@ export function WhiteboardEditor() {
           </div>
 
           {/* Phân tích SRT & Tạo TTS */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%", boxSizing: "border-box" }}>
             <div style={{ display: "flex", gap: "6px" }}>
               <input
                 type="text"
                 readOnly
                 placeholder="Chọn .srt..."
                 value={srtPath ? srtPath.split("/").pop() : ""}
-                style={{ flex: 1, padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                style={{ flex: 1, minWidth: 0, padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
               />
-              <button className="secondary-btn" onClick={handlePickSrt} style={{ padding: "4px 8px", fontSize: "12px" }}>
+              <button className="secondary-btn" onClick={handlePickSrt} style={{ padding: "4px 8px", fontSize: "12px", flexShrink: 0 }}>
                 Chọn
               </button>
-              <button className="secondary-btn" onClick={handleParseSrt} disabled={!srtPath || loading} style={{ padding: "4px 8px", fontSize: "12px" }}>
+              <button className="secondary-btn" onClick={handleParseSrt} disabled={!srtPath || loading} style={{ padding: "4px 8px", fontSize: "12px", flexShrink: 0 }}>
                 Chia Cảnh
               </button>
             </div>
@@ -736,14 +788,14 @@ export function WhiteboardEditor() {
             </div>
 
             {/* Tạo giọng đọc VieNeu-TTS 1 chạm từ file SRT */}
-            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "6px", alignItems: "center", width: "100%", boxSizing: "border-box" }}>
               <select
                 value={selectedVoice}
                 onChange={(e) => {
                   setSelectedVoice(e.target.value);
                   setTtsSuccess(false);
                 }}
-                style={{ flex: 1, padding: "5px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "5px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
               >
                 {voices.length > 0 ? (
                   voices.map((v) => (
@@ -769,8 +821,10 @@ export function WhiteboardEditor() {
                 style={{
                   padding: "5px 10px",
                   fontSize: "12px",
-                  display: "flex",
+                  flexShrink: 0,
+                  display: "inline-flex",
                   alignItems: "center",
+                  justifyContent: "center",
                   gap: "4px",
                   color: ttsSuccess ? "#16a34a" : "var(--primary)",
                   borderColor: ttsSuccess ? "#86efac" : undefined,
@@ -823,12 +877,12 @@ export function WhiteboardEditor() {
                     padding: "5px 26px 5px 8px",
                     fontSize: "12px",
                     borderRadius: "6px",
-                    border: masterAudioPath ? "1px solid #86efac" : "1px solid #fca5a5",
-                    background: masterAudioPath ? "#f0fdf4" : "#fef2f2",
+                    border: audioExists ? "1px solid #86efac" : "1px solid #fca5a5",
+                    background: audioExists ? "#f0fdf4" : "#fef2f2",
                   }}
                 />
                 <span
-                  title={masterAudioPath ? "Đã có âm thanh master" : "Chưa có file âm thanh (video xuất sẽ không có tiếng)"}
+                  title={audioExists ? "Đã có âm thanh master" : "Chưa có file âm thanh (video xuất sẽ không có tiếng)"}
                   style={{
                     position: "absolute",
                     right: "7px",
@@ -837,7 +891,7 @@ export function WhiteboardEditor() {
                     pointerEvents: "none",
                   }}
                 >
-                  {masterAudioPath ? (
+                  {audioExists ? (
                     <Volume2 size={13} color="#16a34a" />
                   ) : (
                     <VolumeX size={13} color="#ef4444" />
@@ -1045,7 +1099,7 @@ export function WhiteboardEditor() {
             )}
 
             {/* Thời lượng & Cấu hình */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
               <div>
                 <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>Thời lượng (ms)</label>
                 <input
@@ -1063,6 +1117,17 @@ export function WhiteboardEditor() {
                   onChange={(e) => setPaperColor(e.target.value)}
                   style={{ width: "100%", padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
                 />
+              </div>
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>Loại bút vẽ</label>
+                <select
+                  value={penType}
+                  onChange={(e) => setPenType(e.target.value as "pen" | "calligraphy")}
+                  style={{ width: "100%", padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                >
+                  <option value="pen">Tay vẽ / Bút dạ thường</option>
+                  <option value="calligraphy">Bút lông thư pháp (Calligraphy)</option>
+                </select>
               </div>
             </div>
 

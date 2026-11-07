@@ -18,6 +18,13 @@ import tempfile
 from pathlib import Path
 
 
+def _escape_concat_path(path: Path) -> str:
+    """Escape đường dẫn tệp an toàn cho cú pháp ffmpeg concat demuxer."""
+    p_str = path.resolve().as_posix()
+    # Trong file concat ffmpeg, dấu ' cần được escape thành '\''
+    return p_str.replace("'", "'\\''")
+
+
 def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
@@ -29,7 +36,7 @@ def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
         return False
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
         for p in inputs:
-            f.write(f"file '{p.resolve().as_posix()}'\n")
+            f.write(f"file '{_escape_concat_path(p)}'\n")
         list_path = Path(f.name)
     try:
         res = subprocess.run(
@@ -44,6 +51,7 @@ def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
         res = subprocess.run(
             [ffmpeg, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
              "-i", str(list_path), "-c:v", "libx264", "-crf", "20",
+             "-c:a", "aac", "-b:a", "192k",
              "-pix_fmt", "yuv420p", "-vf", "scale='trunc(iw/2)*2':'trunc(ih/2)*2'", str(output)],
             capture_output=True, text=True,
         )
@@ -57,11 +65,25 @@ def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
 
 
 def _pyav_concat(inputs: list[Path], output: Path) -> bool:
+    """
+    Dự phòng ghép qua PyAV.
+    LƯU Ý R0: Nếu bất kỳ file input nào có chứa stream audio, _pyav_concat từ chối
+    và trả về False để buộc xử lý an toàn, tránh làm mất audio của các phân cảnh.
+    """
     try:
         import av
     except ImportError:
         return False
-    import numpy as np  # noqa: F401
+
+    # Kiểm tra xem các clip đầu vào có audio không
+    for p in inputs:
+        cont = av.open(str(p))
+        has_audio = len(cont.streams.audio) > 0
+        cont.close()
+        if has_audio:
+            print(f"[warn] PyAV fallback thuần video sẽ làm mất audio của {p}; chuyển tiếp để trả lỗi an toàn.", file=sys.stderr)
+            return False
+
     first = av.open(str(inputs[0]))
     vs = first.streams.video[0]
     w, h = vs.codec_context.width, vs.codec_context.height

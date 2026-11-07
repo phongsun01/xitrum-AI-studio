@@ -158,30 +158,73 @@ def mux_video_and_audio(
     audio_path: str | Path,
     output_path: str | Path,
     shortest: bool = False,
+    pad_audio_or_video: bool = True,
 ) -> bool:
     """
-    Ghép video và audio vào output_path.
-    Video được copy (-c:v copy) nếu có thể, audio encode AAC chuẩn.
+    Ghép video và audio vào output_path với stream mapping tường minh:
+      - Map 0:v:0 (video từ input 0)
+      - Map 1:a:0 (audio từ input 1)
+    Nếu pad_audio_or_video=True:
+      - Khi audio dài hơn video: tpad giữ frame cuối của video đến khi hết audio.
+      - Khi audio ngắn hơn video: apad đệm silence cho audio đến khi hết video.
     """
-    ffmpeg, _ = resolve_ffmpeg_and_probe()
+    ffmpeg, ffprobe = resolve_ffmpeg_and_probe()
     if not ffmpeg:
         raise RuntimeError("Không tìm thấy ffmpeg trên hệ thống")
 
     out_p = Path(output_path)
     out_p.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        ffmpeg,
-        "-y",
-        "-i", str(video_path),
-        "-i", str(audio_path),
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "192k",
-    ]
-    if shortest:
-        cmd.append("-shortest")
-    cmd.append(str(output_path))
+    # Đo thời lượng video và audio để quyết định padding nếu cần
+    v_dur_ms = 0
+    a_dur_ms = probe_audio_duration_ms(audio_path)
+    if ffprobe:
+        try:
+            cmd_v = [
+                ffprobe,
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(video_path),
+            ]
+            res_v = subprocess.run(cmd_v, capture_output=True, text=True)
+            if res_v.returncode == 0:
+                v_dur_ms = int(float(res_v.stdout.strip()) * 1000)
+        except Exception:
+            v_dur_ms = 0
+
+    # Nếu audio dài hơn video trên 300ms và có yêu cầu giữ hình cuối (R0)
+    if pad_audio_or_video and a_dur_ms > v_dur_ms > 0 and (a_dur_ms - v_dur_ms) >= 300:
+        pad_sec = (a_dur_ms - v_dur_ms) / 1000.0
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-i", str(video_path),
+            "-i", str(audio_path),
+            "-filter_complex", f"[0:v:0]tpad=stop_mode=clone:stop_duration={pad_sec:.3f}[v]",
+            "-map", "[v]",
+            "-map", "1:a:0",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            str(output_path),
+        ]
+    else:
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-i", str(video_path),
+            "-i", str(audio_path),
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+        ]
+        if shortest:
+            cmd.append("-shortest")
+        cmd.append(str(output_path))
 
     res = subprocess.run(cmd, capture_output=True, text=True)
     return res.returncode == 0

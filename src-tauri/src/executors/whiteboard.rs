@@ -80,6 +80,40 @@ pub enum WhiteboardRequest {
         ink_weight: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         color_weight: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<i64>,
+    },
+    #[serde(rename = "get_fingerprint")]
+    GetFingerprint {
+        #[serde(default)]
+        task_id: String,
+        image_path: String,
+        annotation_path: String,
+        #[serde(default = "default_fps")]
+        fps: i32,
+        #[serde(default = "default_paper_color")]
+        paper_color: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hand_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        audio_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ink_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        color_fill: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ink_weight: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        color_weight: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<i64>,
+    },
+    #[serde(rename = "verify_cache")]
+    VerifyCache {
+        #[serde(default)]
+        task_id: String,
+        video_path: String,
+        expected_fingerprint: String,
     },
     #[serde(rename = "merge_scenes")]
     MergeScenes {
@@ -378,6 +412,11 @@ impl WhiteboardPipeline {
         }
     }
 
+    /// Kiểm tra trạng thái đã bị hủy hay chưa
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
     fn await_response(
         &self,
         proc: &Proc,
@@ -578,6 +617,7 @@ impl WhiteboardPipeline {
         color_fill: Option<String>,
         ink_weight: Option<f64>,
         color_weight: Option<f64>,
+        duration_ms: Option<i64>,
         on_progress: &dyn Fn(&serde_json::Value),
     ) -> Result<serde_json::Value> {
         let req = WhiteboardRequest::RenderScene {
@@ -593,8 +633,54 @@ impl WhiteboardPipeline {
             color_fill,
             ink_weight,
             color_weight,
+            duration_ms,
         };
         self.call(req, self.timeouts.render, "render bảng trắng", on_progress)
+    }
+
+    pub fn get_fingerprint(
+        &self,
+        image_path: String,
+        annotation_path: String,
+        fps: i32,
+        paper_color: String,
+        hand_path: Option<String>,
+        audio_path: Option<String>,
+        ink_path: Option<String>,
+        color_fill: Option<String>,
+        ink_weight: Option<f64>,
+        color_weight: Option<f64>,
+        duration_ms: Option<i64>,
+    ) -> Result<String> {
+        let req = WhiteboardRequest::GetFingerprint {
+            task_id: uuid::Uuid::new_v4().to_string(),
+            image_path,
+            annotation_path,
+            fps,
+            paper_color,
+            hand_path,
+            audio_path,
+            ink_path,
+            color_fill,
+            ink_weight,
+            color_weight,
+            duration_ms,
+        };
+        let res = self.call(req, self.timeouts.quick, "tính fingerprint", &|_| {})?;
+        let fp = res.get("fingerprint").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        Ok(fp)
+    }
+
+    pub fn verify_cache(&self, video_path: String, expected_fingerprint: String) -> bool {
+        let req = WhiteboardRequest::VerifyCache {
+            task_id: uuid::Uuid::new_v4().to_string(),
+            video_path,
+            expected_fingerprint,
+        };
+        match self.call(req, self.timeouts.quick, "kiểm tra cache", &|_| {}) {
+            Ok(v) => v.get("valid").and_then(|b| b.as_bool()).unwrap_or(false),
+            Err(_) => false,
+        }
     }
 
     pub fn merge_scenes(
@@ -819,6 +905,7 @@ for line in sys.stdin:
                 color_fill: None,
                 ink_weight: None,
                 color_weight: None,
+                duration_ms: None,
             },
             timeout,
             cb,

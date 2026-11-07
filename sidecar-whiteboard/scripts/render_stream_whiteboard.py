@@ -590,9 +590,15 @@ def main(argv=None) -> int:
     print("Bộ render tích hợp hoạt hình bảng trắng SRT (mặt nạ + stream)")
     print("=" * 56)
 
-    image_bgr = sr._imread_any(args.image)
-    if image_bgr is None:
-        print(f"[err] Không đọc được ảnh: {args.image}")
+    import whiteboard_image
+    try:
+        image_bgr, _ = whiteboard_image.load_normalized_image(
+            args.image,
+            paper_color_hex=cfg.canvas_hex,
+            min_dimension=16
+        )
+    except Exception as e:
+        print(f"[err] Lỗi đọc hoặc chuẩn hóa ảnh ({args.image}): {e}")
         return 1
     try:
         raw_annotation = json.loads(Path(args.annotation).read_text(encoding="utf-8"))
@@ -606,8 +612,20 @@ def main(argv=None) -> int:
 
     total_ms = args.total_ms if args.total_ms is not None else annotation.get("sceneDurationMs")
     if not total_ms:
-        last = max(e["reveal"]["startMs"] + e["reveal"]["durationMs"] for e in annotation["elements"])
+        last = max(e["reveal"]["startMs"] + e["reveal"]["durationMs"] for e in annotation["elements"]) if annotation.get("elements") else 10000
         total_ms = last + 1000
+
+    # Kiểm tra xem các vùng reveal trong annotation có vượt quá total_ms không
+    elements = annotation.get("elements", [])
+    if elements:
+        max_elem_end = max(e["reveal"]["startMs"] + e["reveal"]["durationMs"] for e in elements)
+        if max_elem_end > total_ms:
+            # Tỷ lệ co giãn thời lượng để vừa khớp cửa sổ vẽ
+            scale_ratio = total_ms / float(max_elem_end)
+            print(f"[warn] Cửa sổ annotation ({max_elem_end}ms) vượt thời lượng cảnh ({total_ms}ms). Tự động co giãn theo tỷ lệ {scale_ratio:.3f}")
+            for e in elements:
+                e["reveal"]["startMs"] = int(round(e["reveal"]["startMs"] * scale_ratio))
+                e["reveal"]["durationMs"] = max(100, int(round(e["reveal"]["durationMs"] * scale_ratio)))
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)

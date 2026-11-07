@@ -133,6 +133,7 @@ pub fn run() {
             cancel_whiteboard,
             check_whiteboard_env,
             install_whiteboard_env,
+            check_file_exists,
             check_system_dependencies,
             save_os_secret,
             delete_os_secret,

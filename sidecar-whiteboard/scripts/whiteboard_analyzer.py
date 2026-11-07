@@ -22,32 +22,18 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Any, Tuple
 
+import whiteboard_image
+
 
 def analyze_image_style(image_path: str, canvas_hex: str = "#F5EBD7") -> Dict[str, Any]:
     """
     Phân tích đặc tính hình ảnh và gợi ý style vẽ/tô tối ưu.
+    Sử dụng whiteboard_image để xử lý kênh alpha và nền an toàn.
     """
-    if not os.path.exists(image_path):
-        raise FileNotFoundError(f"Không tìm thấy file ảnh: {image_path}")
+    bgr, alpha = whiteboard_image.load_normalized_image(image_path, paper_color_hex=canvas_hex, min_dimension=16)
 
-    # Đọc ảnh với kênh alpha nếu có
-    img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-    if img is None:
-        raise ValueError(f"Không thể đọc file ảnh: {image_path}")
-
-    h, w = img.shape[:2]
+    h, w = bgr.shape[:2]
     total_pixels = h * w
-
-    # Tách kênh alpha nếu có
-    if len(img.shape) == 4 and img.shape[2] == 4:
-        alpha = img[:, :, 3]
-        bgr = img[:, :, :3]
-        # Composite lên nền trắng tạm thời để đo
-        bg = np.ones_like(bgr, dtype=np.uint8) * 255
-        alpha_factor = (alpha[:, :, None] / 255.0).astype(np.float32)
-        bgr = (bgr.astype(np.float32) * alpha_factor + bg.astype(np.float32) * (1.0 - alpha_factor)).astype(np.uint8)
-    else:
-        bgr = img if len(img.shape) == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
     # Chuyển đổi sang các không gian màu
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)

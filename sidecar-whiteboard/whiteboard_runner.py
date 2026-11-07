@@ -418,10 +418,18 @@ def handle_render_scene(req):
     if not 1 <= fps <= 120:
         raise ValueError(f"FPS không hợp lệ: {fps} (cần từ 1 đến 120)")
 
-    if not hand_path:
+    if not hand_path or hand_path == "pen" or hand_path == "default":
         default_hand = CURRENT_DIR / "assets" / "drawing-hand.png"
         if default_hand.exists():
             hand_path = str(default_hand)
+    elif hand_path == "brush" or hand_path == "calligraphy" or hand_path == "calligraphy-brush":
+        brush_hand = CURRENT_DIR / "assets" / "calligraphy-brush.png"
+        if brush_hand.exists():
+            hand_path = str(brush_hand)
+    elif not os.path.isabs(hand_path):
+        candidate = CURRENT_DIR / "assets" / hand_path
+        if candidate.exists():
+            hand_path = str(candidate)
 
     if not image_path or not os.path.exists(image_path):
         raise ValueError(f"Không tìm thấy ảnh gốc: {image_path}")
@@ -443,6 +451,9 @@ def handle_render_scene(req):
     if hand_path and os.path.exists(hand_path):
         cmd_args.append(hand_path)
     cmd_args += ["--fps", str(fps), "--paper-color", paper_color]
+    duration_ms = req.get("duration_ms")
+    if duration_ms is not None and int(duration_ms) > 0:
+        cmd_args += ["--total-ms", str(int(duration_ms))]
     if ink_path:
         cmd_args += ["--ink-path", str(ink_path)]
     if color_fill:
@@ -483,6 +494,26 @@ def handle_render_scene(req):
             pass
         if not ok:
             raise RuntimeError(f"Gắn âm thanh thất bại cho {output_path}")
+
+    # Ghi manifest cache sau khi hoàn tất thành công (R1)
+    try:
+        import whiteboard_cache
+        fp = whiteboard_cache.calculate_scene_fingerprint(
+            image_path=image_path,
+            annotation_path=annotation_path,
+            fps=fps,
+            paper_color=paper_color,
+            hand_path=hand_path,
+            audio_path=audio_path,
+            duration_ms=duration_ms,
+            ink_path=ink_path,
+            color_fill=color_fill,
+            ink_weight=ink_weight,
+            color_weight=color_weight,
+        )
+        whiteboard_cache.write_scene_manifest(output_path, fp, extra={"taskId": task_id})
+    except Exception as e:
+        print(f"[warn] Lỗi ghi manifest cache cho {output_path}: {e}", file=sys.stderr)
 
     send_progress(task_id, 100, "Hoàn tất")
 
@@ -555,6 +586,34 @@ def handle_check_env(req):
     }
 
 
+def handle_verify_cache(req):
+    import whiteboard_cache
+    video_path = req.get("video_path")
+    expected_fingerprint = req.get("expected_fingerprint")
+    if not video_path or not expected_fingerprint:
+        return {"valid": False}
+    valid = whiteboard_cache.verify_scene_cache(video_path, expected_fingerprint)
+    return {"valid": valid}
+
+
+def handle_get_fingerprint(req):
+    import whiteboard_cache
+    fp = whiteboard_cache.calculate_scene_fingerprint(
+        image_path=req.get("image_path", ""),
+        annotation_path=req.get("annotation_path", ""),
+        fps=int(req.get("fps", 30)),
+        paper_color=req.get("paper_color", "#F5EBD7"),
+        hand_path=req.get("hand_path"),
+        audio_path=req.get("audio_path"),
+        duration_ms=req.get("duration_ms"),
+        ink_path=req.get("ink_path"),
+        color_fill=req.get("color_fill"),
+        ink_weight=req.get("ink_weight"),
+        color_weight=req.get("color_weight"),
+    )
+    return {"fingerprint": fp}
+
+
 HANDLERS = {
     "check_env": handle_check_env,
     "analyze_image_style": handle_analyze_image_style,
@@ -562,6 +621,8 @@ HANDLERS = {
     "generate_annotation": handle_generate_annotation,
     "render_scene": handle_render_scene,
     "merge_scenes": handle_merge_scenes,
+    "verify_cache": handle_verify_cache,
+    "get_fingerprint": handle_get_fingerprint,
 }
 
 

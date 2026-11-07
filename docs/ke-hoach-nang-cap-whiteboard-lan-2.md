@@ -199,10 +199,10 @@ Ngoài phạm vi lần 2: viết lại TTS, sinh ảnh, forced alignment từng 
 
 ## 8 Theo dõi triển khai
 
-| Hạng mục | Trạng thái ban đầu | Bằng chứng cần đính kèm khi hoàn tất |
+| Hạng mục | Trạng thái | Bằng chứng / Ghi chú bàn giao |
 |---|---|---|
-| R0 | Chưa triển khai theo kế hoạch lần 2 | Regression duration/alpha/audio, round-trip project, timeline 50 cảnh |
-| R1 | Chưa triển khai theo kế hoạch lần 2 | Ma trận cache hit/miss, output hỏng, resume sau hủy |
+| **R0** | **ĐÃ HOÀN THÀNH** | Đã sửa composite alpha/grayscale chuẩn hóa (`whiteboard_image.py`), truyền duration xuyên suốt UI/Rust/Python, tự động co giãn nếu annotation vượt duration, stream mapping tường minh & tpad giữ đuôi hình khi audio dài hơn, escape đường dẫn concat, cancellation token giữa các cảnh. Unit test `test_r0_r1.py` pass. |
+| **R1** | **ĐÃ HOÀN THÀNH** | Đã triển khai `whiteboard_cache.py`: tạo fingerprint SHA-256 từ nội dung ảnh, annotation, cấu hình render và audio; ghi và xác thực manifest complete; probe video streams trước khi chấp nhận resume cache, vô hiệu hóa file hỏng/file dở dang. |
 | R2 | Có stroke planner nền tảng | Plan diagnostics, coverage, pen-up và cue tests |
 | R3 | Chưa triển khai | Clip palette brush so với engine cũ, deterministic plan |
 | R4 | Có sprite nền tảng | Clip rig/anchor, model optional và nguồn asset |

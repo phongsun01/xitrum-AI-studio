@@ -226,3 +226,18 @@ Checklist bàn giao mỗi giai đoạn: code + migration, test phù hợp, cập
 Chưa thêm Facebook publishing, CRM HTTP server, hàng loạt logo TTS chưa có backend hoặc AUTO tự chọn provider bằng regex. Chưa có nhu cầu sản phẩm đủ rõ để tăng thêm các bề mặt đó. Seedance qua BytePlus API/playground là provider mở rộng sau, khác work package Dola. Không chạy dịch vụ thật, cài dependency mới hay sửa source code trong bước lập kế hoạch này.
 
 Đầu vào cần có khi đến G4/G5: account/profile đúng dịch vụ, model/capability được cấp, mức sử dụng cho phép và mẫu text/ảnh kiểm thử. Các phần G0–G3, media và test offline có thể làm trước mà không phụ thuộc account này.
+
+---
+
+## 9. Báo cáo tiến độ triển khai thực tế (Cập nhật 07/11/2026)
+
+| Giai đoạn | Trọng tâm | Trạng thái | Phiên bản / Ghi chú bàn giao |
+|---|---|---|---|
+| **G0** | Nền tảng DB, queue schema, state machine & retry | **ĐÃ HOÀN THÀNH** | v0.7.1 - Đã bổ sung migration, `idempotency_key`, trạng thái job `Cancelled`/`FailedRecoverable`, crash recovery khi khởi động studio. |
+| **G1** | Chống gửi trùng, cơ chế Cancel & Phục hồi việc | **ĐÃ HOÀN THÀNH** | v0.7.1 - Đã kiểm thử logic deduplication, xử lý timeout, abort controller và hủy task an toàn cả trên Rust lẫn sidecar runner. |
+| **G2** | Media alignment, SRT drift fix, Stitcher & FFmpeg | **ĐÃ HOÀN THÀNH** | v0.7.2 - Hoàn thiện đồng bộ phụ đề SRT, pipeline Whiteboard multi-scene (W1-W5), chuẩn hóa timescale audio/video, hỗ trợ resume khi đứt quãng và cảnh báo thiếu audio. |
+| **G3** | Provider Registry, Account & Session Manager | **CHUẨN BỊ TRIỂN KHAI** | Thiết kế khung Provider Adapter trừu tượng (Capabilities, Quota, Session Store). Chuẩn bị sẵn sàng trước khi kết nối Dola (G4) và Flow (G5). |
+| **G4** | Tích hợp Dola AI Web Adapter | Chưa triển khai | Chờ G3. |
+| **G5** | Tích hợp Google Flow / Veo Adapter | Chưa triển khai | Chờ G3. |
+| **G6** | Shot Board, Revision & Visual Continuity | Chưa triển khai | Chờ G3. |
+| **G7** | TTS Worker nóng & Bộ nhớ đệm âm thanh | Đang tích hợp cục bộ | Đã có VieNeu-TTS song song SRT; sẽ tối ưu batch & keep-alive theo G7. |

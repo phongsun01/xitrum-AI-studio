@@ -403,7 +403,8 @@ export const api = {
     inkPath?: string,
     colorFill?: string,
     inkWeight?: number,
-    colorWeight?: number
+    colorWeight?: number,
+    durationMs?: number
   ) =>
     invoke<WhiteboardRenderResponse>("render_whiteboard_scene", {
       imagePath,
@@ -417,6 +418,7 @@ export const api = {
       colorFill,
       inkWeight,
       colorWeight,
+      durationMs,
     }),
 
   mergeWhiteboardScenes: (
@@ -460,6 +462,9 @@ export const api = {
 
   installWhiteboardEnv: () =>
     invoke<{ python: string; venvDir: string }>("install_whiteboard_env"),
+
+  checkFileExists: (filePath: string) =>
+    invoke<boolean>("check_file_exists", { filePath }),
 
   // G0: Diagnostics & Secret Store
   checkSystemDependencies: () =>
