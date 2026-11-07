@@ -32,6 +32,7 @@ __pycache__/
 # Local test outputs and temporary inputs
 tests_output/
 input_images/
+wb-projects/
 outputs/
 *.bak
 *.bak.png

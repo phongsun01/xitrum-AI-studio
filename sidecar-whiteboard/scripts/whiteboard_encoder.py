@@ -45,6 +45,9 @@ class BaseFrameWriter:
     def is_opened(self) -> bool:
         raise NotImplementedError
 
+    def terminate(self):
+        raise NotImplementedError
+
 
 class FFmpegDirectPipeWriter(BaseFrameWriter):
     """
@@ -93,11 +96,12 @@ class FFmpegDirectPipeWriter(BaseFrameWriter):
             str(self.tmp_target),
         ]
 
-        # Khởi chạy trong process group riêng (hỗ trợ kill toàn bộ cây tiến trình khi hủy)
+        # Inherit the runner process group on Unix; Rust owns cancellation.
         creationflags = 0
         preexec_fn = None
         if sys.platform != "win32":
-            preexec_fn = os.setsid
+            # Inherit the runner process group so Rust cancellation kills the encoder too.
+            preexec_fn = None
         else:
             creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
@@ -129,7 +133,10 @@ class FFmpegDirectPipeWriter(BaseFrameWriter):
         return self.proc is not None and self.proc.poll() is None
 
     def write(self, frame_bgr: np.ndarray):
-        if self._closed or not self.is_opened():
+        if self._closed:
+            raise RuntimeError("Tiến trình FFmpeg đã dừng hoặc đóng; không thể ghi frame tiếp theo")
+        if not self.is_opened():
+            self.terminate()
             raise RuntimeError("Tiến trình FFmpeg đã dừng hoặc đóng; không thể ghi frame tiếp theo")
 
         # Đảm bảo đúng kích thước và kiểu uint8
@@ -142,7 +149,7 @@ class FFmpegDirectPipeWriter(BaseFrameWriter):
             self.proc.stdin.write(raw_bytes)
             self._frames_written += 1
         except (BrokenPipeError, IOError) as e:
-            self._closed = True
+            self.terminate()
             err_msg = "".join(self._stderr_lines[-10:])
             raise RuntimeError(f"FFmpeg stdin broken pipe: {e}\nStderr: {err_msg}")
 
@@ -165,11 +172,20 @@ class FFmpegDirectPipeWriter(BaseFrameWriter):
                 ret = -1
 
             self._stderr_thread.join(timeout=1.0)
+            if self.proc.stderr:
+                self.proc.stderr.close()
 
             if ret != 0:
                 err_msg = "".join(self._stderr_lines[-15:])
                 self.tmp_target.unlink(missing_ok=True)
                 raise RuntimeError(f"FFmpeg kết thúc với lỗi code {ret}: {err_msg}")
+
+            from whiteboard_cache import probe_video_streams
+            valid, w, h, duration, _ = probe_video_streams(self.tmp_target)
+            expected = self._frames_written / float(self.fps)
+            if not valid or (w, h) != (self.width, self.height) or abs(duration - expected) > 1.0 / self.fps + 0.02:
+                self.tmp_target.unlink(missing_ok=True)
+                raise RuntimeError("ENCODE_INVALID: Output không khớp kích thước/thời lượng đã render")
 
             # Đổi tên nguyên tử part -> output_path
             if self.tmp_target.exists():
@@ -178,21 +194,26 @@ class FFmpegDirectPipeWriter(BaseFrameWriter):
         return False
 
     def terminate(self):
-        """Hủy an toàn toàn bộ process group của FFmpeg."""
+        """Stop this encoder; the runner process group is managed by Rust."""
         self._closed = True
         if not self.proc:
             return
         try:
-            if sys.platform != "win32":
-                import signal
-                os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
-            else:
-                self.proc.kill()
+            self.proc.kill()
+            self.proc.wait(timeout=5)
         except Exception:
             try:
                 self.proc.kill()
             except Exception:
                 pass
+        if self.proc.stdin:
+            try:
+                self.proc.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+        self._stderr_thread.join(timeout=1.0)
+        if self.proc.stderr:
+            self.proc.stderr.close()
         self.tmp_target.unlink(missing_ok=True)
 
 
@@ -212,6 +233,10 @@ class OpenCVFallbackWriter(BaseFrameWriter):
 
     def write(self, frame_bgr: np.ndarray):
         self.writer.write(frame_bgr)
+
+    def terminate(self):
+        self.writer.release()
+        self.tmp_path.unlink(missing_ok=True)
 
     def release(self) -> bool:
         self.writer.release()

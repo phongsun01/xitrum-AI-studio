@@ -172,16 +172,26 @@ def generate_srt_tts(srt_path, voice_id, output_path):
     total_samples = int(total_duration_ms * sr / 1000)
     master_audio = np.zeros(total_samples, dtype=np.float32)
 
-    for cue in cues:
+    for cue_index, cue in enumerate(cues):
         cue_text = cue["text"]
         start_sample = int(cue["start_ms"] * sr / 1000)
         cue_wav = tts.infer(cue_text, voice=target_voice)
         wav_len = len(cue_wav)
+        available = int((cue["end_ms"] - cue["start_ms"]) * sr / 1000)
+        if available <= 0 or wav_len > available:
+            raise ValueError(
+                f"SRT_CUE_OVERFLOW: Câu bắt đầu tại {cue['start_ms']}ms cần "
+                f"{wav_len * 1000 / sr:.0f}ms nhưng chỉ có "
+                f"{cue['end_ms'] - cue['start_ms']}ms. "
+                "Hãy tăng thời lượng hoặc rút ngắn câu trong SRT rồi tạo lại giọng đọc."
+            )
+        if cue_index > 0 and cue["start_ms"] < cues[cue_index - 1]["end_ms"]:
+            raise ValueError("SRT_CUE_OVERLAP: Các câu phụ đề không được chồng thời gian khi tạo lời đọc.")
         if start_sample + wav_len > len(master_audio):
             # Mở rộng buffer nếu audio nói dài hơn
             padding = np.zeros((start_sample + wav_len) - len(master_audio), dtype=np.float32)
             master_audio = np.concatenate([master_audio, padding])
-        master_audio[start_sample:start_sample + wav_len] += cue_wav
+        master_audio[start_sample:start_sample + wav_len] = cue_wav
 
     # Chuẩn hóa âm lượng tránh vỡ tiếng (clipping)
     max_val = np.max(np.abs(master_audio))

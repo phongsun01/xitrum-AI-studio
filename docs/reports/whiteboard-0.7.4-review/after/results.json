@@ -1,0 +1,17 @@
+{
+  "contour-wipe": {
+    "seconds": 5.289,
+    "wrong": 0,
+    "content": 98718
+  },
+  "brush": {
+    "seconds": 5.294,
+    "wrong": 0,
+    "content": 98718
+  },
+  "palette-brush": {
+    "seconds": 5.312,
+    "wrong": 0,
+    "content": 98718
+  }
+}

@@ -21,7 +21,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-CURRENT_CACHE_VERSION = 1
+CURRENT_CACHE_VERSION = 2
 
 
 def hash_file(file_path: str | Path) -> str:
@@ -48,7 +48,8 @@ def calculate_scene_fingerprint(
     color_fill: Optional[str] = None,
     ink_weight: Optional[float] = None,
     color_weight: Optional[float] = None,
-    engine_version: str = "r1-0.7.4",
+    subject_first: bool = False,
+    engine_version: str = "review-fixes-v2",
 ) -> str:
     """
     Tạo fingerprint độc nhất cho một cảnh vẽ.
@@ -61,6 +62,7 @@ def calculate_scene_fingerprint(
 
     payload = {
         "engineVersion": engine_version,
+        "subjectFirst": subject_first,
         "imageHash": image_h,
         "annotationHash": anno_h,
         "audioHash": audio_h,
@@ -158,6 +160,9 @@ def verify_scene_cache(video_path: str, expected_fingerprint: str) -> bool:
     except Exception:
         return False
 
+    if data.get("outputHash") != hash_file(vp):
+        return False
+
     ok, w, h, dur, _ = probe_video_streams(vp)
     if not ok or w <= 0 or h <= 0 or dur <= 0:
         return False
@@ -176,6 +181,7 @@ def write_scene_manifest(video_path: str, fingerprint: str, extra: Optional[Dict
         "fingerprint": fingerprint,
         "videoPath": str(vp),
         "fileSize": vp.stat().st_size if vp.exists() else 0,
+        "outputHash": hash_file(vp),
         "manifestVersion": CURRENT_CACHE_VERSION,
     }
     if extra:

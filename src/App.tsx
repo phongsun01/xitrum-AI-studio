@@ -410,7 +410,7 @@ function App() {
         <header className="top-bar">
           <div className="title-section">
             <h1>Xitrum AI Studio</h1>
-            <span className="version-badge">v0.7.4 • Rust Multi-Lane • Offline Engine</span>
+            <span className="version-badge">v0.7.5 • Rust Multi-Lane • Offline Engine</span>
           </div>
 
           {/* F14: Multi-Lane Status Indicators */}

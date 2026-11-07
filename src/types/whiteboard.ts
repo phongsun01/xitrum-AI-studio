@@ -139,6 +139,9 @@ export interface WhiteboardSceneItem {
   colorFill?: WhiteboardColorFill;
   inkWeight?: number;
   colorWeight?: number;
+  randomSeed?: number;
+  styleMode?: "manual" | "random";
+  subjectFirst?: boolean;
   analysisConfidence?: number;
   elements?: WhiteboardElement[];
   error?: string;

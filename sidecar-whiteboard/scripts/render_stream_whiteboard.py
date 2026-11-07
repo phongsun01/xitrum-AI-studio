@@ -94,6 +94,18 @@ def _frame_progress_indices(n_steps: int, target_frames: int) -> list[int]:
     return [round(f * (n_steps - 1) / (target_frames - 1)) for f in range(target_frames)]
 
 
+def _planning_view(array: np.ndarray, direction: str):
+    """Plan in the requested reading direction, then map contacts back to source XY."""
+    h, w = array.shape[:2]
+    if direction == "right_to_left":
+        return array[:, ::-1], lambda x, y: (w - 1 - x, y)
+    if direction == "top_to_bottom":
+        return array.swapaxes(0, 1), lambda x, y: (y, x)
+    if direction == "bottom_to_top":
+        return array.swapaxes(0, 1)[:, ::-1], lambda x, y: (y, h - 1 - x)
+    return array, lambda x, y: (x, y)
+
+
 # ──────────────────────────────────────────────────────────────
 # 每区域的 stream 笔迹渲染，写入共享持久画布
 # ──────────────────────────────────────────────────────────────
@@ -187,23 +199,9 @@ class RegionStreamRenderer:
         mask = np.zeros((self.out_h, self.out_w), dtype=bool)
         x0, y0, x1, y1 = _scaled_rect(element["region"], self.sx, self.sy, self.out_w, self.out_h)
         mask[y0:y1, x0:x1] = True
-        cur_area = (x1 - x0) * (y1 - y0)
-
         for later in later_elements:
             lx0, ly0, lx1, ly1 = _scaled_rect(later["region"], self.sx, self.sy, self.out_w, self.out_h)
-            later_area = (lx1 - lx0) * (ly1 - ly0)
-
-            # W4 Cải tiến: Nếu vùng sau là vùng con nằm gọn trong vùng hiện tại (container),
-            # không trừ thô bạo làm đứt nét viền ngoài của container!
-            # Chỉ trừ phần ruột bên trong của vùng sau (thu nhỏ 2-4px biên)
-            inter_w = max(0, min(x1, lx1) - max(x0, lx0))
-            inter_h = max(0, min(y1, ly1) - max(y0, ly0))
-            if inter_w * inter_h > 0.8 * later_area and cur_area > later_area * 1.5:
-                # Vùng hiện tại bao trùm vùng sau: chừa lại biên viền cho vùng hiện tại
-                margin = max(2, min(inter_w, inter_h) // 20)
-                mask[ly0+margin:ly1-margin, lx0+margin:lx1-margin] = False
-            else:
-                mask[ly0:ly1, lx0:lx1] = False
+            mask[ly0:ly1, lx0:lx1] = False
 
         for prot in element.get("reveal", {}).get("protectedRegions", []):
             px0, py0, px1, py1 = _scaled_rect(prot, self.sx, self.sy, self.out_w, self.out_h)
@@ -218,8 +216,10 @@ class RegionStreamRenderer:
         active = self.active_all & allowed_cell
         if not active.any():
             return []
-        streams = sr.cluster_ink_streams(active)
-        return sr.flatten_streams(streams)
+        view, source_xy = _planning_view(active, getattr(self, "reveal_direction", "left_to_right"))
+        streams = sr.cluster_ink_streams(np.ascontiguousarray(view))
+        return [(source_xy(c, r)[1], source_xy(c, r)[0])
+                for r, c in sr.flatten_streams(streams)]
 
     def _region_skeleton_strokes(self, allowed: np.ndarray) -> list[list[tuple[int, int]]]:
         """Cải tiến W5: Trích xuất nét vẽ khung xương tự nhiên (endpoint-first, ngã ba đi thẳng, vòng kín)."""
@@ -227,13 +227,14 @@ class RegionStreamRenderer:
         region_ink = self.ink_pixels & allowed
         if not region_ink.any():
             return []
-        skel = sr._zhang_suen_skeleton(region_ink, max_iterations=160)
+        view, source_xy = _planning_view(region_ink, getattr(self, "reveal_direction", "left_to_right"))
+        skel = sr._zhang_suen_skeleton(np.ascontiguousarray(view), max_iterations=160)
         strokes = wsp.extract_smooth_skeleton_strokes(
             skel,
             min_points=cfg.skeleton_min_points,
             spacing=cfg.skeleton_resample_spacing,
         )
-        return strokes
+        return [[source_xy(x, y) for x, y in stroke] for stroke in strokes]
 
     # ── 落墨（限制在 allowed 内）──
     def _reveal_ink_segment(self, a: tuple[int, int], b: tuple[int, int], allowed: np.ndarray) -> None:
@@ -297,8 +298,41 @@ class RegionStreamRenderer:
             writer.write(self._snapshot_with_tip(sx, sy, pen_down=not is_lift, dx=dx, dy=dy))
             last = si
 
+    def _lay_contact_plan(self, writer, frames: int, plan, allowed: np.ndarray) -> None:
+        """Reveal and hand position consume the same timed draw/travel segments."""
+        points = plan.ink_points
+        if not points:
+            for _ in range(frames):
+                writer.write(self.drawn.astype(np.uint8))
+            return
+        cursor = 0
+        previous = None
+        last_hand = (points[0].x, points[0].y)
+        for frame in range(frames):
+            now = frame / float(max(1, frames - 1)) if frames > 1 else 1.0
+            while cursor < len(points) and points[cursor].t <= now:
+                point = points[cursor]
+                b = (round(point.x), round(point.y))
+                if point.pen_down:
+                    a = (round(previous.x), round(previous.y)) if previous is not None and previous.pen_down else b
+                    self._reveal_ink_segment(a, b, allowed)
+                previous = point
+                cursor += 1
+            left = points[max(0, cursor - 1)]
+            right = points[min(cursor, len(points) - 1)]
+            fraction = (now - left.t) / (right.t - left.t) if right.t > left.t else 0.0
+            fraction = max(0.0, min(1.0, fraction))
+            x = left.x + (right.x - left.x) * fraction
+            y = left.y + (right.y - left.y) * fraction
+            down = left.pen_down and right.pen_down
+            if down and fraction > 0:
+                self._reveal_ink_segment((round(left.x), round(left.y)), (round(x), round(y)), allowed)
+            writer.write(self._snapshot_with_tip(round(x), round(y), pen_down=down,
+                                                 dx=x-last_hand[0], dy=y-last_hand[1]))
+            last_hand = (x, y)
+
     # ── 添彩段：brush 或 contour-wipe，限制在 allowed 内 ──
-    def _wash_brush(self, writer, frames: int, centers: list[tuple[int, int]], allowed: np.ndarray) -> None:
+    def _wash_brush(self, writer, frames: int, centers: list[tuple[int, int]], allowed: np.ndarray, point_masks=None) -> None:
         if frames <= 0:
             return
         n = len(centers)
@@ -307,14 +341,15 @@ class RegionStreamRenderer:
                 writer.write(self._snapshot_with_tip(self.out_w // 2, self.out_h // 2))
             return
         disk = sr._feathered_disk(self.cfg.brush_radius)
+        if point_masks is not None:
+            disk = (disk > 0).astype(np.float32)
         idx_for_frame = _frame_progress_indices(n, frames)
         last: int | None = None
         for ci in idx_for_frame:
-            if last is None:
-                self._color_stamp(*centers[ci], disk, allowed)
-            else:
-                for k in range(last + 1, ci + 1):
-                    self._color_stamp(*centers[k], disk, allowed)
+            # A one-frame color budget maps directly to the last contact. Consume
+            # all preceding contacts too, while retaining each cluster's mask.
+            for k in range(0 if last is None else last + 1, ci + 1):
+                self._color_stamp(*centers[k], disk, point_masks[k] if point_masks is not None else allowed)
             cx, cy = centers[ci]
             writer.write(self._snapshot_with_tip(cx, cy))
             last = ci
@@ -335,26 +370,43 @@ class RegionStreamRenderer:
             self._wash_contour(writer, frames, allowed)
             return
 
+        # Restore original edge colors in a separate masked brush pass too;
+        # skeleton ink is monochrome and is not necessarily the source RGB.
+        ink_mask = allowed & self.ink_pixels
+        if ink_mask.any():
+            clusters.insert(0, whiteboard_palette.ColorCluster(-1, np.zeros(3), np.zeros(3),
+                                                               int(ink_mask.sum()), ink_mask))
         total_pts: list[tuple[int, int]] = []
+        point_masks = []
         for cluster in clusters:
+            view, source_xy = _planning_view(cluster.mask, getattr(self, "reveal_direction", "left_to_right"))
             pts = whiteboard_palette.build_palette_brush_path(
-                cluster.mask,
+                view,
                 brush_radius=self.cfg.brush_radius,
                 sample_step=6,
             )
+            pts = [source_xy(x, y) for x, y in pts]
             total_pts.extend(pts)
+            point_masks.extend([allowed & cluster.mask] * len(pts))
 
         if not total_pts:
             self._wash_contour(writer, frames, allowed)
             return
 
-        self._wash_brush(writer, frames, total_pts, allowed)
+        self._wash_brush(writer, frames, total_pts, allowed, point_masks=point_masks)
 
     def _wash_contour(self, writer, frames: int, allowed: np.ndarray) -> None:
         if frames <= 0:
             return
         cfg = self.cfg
-        ys_all, xs_all = np.where(allowed)
+        direction = getattr(self, "reveal_direction", "left_to_right")
+        # The wipe algorithm advances along Y; planning advances along X.
+        allowed_view, source_xy = _planning_view(allowed, direction)
+        allowed_view = allowed_view.swapaxes(0, 1)
+        color_view = _planning_view(self.color_img, direction)[0].swapaxes(0, 1)
+        drawn_view = _planning_view(self.drawn, direction)[0].swapaxes(0, 1)
+        ink_view = _planning_view(self.ink_pixels, direction)[0].swapaxes(0, 1)
+        ys_all, xs_all = np.where(allowed_view)
         if ys_all.size == 0:
             return
         top, bottom = int(ys_all.min()), int(ys_all.max())
@@ -363,7 +415,7 @@ class RegionStreamRenderer:
         region_w = right - left + 1
 
         # 区域内的阻力场（墨线膨胀 + 模糊 + 逐行向下衰减）
-        ink_u8 = ((self.ink_pixels & allowed)[top:bottom + 1, left:right + 1].astype(np.uint8)) * 255
+        ink_u8 = ((ink_view & allowed_view)[top:bottom + 1, left:right + 1].astype(np.uint8)) * 255
         spread = int(np.clip(min(region_w, region_h) // 32, 3, 17))
         if spread % 2 == 0:
             spread = max(3, spread - 1)
@@ -385,9 +437,9 @@ class RegionStreamRenderer:
         sweep = region_h + 2 * delay_px
         blocks = max(1, cfg.wipe_blocks)
 
-        allowed_crop = allowed[top:bottom + 1, left:right + 1]
-        color_crop = self.color_img[top:bottom + 1, left:right + 1].astype(np.float32)
-        drawn_crop = self.drawn[top:bottom + 1, left:right + 1]
+        allowed_crop = allowed_view[top:bottom + 1, left:right + 1]
+        color_crop = color_view[top:bottom + 1, left:right + 1].astype(np.float32)
+        drawn_crop = drawn_view[top:bottom + 1, left:right + 1]
 
         for fi in range(frames):
             progress = 1.0 if frames == 1 else fi / (frames - 1)
@@ -402,7 +454,8 @@ class RegionStreamRenderer:
             cx = max(0, min(region_w - 1, cx))
             col = np.where(reveal[:, cx])[0]
             cy = int(col[-1]) if col.size > 0 else 0
-            writer.write(self._snapshot_with_tip(left + cx, top + cy))
+            px, py = source_xy(top + cy, left + cx)
+            writer.write(self._snapshot_with_tip(px, py))
 
         # 收尾：确保区域内允许像素全部揭示
         drawn_crop[allowed_crop] = color_crop[allowed_crop]
@@ -437,6 +490,10 @@ class RegionStreamRenderer:
         cfg = self.cfg
         elements = sorted(self.ann["elements"], key=lambda e: e["reveal"]["startMs"])
 
+        import whiteboard_render_plan
+        ownership_mgr = whiteboard_render_plan.PixelOwnershipManager(self.out_w, self.out_h)
+        owned_masks = ownership_mgr.build_ownership_masks(elements, self.sx, self.sy)
+
         import whiteboard_encoder
         raw_writer = whiteboard_encoder.create_frame_writer(
             final_video_path,
@@ -468,14 +525,10 @@ class RegionStreamRenderer:
             for _ in range(needed):
                 write_frame(snap)
 
-        import whiteboard_render_plan
-        # R2: Quản lý pixel ownership bằng PixelOwnershipManager
-        ownership_mgr = whiteboard_render_plan.PixelOwnershipManager(self.out_w, self.out_h)
-        owned_masks = ownership_mgr.build_ownership_masks(elements, self.sx, self.sy)
-
         try:
             for idx, element in enumerate(elements):
                 reveal = element["reveal"]
+                self.reveal_direction = reveal.get("direction", "left_to_right")
                 start_ms = reveal["startMs"]
                 dur_ms = reveal["durationMs"]
 
@@ -533,7 +586,12 @@ class RegionStreamRenderer:
                 f_writer = _FrameWriterWrapper(write_frame)
 
                 if cfg.ink_path_mode == "skeleton":
-                    self._lay_ink(f_writer, ink_frames, samples, pen_lifts, allowed)
+                    contact_plan = whiteboard_render_plan.build_element_timeline_plan(
+                        strokes or [], allowed, el_id, idx + 1, start_ms, dur_ms)
+                    if contact_plan.ink_points:
+                        self._lay_contact_plan(f_writer, ink_frames, contact_plan, allowed)
+                    else:
+                        self._lay_ink(f_writer, ink_frames, samples, pen_lifts, allowed)
                 else:
                     if path:
                         # 块填充：随笔尖推进逐格铺满（保证文字/大块实心）
@@ -552,7 +610,10 @@ class RegionStreamRenderer:
             # Lấp đầy các khung hình còn lại cho đến đúng target_total_frames
             # Không tự ý đè self.drawn[...] = self.color_img để che pixel chưa vẽ.
             fill_static_frames(target_total_frames)
-        finally:
+        except BaseException:
+            raw_writer.terminate()
+            raise
+        else:
             writer.release()
         return final_video_path
 

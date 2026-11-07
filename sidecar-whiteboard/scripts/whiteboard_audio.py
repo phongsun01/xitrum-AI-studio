@@ -48,6 +48,31 @@ def resolve_ffmpeg_and_probe() -> Tuple[Optional[str], Optional[str]]:
     return ffmpeg, ffprobe
 
 
+def validate_audio_file(audio_path: str | Path) -> int:
+    """A selected but unreadable/missing audio file is an error, never silent mode."""
+    if not Path(audio_path).is_file():
+        raise ValueError(f"AUDIO_MISSING: Không tìm thấy tệp âm thanh: {audio_path}")
+    ffmpeg, ffprobe = resolve_ffmpeg_and_probe()
+    if ffprobe:
+        res = subprocess.run([ffprobe, "-v", "error", "-select_streams", "a:0",
+                              "-show_entries", "stream=codec_type", "-of", "json",
+                              str(audio_path)], capture_output=True, text=True)
+        if res.returncode != 0 or not json.loads(res.stdout or "{}").get("streams"):
+            raise ValueError(f"AUDIO_INVALID: Tệp không có luồng âm thanh đọc được: {audio_path}")
+    elif ffmpeg:
+        res = subprocess.run([ffmpeg, "-v", "error", "-i", str(audio_path),
+                              "-map", "0:a:0", "-t", "0.01", "-f", "null", "-"],
+                             capture_output=True, text=True)
+        if res.returncode:
+            raise ValueError(f"AUDIO_INVALID: Không đọc được âm thanh: {audio_path}")
+    else:
+        raise RuntimeError("Thiếu FFmpeg/ffprobe để xác thực âm thanh")
+    duration = probe_audio_duration_ms(audio_path)
+    if duration <= 0:
+        raise ValueError(f"AUDIO_INVALID: Thời lượng âm thanh không hợp lệ: {audio_path}")
+    return duration
+
+
 def probe_audio_duration_ms(audio_path: str | Path) -> int:
     """Đo thời lượng audio chính xác bằng ffprobe (trả về milliseconds)."""
     ffmpeg, ffprobe = resolve_ffmpeg_and_probe()
@@ -177,7 +202,7 @@ def mux_video_and_audio(
 
     # Đo thời lượng video và audio để quyết định padding nếu cần
     v_dur_ms = 0
-    a_dur_ms = probe_audio_duration_ms(audio_path)
+    a_dur_ms = validate_audio_file(audio_path)
     if ffprobe:
         try:
             cmd_v = [
@@ -194,7 +219,7 @@ def mux_video_and_audio(
             v_dur_ms = 0
 
     # Nếu audio dài hơn video trên 300ms và có yêu cầu giữ hình cuối (R0)
-    if pad_audio_or_video and a_dur_ms > v_dur_ms > 0 and (a_dur_ms - v_dur_ms) >= 300:
+    if pad_audio_or_video and a_dur_ms > v_dur_ms > 0 and (a_dur_ms - v_dur_ms) > 0:
         pad_sec = (a_dur_ms - v_dur_ms) / 1000.0
         cmd = [
             ffmpeg,
@@ -222,6 +247,8 @@ def mux_video_and_audio(
             "-c:a", "aac",
             "-b:a", "192k",
         ]
+        if pad_audio_or_video and not shortest and v_dur_ms > a_dur_ms:
+            cmd += ["-af", "apad", "-t", f"{v_dur_ms / 1000.0:.3f}"]
         if shortest:
             cmd.append("-shortest")
         cmd.append(str(output_path))

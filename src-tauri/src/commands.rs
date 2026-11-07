@@ -1678,6 +1678,7 @@ pub async fn render_whiteboard_scene(
     ink_weight: Option<f64>,
     color_weight: Option<f64>,
     duration_ms: Option<i64>,
+    subject_first: Option<bool>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
@@ -1696,6 +1697,7 @@ pub async fn render_whiteboard_scene(
             ink_weight,
             color_weight,
             duration_ms,
+            subject_first,
             &|p| {
                 let _ = app.emit("whiteboard-progress", p.clone());
             },
@@ -1776,6 +1778,14 @@ pub struct WhiteboardSceneItem {
     pub color_weight: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(rename = "randomSeed", default)]
+    pub random_seed: Option<u32>,
+    #[serde(rename = "styleMode", default)]
+    pub style_mode: Option<String>,
+    #[serde(rename = "subjectFirst", default)]
+    pub subject_first: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elements: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1795,6 +1805,37 @@ pub struct WhiteboardProject {
     pub master_audio_path: Option<String>,
     #[serde(rename = "outputVideoPath", skip_serializing_if = "Option::is_none")]
     pub output_video_path: Option<String>,
+}
+
+fn validate_whiteboard_project_timeline(project: &WhiteboardProject) -> anyhow::Result<()> {
+    let mut cursor = 0i64;
+    let mut ids = std::collections::HashSet::new();
+    for scene in &project.scenes {
+        anyhow::ensure!(ids.insert(&scene.id), "ID cảnh bị trùng: {}", scene.id);
+        anyhow::ensure!(scene.duration_ms > 0, "Cảnh {} có thời lượng không hợp lệ", scene.id);
+        if project.master_audio_path.as_deref().is_some_and(|p| !p.is_empty()) {
+            anyhow::ensure!(scene.timeline_start_ms == cursor
+                && scene.timeline_end_ms.checked_sub(scene.timeline_start_ms) == Some(scene.duration_ms),
+                "MASTER_TIMELINE_CONFLICT: Cảnh {} đã đổi thứ tự hoặc thời lượng so với audio/SRT. Hãy khôi phục timeline SRT hoặc bỏ master audio và gán audio riêng từng cảnh.", scene.id);
+        }
+        cursor = cursor.checked_add(scene.duration_ms)
+            .ok_or_else(|| anyhow::anyhow!("Timeline vượt giới hạn"))?;
+    }
+    Ok(())
+}
+
+fn publish_whiteboard_scene(part: &str, output: &str) -> anyhow::Result<()> {
+    std::fs::rename(part, output)?;
+    let manifest_part = format!("{}.manifest.json", part);
+    let manifest_out = format!("{}.manifest.json", output);
+    // Never leave an older final manifest next to a newly published video.
+    if std::path::Path::new(&manifest_out).exists() {
+        std::fs::remove_file(&manifest_out)?;
+    }
+    if std::path::Path::new(&manifest_part).exists() {
+        std::fs::rename(manifest_part, manifest_out)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1821,9 +1862,25 @@ pub async fn save_whiteboard_project(
 #[tauri::command]
 pub async fn save_whiteboard_annotation(
     file_path: String,
-    annotation: serde_json::Value,
+    mut annotation: serde_json::Value,
 ) -> Result<serde_json::Value, AppError> {
     let path = std::path::Path::new(&file_path);
+    // The region editor sends a patch, not the original canvas/story metadata.
+    // Preserve the source coordinate system instead of defaulting to 1920x1080.
+    if path.exists() {
+        let previous: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(path).map_err(|e| AppError::Other(e.to_string()))?
+        ).map_err(|e| AppError::Other(format!("Annotation gốc không hợp lệ: {}", e)))?;
+        let mut merged = previous.as_object().cloned()
+            .ok_or_else(|| AppError::Other("Annotation gốc phải là object".into()))?;
+        let patch = annotation.as_object()
+            .ok_or_else(|| AppError::Other("Annotation phải là object".into()))?;
+        merged.extend(patch.clone());
+        annotation = serde_json::Value::Object(merged);
+    }
+    if !annotation.get("canvas").is_some_and(|v| v.is_object()) {
+        return Err(AppError::Other("Annotation thiếu canvas; hãy tạo annotation từ ảnh trước khi chỉnh vùng".into()));
+    }
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -1865,6 +1922,7 @@ pub async fn render_whiteboard_project(
     let wb = Arc::clone(&state.whiteboard);
     let should_resume = resume.unwrap_or(false);
     whiteboard_blocking(move || {
+        validate_whiteboard_project_timeline(&project)?;
         let out_dir = std::path::Path::new(&output_video_path)
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."));
@@ -1909,6 +1967,7 @@ pub async fn render_whiteboard_project(
                     scene.ink_weight,
                     scene.color_weight,
                     Some(scene.duration_ms),
+                    scene.subject_first,
                 );
                 if let Ok(fp) = fp_res {
                     if !fp.is_empty() && wb.verify_cache(scene_out.clone(), fp) {
@@ -1964,11 +2023,12 @@ pub async fn render_whiteboard_project(
                 scene.ink_weight,
                 scene.color_weight,
                 Some(scene.duration_ms),
+                scene.subject_first,
                 &emit_scene_progress,
             )?;
 
             // Đổi tên nguyên tử file part -> scene_out
-            std::fs::rename(&scene_tmp_out, &scene_out)
+            publish_whiteboard_scene(&scene_tmp_out, &scene_out)
                 .map_err(|e| anyhow::anyhow!("Lỗi lưu video cảnh: {}", e))?;
 
             rendered_videos.push(scene_out);
@@ -2077,3 +2137,84 @@ pub fn has_os_secret(key: String) -> Result<bool, AppError> {
     }
 }
 
+
+#[cfg(test)]
+mod whiteboard_review_regression_tests {
+    use super::*;
+
+    fn project() -> WhiteboardProject {
+        serde_json::from_value(serde_json::json!({
+            "id":"project-test", "schemaVersion":1, "revision":1, "title":"test",
+            "fps":30, "paperColor":"#FFFFFF", "masterAudioPath":"voice.wav",
+            "scenes": [
+                {"id":"a","order":1,"revision":1,"imagePath":"a.png","annotationPath":"a.json",
+                 "timelineStartMs":0,"timelineEndMs":1000,"durationMs":1000,"status":"idle"},
+                {"id":"b","order":2,"revision":1,"imagePath":"b.png","annotationPath":"b.json",
+                 "timelineStartMs":1000,"timelineEndMs":2000,"durationMs":1000,"status":"idle"}
+            ]
+        })).unwrap()
+    }
+
+    #[test]
+    fn whiteboard_master_timeline_rejects_reorder_and_retime() {
+        let mut p = project();
+        assert!(validate_whiteboard_project_timeline(&p).is_ok());
+        p.scenes.swap(0, 1);
+        assert!(validate_whiteboard_project_timeline(&p).is_err());
+        p.master_audio_path = None;
+        assert!(validate_whiteboard_project_timeline(&p).is_ok());
+        let mut p = project();
+        p.scenes[0].duration_ms = 1500;
+        assert!(validate_whiteboard_project_timeline(&p).is_err());
+    }
+
+    #[test]
+    fn whiteboard_annotation_edit_preserves_original_canvas() {
+        let path = std::env::temp_dir().join(format!("wb-canvas-{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(&path, r#"{"canvas":{"width":2752,"height":1536},"storyBasis":"original","elements":[]}"#).unwrap();
+        tauri::async_runtime::block_on(save_whiteboard_annotation(path.to_string_lossy().to_string(),
+            serde_json::json!({"sceneDurationMs":15000,"elements":[]}))).unwrap();
+        let edited: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(edited["canvas"]["width"],2752);
+        assert_eq!(edited["storyBasis"],"original");
+        assert_eq!(edited["sceneDurationMs"],15000);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn whiteboard_project_roundtrip_keeps_edited_elements() {
+        let mut p = project();
+        p.scenes[0].elements = Some(vec![serde_json::json!({
+            "id":"edited", "sequence":1,
+            "region":{"x":20,"y":30,"width":40,"height":50},
+            "reveal":{"startMs":0,"durationMs":500,"direction":"right_to_left"}
+        })]);
+        let path = std::env::temp_dir().join(format!("wb-elements-{}.json", uuid::Uuid::new_v4()));
+        let name = path.to_string_lossy().to_string();
+        tauri::async_runtime::block_on(save_whiteboard_project(name.clone(), p)).unwrap();
+        let reopened = tauri::async_runtime::block_on(load_whiteboard_project(name)).unwrap();
+        let elements = reopened.scenes[0].elements.as_ref().unwrap();
+        assert_eq!(elements[0]["region"]["x"], 20);
+        assert_eq!(elements[0]["reveal"]["direction"], "right_to_left");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn whiteboard_publish_moves_manifest_and_invalidates_old_metadata() {
+        let dir = std::env::temp_dir().join(format!("wb-publish-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let part = dir.join("scene.part.mp4").to_string_lossy().to_string();
+        let final_path = dir.join("scene.mp4").to_string_lossy().to_string();
+        std::fs::write(&part, b"new-video").unwrap();
+        std::fs::write(format!("{}.manifest.json",part), b"new-manifest").unwrap();
+        std::fs::write(format!("{}.manifest.json",final_path), b"old-manifest").unwrap();
+        publish_whiteboard_scene(&part, &final_path).unwrap();
+        assert_eq!(std::fs::read(&final_path).unwrap(), b"new-video");
+        assert_eq!(std::fs::read(format!("{}.manifest.json",final_path)).unwrap(), b"new-manifest");
+        assert!(!std::path::Path::new(&format!("{}.manifest.json",part)).exists());
+        std::fs::write(&part, b"video-without-cache").unwrap();
+        publish_whiteboard_scene(&part, &final_path).unwrap();
+        assert!(!std::path::Path::new(&format!("{}.manifest.json",final_path)).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

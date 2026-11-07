@@ -404,7 +404,8 @@ export const api = {
     colorFill?: string,
     inkWeight?: number,
     colorWeight?: number,
-    durationMs?: number
+    durationMs?: number,
+    subjectFirst?: boolean
   ) =>
     invoke<WhiteboardRenderResponse>("render_whiteboard_scene", {
       imagePath,
@@ -419,6 +420,7 @@ export const api = {
       inkWeight,
       colorWeight,
       durationMs,
+      subjectFirst,
     }),
 
   renderWhiteboardPreview: (

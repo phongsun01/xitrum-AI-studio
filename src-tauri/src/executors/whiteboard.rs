@@ -82,6 +82,7 @@ pub enum WhiteboardRequest {
         color_weight: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         duration_ms: Option<i64>,
+        subject_first: Option<bool>,
     },
     #[serde(rename = "get_fingerprint")]
     GetFingerprint {
@@ -107,6 +108,7 @@ pub enum WhiteboardRequest {
         color_weight: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         duration_ms: Option<i64>,
+        subject_first: Option<bool>,
     },
     #[serde(rename = "verify_cache")]
     VerifyCache {
@@ -208,6 +210,11 @@ struct Proc {
 impl Proc {
     fn kill(&self) {
         if let Ok(mut c) = self.child.lock() {
+            #[cfg(unix)]
+            unsafe {
+                extern "C" { fn kill(pid: i32, sig: i32) -> i32; }
+                let _ = kill(-(c.id() as i32), 9);
+            }
             let _ = c.kill();
             let _ = c.wait();
         }
@@ -644,6 +651,7 @@ impl WhiteboardPipeline {
         ink_weight: Option<f64>,
         color_weight: Option<f64>,
         duration_ms: Option<i64>,
+        subject_first: Option<bool>,
         on_progress: &dyn Fn(&serde_json::Value),
     ) -> Result<serde_json::Value> {
         let req = WhiteboardRequest::RenderScene {
@@ -660,6 +668,7 @@ impl WhiteboardPipeline {
             ink_weight,
             color_weight,
             duration_ms,
+            subject_first,
         };
         self.call(req, self.timeouts.render, "render bảng trắng", on_progress)
     }
@@ -677,6 +686,7 @@ impl WhiteboardPipeline {
         ink_weight: Option<f64>,
         color_weight: Option<f64>,
         duration_ms: Option<i64>,
+        subject_first: Option<bool>,
     ) -> Result<String> {
         let req = WhiteboardRequest::GetFingerprint {
             task_id: uuid::Uuid::new_v4().to_string(),
@@ -691,6 +701,7 @@ impl WhiteboardPipeline {
             ink_weight,
             color_weight,
             duration_ms,
+            subject_first,
         };
         let res = self.call(req, self.timeouts.quick, "tính fingerprint", &|_| {})?;
         let fp = res.get("fingerprint").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -947,6 +958,7 @@ for line in sys.stdin:
                 ink_weight: None,
                 color_weight: None,
                 duration_ms: None,
+                subject_first: None,
             },
             timeout,
             cb,

@@ -1,0 +1,50 @@
+{
+  "real_image_regions": [
+    1,
+    1,
+    1
+  ],
+  "contour-wipe": {
+    "render_seconds": 3.966,
+    "content_pixels": 98718,
+    "incorrect_final_pixels": 0,
+    "incorrect_percent": 0.0
+  },
+  "brush": {
+    "render_seconds": 4.048,
+    "content_pixels": 98718,
+    "incorrect_final_pixels": 0,
+    "incorrect_percent": 0.0
+  },
+  "palette-brush": {
+    "render_seconds": 3.938,
+    "content_pixels": 98718,
+    "incorrect_final_pixels": 0,
+    "incorrect_percent": 0.0
+  },
+  "ownership_overlap_pixels": 684,
+  "missing_master_audio": {
+    "returned_success": true,
+    "output": {
+      "output_path": "/tmp/xitrum-whiteboard-review/missing-audio-result.mp4",
+      "file_size": 135235
+    }
+  },
+  "missing_scene_audio_returned_success": true,
+  "cache_after_project_rename": {
+    "manifest_at_part_exists": true,
+    "manifest_at_final_exists": false,
+    "request_fingerprint_matches_render": false,
+    "verify_cache": false
+  },
+  "tts_assembly_fixture": {
+    "infer_seconds": 3,
+    "cue_interval_seconds": 2,
+    "single_voice_level": 0.20000000298023224,
+    "overlap_level": 0.4000000059604645,
+    "overlap_seconds": 1
+  },
+  "palette_cross_cluster_fixture": {
+    "next_cluster_pixels_revealed_in_first_frame": 323
+  }
+}

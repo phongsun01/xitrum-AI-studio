@@ -5,7 +5,25 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.7.4 (Whiteboard Project Render Resume, Exact Cues Mapping & Calligraphy Brush Asset)
+## 📦 Phiên Bản Hiện Tại: v0.7.5 (Whiteboard Review Hardening, Hand Rig Kinematics & Pen Asset Library)
+
+Đợt nâng cấp toàn diện phân hệ **Whiteboard Explainer Animation** sau đợt kiểm thử và rà soát R1-R7:
+
+### 🖋️ 1. Thư Viện Bút & Hiệu Ứng Bàn Tay Động (R4 Kinematic Hand Rig & R5 Asset Library)
+- **Thư Viện Đa Dạng Mẫu Bút**: Bổ sung bộ sưu tập các loại bút (Bút lông thư pháp, bút máy vintage, bút kỹ thuật, bút dạ, đũa phép, bút pha lê...).
+- **Cơ Chế Khớp Cổ Tay & Xoay Bút Thực Tế (Kinematic Rig)**: Tự động tính toán góc xoay cổ tay và hướng ngòi bút theo véc-tơ chuyển động vẽ nét.
+- **Tùy Chọn Kích Thước Bàn Tay**: Cân chỉnh tỉ lệ tay vẽ hợp lý (~75%) đảm bảo bố cục hài hòa, không che khuất hình vẽ.
+
+### 🎯 2. Trình Biên Tập Vùng Trực Quan & Tách Lớp Thông Minh (R4b & R6 Visual Editor)
+- **Subject-First Component Priority**: Ưu tiên phân lớp và vẽ chủ thể chính trước, chi tiết phụ/hậu cảnh sau.
+- **Biên Tập Vùng Trực Quan (Elements Editor)**: Xem trước và tinh chỉnh bounding box, thứ tự xuất hiện trực tiếp trên giao diện.
+
+### 📁 3. Quản Lý Thư Mục Dự Án Độc Lập
+- **Thư Mục Dự Án `wb-projects/`**: Chuẩn hóa thư mục chứa tài nguyên ảnh/SRT cho các phân cảnh whiteboard và tự động loại trừ khỏi Git để bảo vệ dữ liệu cá nhân.
+
+---
+
+## 📦 Lịch Sử Phiên Bản: v0.7.4 (Whiteboard Project Render Resume, Exact Cues Mapping & Calligraphy Brush Asset)
 
 Nâng cấp quan trọng phân hệ **Whiteboard Explainer Animation** lên chuẩn kiến trúc W0-W5 chuyên nghiệp:
 

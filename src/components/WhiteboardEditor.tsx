@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
 import {
@@ -34,6 +34,8 @@ const errText = (e: any): string => String(e?.message ?? e);
 const isCancelled = (e: any): boolean => errText(e).startsWith("CANCELLED");
 
 export function WhiteboardEditor() {
+  const exportWithoutAudio = useRef(false);
+  const annotationSaveQueue = useRef<Promise<unknown>>(Promise.resolve());
   const [srtPath, setSrtPath] = useState("");
   const [projectPath, setProjectPath] = useState("");
   const [projectId, setProjectId] = useState(() => "project-" + Date.now());
@@ -270,7 +272,7 @@ export function WhiteboardEditor() {
   const handleAddScene = () => {
     const nextNum = scenes.length + 1;
     const newScene: WhiteboardSceneItem = {
-      id: `scene-${String(nextNum).padStart(2, "0")}`,
+      id: `scene-${crypto.randomUUID()}`,
       order: nextNum,
       revision: 1,
       imagePath: "",
@@ -318,6 +320,19 @@ export function WhiteboardEditor() {
       revision: activeScene.revision + 1,
     };
     setScenes(next);
+  };
+
+  const handleRandomStyle = () => {
+    if (!activeScene) return;
+    const seed = crypto.getRandomValues(new Uint32Array(1))[0];
+    const mono = activeScene.imageType === "line_art_mono" || activeScene.imageType === "blank";
+    const fills = ["brush", "contour-wipe", "palette-brush"] as const;
+    updateActiveScene({ randomSeed: seed, styleMode: "random",
+      inkPath: seed % 2 ? "skeleton" : "grid",
+      colorFill: mono ? "none" : fills[Math.floor(seed / 2) % fills.length],
+      inkWeight: mono ? 1 : 2, colorWeight: mono ? 0 : 1,
+      status: "idle",
+    });
   };
 
   const handlePickSceneImage = async () => {
@@ -461,13 +476,43 @@ export function WhiteboardEditor() {
     list[targetIdx] = temp;
 
     // Cập nhật lại số sequence tăng dần
-    const reindexed = list.map((item, idx) => ({
-      ...item,
-      sequence: idx + 1,
-    }));
+    let cursor = Math.min(...list.map((item) => item.reveal.startMs));
+    const reindexed = list.map((item, idx) => {
+      const next = { ...item, sequence: idx + 1, reveal: { ...item.reveal, startMs: cursor } };
+      cursor += item.reveal.durationMs;
+      return next;
+    });
 
     updateActiveScene({ elements: reindexed });
     await syncAnnotationElements(reindexed);
+  };
+
+  const handleSplitElement = async (index: number, count: number) => {
+    if (!activeScene?.elements) return;
+    const original = activeScene.elements[index];
+    if (original.region.width < count * 2 || original.reveal.durationMs < count * 100) return;
+    const parts = Array.from({ length: count }, (_, i) => {
+      const x0 = Math.round(original.region.width * i / count);
+      const x1 = Math.round(original.region.width * (i + 1) / count);
+      const t0 = Math.round(original.reveal.durationMs * i / count);
+      const t1 = Math.round(original.reveal.durationMs * (i + 1) / count);
+      return { ...original, id: crypto.randomUUID(), label: `${original.label} (${i + 1})`,
+        region: { ...original.region, x: original.region.x + x0, width: x1 - x0 },
+        reveal: { ...original.reveal, startMs: original.reveal.startMs + t0, durationMs: t1 - t0 } };
+    });
+    const elements = [...activeScene.elements.slice(0, index), ...parts, ...activeScene.elements.slice(index + 1)]
+      .map((element, i) => ({ ...element, sequence: i + 1 }));
+    updateActiveScene({ elements, status: "idle" });
+    await syncAnnotationElements(elements);
+  };
+
+  const handleRegionChange = async (index: number, key: "x" | "y" | "width" | "height", value: number) => {
+    if (!activeScene?.elements || !Number.isFinite(value)) return;
+    const elements = activeScene.elements.map((element, i) => i === index
+      ? { ...element, region: { ...element.region, [key]: Math.max(key === "x" || key === "y" ? 0 : 1, Math.round(value)) } }
+      : element);
+    updateActiveScene({ elements, status: "idle" });
+    await syncAnnotationElements(elements);
   };
 
   const syncAnnotationElements = async (elements: typeof activeScene.elements) => {
@@ -479,9 +524,13 @@ export function WhiteboardEditor() {
         sceneDurationMs: activeScene.durationMs,
         elements,
       };
-      await api.saveWhiteboardAnnotation(activeScene.annotationPath, payload);
+      const target = activeScene.annotationPath;
+      const operation = annotationSaveQueue.current.catch(() => undefined)
+        .then(() => api.saveWhiteboardAnnotation(target, payload));
+      annotationSaveQueue.current = operation;
+      await operation;
     } catch (e) {
-      console.warn("Không đồng bộ được annotation.json:", e);
+      setStatusMsg({ text: `Không lưu được vùng vẽ: ${errText(e)}`, ok: false });
     }
   };
 
@@ -500,6 +549,7 @@ export function WhiteboardEditor() {
     setStatusMsg(null);
 
     try {
+      await annotationSaveQueue.current;
       let annoPath = activeScene.annotationPath;
       // Nếu chưa có annotation file hoặc file chưa tồn tại trên đĩa, tự động sinh trước khi render
       if (!annoPath) {
@@ -539,7 +589,8 @@ export function WhiteboardEditor() {
         activeScene.colorFill,
         activeScene.inkWeight,
         activeScene.colorWeight,
-        activeScene.durationMs
+        activeScene.durationMs,
+        activeScene.subjectFirst
       );
       updateActiveScene({ annotationPath: annoPath, outputPath: res.output_path, status: "done" });
       setStatusMsg({
@@ -648,6 +699,8 @@ export function WhiteboardEditor() {
 
   // Thực thi render toàn bộ dự án
   const executeRenderProject = async (targetOut: string, resumeMode: boolean) => {
+    try { await annotationSaveQueue.current; }
+    catch (e) { setStatusMsg({ text: `Chưa lưu được annotation: ${errText(e)}`, ok: false }); return; }
     const project: WhiteboardProject = {
       id: projectId,
       schemaVersion: 1,
@@ -656,8 +709,8 @@ export function WhiteboardEditor() {
       fps,
       paperColor,
       handPath: penType === "calligraphy" ? "calligraphy-brush.png" : "drawing-hand.png",
-      scenes,
-      masterAudioPath: masterAudioPath || undefined,
+      scenes: exportWithoutAudio.current ? scenes.map((scene) => ({ ...scene, audioPath: undefined })) : scenes,
+      masterAudioPath: exportWithoutAudio.current ? undefined : masterAudioPath || undefined,
       outputVideoPath: targetOut,
     };
 
@@ -683,9 +736,23 @@ export function WhiteboardEditor() {
 
   // Xuất toàn bộ dự án (có kiểm tra audio và resume các cảnh đã có)
   const handleRenderFullProject = async (forceNoAudio: boolean = false) => {
+    exportWithoutAudio.current = forceNoAudio;
     if (scenes.length === 0) {
       setStatusMsg({ text: "Dự án chưa có phân cảnh nào.", ok: false });
       return;
+    }
+
+    if (masterAudioPath && !forceNoAudio) {
+      let cursor = 0;
+      const mismatch = scenes.some((scene) => {
+        const invalid = scene.timelineStartMs !== cursor || scene.timelineEndMs - scene.timelineStartMs !== scene.durationMs;
+        cursor += scene.durationMs;
+        return invalid;
+      });
+      if (mismatch) {
+        setStatusMsg({ text: "Thứ tự/thời lượng cảnh không còn khớp master audio. Khôi phục timeline SRT hoặc bỏ master và gán audio riêng từng cảnh trước khi xuất.", ok: false });
+        return;
+      }
     }
 
     // 1. Kiểm tra audio: Nếu chưa có file master (hoặc file không tồn tại) và không có cảnh nào có audio
@@ -1131,12 +1198,19 @@ export function WhiteboardEditor() {
                 )}
               </div>
 
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <button className="secondary-btn" onClick={handleRandomStyle} disabled={loading || !activeScene.imageType || activeScene.imageType === "uncertain"}>
+                  {activeScene.styleMode === "random" ? "Đổi kiểu ngẫu nhiên" : "Ngẫu nhiên phù hợp"}
+                </button>
+                <label><input type="checkbox" checked={activeScene.subjectFirst || false}
+                  onChange={(e) => updateActiveScene({ subjectFirst: e.target.checked })} /> Tô chủ thể trước nền</label>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                 <div>
                   <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>Nét vẽ (Ink Path):</label>
                   <select
                     value={activeScene.inkPath || "grid"}
-                    onChange={(e) => updateActiveScene({ inkPath: e.target.value as any })}
+                    onChange={(e) => updateActiveScene({ inkPath: e.target.value as any, styleMode: "manual" })}
                     style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
                   >
                     <option value="grid">Lưới ô vuông (Grid - Mặc định)</option>
@@ -1147,7 +1221,7 @@ export function WhiteboardEditor() {
                   <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>Tô màu (Color Fill):</label>
                   <select
                     value={activeScene.colorFill || "contour-wipe"}
-                    onChange={(e) => updateActiveScene({ colorFill: e.target.value as any })}
+                    onChange={(e) => updateActiveScene({ colorFill: e.target.value as any, styleMode: "manual" })}
                     style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
                   >
                     <option value="none">Không tô (Chỉ vẽ nét - Tối ưu Line-Art)</option>
@@ -1230,7 +1304,14 @@ export function WhiteboardEditor() {
                         </span>
                       </div>
 
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <button onClick={() => handleSplitElement(idx, 2)} disabled={loading}>Chia 2 cột</button>
+                        <button onClick={() => handleSplitElement(idx, 3)} disabled={loading}>Chia 3 cột</button>
+                        {(["x", "y", "width", "height"] as const).map((key) => (
+                          <label key={key}>{key}: <input type="number" value={el.region[key]}
+                            style={{ width: "60px" }} disabled={loading}
+                            onChange={(e) => handleRegionChange(idx, key, Number(e.target.value))} /></label>
+                        ))}
                         <select
                           value={el.reveal.direction || "left_to_right"}
                           onChange={(e) => handleUpdateElementDirection(idx, e.target.value)}

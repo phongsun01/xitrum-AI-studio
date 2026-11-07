@@ -384,22 +384,15 @@ def _normalize_paper_color(value):
     return v.upper()
 
 
-def handle_render_scene(req):
-    import render_stream_whiteboard
-    import whiteboard_audio
-
+def resolve_render_settings(req):
     image_path = req.get("image_path")
-    annotation_path = req.get("annotation_path")
-    output_path = req.get("output_path")
     fps = int(req.get("fps", 30))
     paper_color = _normalize_paper_color(req.get("paper_color"))
     hand_path = req.get("hand_path")
-    audio_path = req.get("audio_path")  # Tuỳ chọn: audio riêng cho cảnh này
     ink_path = req.get("ink_path")
     color_fill = req.get("color_fill")
     ink_weight = req.get("ink_weight")
     color_weight = req.get("color_weight")
-
     # W3: Nếu chưa chỉ định rõ ink_path hoặc color_fill, tự động phân tích ảnh
     if not ink_path or not color_fill:
         try:
@@ -431,6 +424,43 @@ def handle_render_scene(req):
         if candidate.exists():
             hand_path = str(candidate)
 
+    ink_path = ink_path or "grid"
+    color_fill = color_fill or "contour-wipe"
+    ink_weight = float(ink_weight if ink_weight is not None else 2)
+    color_weight = float(color_weight if color_weight is not None else 1)
+    if color_fill == "none":
+        ink_weight, color_weight = 1.0, 0.0
+    return dict(image_path=image_path, annotation_path=req.get("annotation_path"),
+                fps=fps, paper_color=paper_color, hand_path=hand_path,
+                subject_first=bool(req.get("subject_first", False)),
+                audio_path=req.get("audio_path"), duration_ms=req.get("duration_ms"),
+                ink_path=ink_path, color_fill=color_fill,
+                ink_weight=ink_weight, color_weight=color_weight)
+
+
+def handle_render_scene(req):
+    import render_stream_whiteboard
+    import whiteboard_audio
+
+    image_path = req.get("image_path")
+    annotation_path = req.get("annotation_path")
+    output_path = req.get("output_path")
+    fps = int(req.get("fps", 30))
+    paper_color = _normalize_paper_color(req.get("paper_color"))
+    hand_path = req.get("hand_path")
+    audio_path = req.get("audio_path")  # Tuỳ chọn: audio riêng cho cảnh này
+    ink_path = req.get("ink_path")
+    color_fill = req.get("color_fill")
+    ink_weight = req.get("ink_weight")
+    color_weight = req.get("color_weight")
+
+    effective = resolve_render_settings(req)
+    hand_path = effective["hand_path"]
+    ink_path, color_fill = effective["ink_path"], effective["color_fill"]
+    ink_weight, color_weight = effective["ink_weight"], effective["color_weight"]
+    if audio_path:
+        whiteboard_audio.validate_audio_file(audio_path)
+
     if not image_path or not os.path.exists(image_path):
         raise ValueError(f"Không tìm thấy ảnh gốc: {image_path}")
     if not annotation_path or not os.path.exists(annotation_path):
@@ -451,6 +481,8 @@ def handle_render_scene(req):
     if hand_path and os.path.exists(hand_path):
         cmd_args.append(hand_path)
     cmd_args += ["--fps", str(fps), "--paper-color", paper_color]
+    if effective["subject_first"]:
+        cmd_args.append("--subject-first")
     duration_ms = req.get("duration_ms")
     if duration_ms is not None and int(duration_ms) > 0:
         cmd_args += ["--total-ms", str(int(duration_ms))]
@@ -498,19 +530,7 @@ def handle_render_scene(req):
     # Ghi manifest cache sau khi hoàn tất thành công (R1)
     try:
         import whiteboard_cache
-        fp = whiteboard_cache.calculate_scene_fingerprint(
-            image_path=image_path,
-            annotation_path=annotation_path,
-            fps=fps,
-            paper_color=paper_color,
-            hand_path=hand_path,
-            audio_path=audio_path,
-            duration_ms=duration_ms,
-            ink_path=ink_path,
-            color_fill=color_fill,
-            ink_weight=ink_weight,
-            color_weight=color_weight,
-        )
+        fp = whiteboard_cache.calculate_scene_fingerprint(**effective)
         whiteboard_cache.write_scene_manifest(output_path, fp, extra={"taskId": task_id})
     except Exception as e:
         print(f"[warn] Lỗi ghi manifest cache cho {output_path}: {e}", file=sys.stderr)
@@ -529,6 +549,9 @@ def handle_merge_scenes(req):
     video_paths = req.get("video_paths", [])
     output_path = req.get("output_path")
     master_audio_path = req.get("master_audio_path")  # Tuỳ chọn: master audio cho cả bài
+
+    if master_audio_path:
+        whiteboard_audio.validate_audio_file(master_audio_path)
 
     if not video_paths or len(video_paths) == 0:
         raise ValueError("Danh sách video phân cảnh rỗng.")
@@ -598,19 +621,7 @@ def handle_verify_cache(req):
 
 def handle_get_fingerprint(req):
     import whiteboard_cache
-    fp = whiteboard_cache.calculate_scene_fingerprint(
-        image_path=req.get("image_path", ""),
-        annotation_path=req.get("annotation_path", ""),
-        fps=int(req.get("fps", 30)),
-        paper_color=req.get("paper_color", "#F5EBD7"),
-        hand_path=req.get("hand_path"),
-        audio_path=req.get("audio_path"),
-        duration_ms=req.get("duration_ms"),
-        ink_path=req.get("ink_path"),
-        color_fill=req.get("color_fill"),
-        ink_weight=req.get("ink_weight"),
-        color_weight=req.get("color_weight"),
-    )
+    fp = whiteboard_cache.calculate_scene_fingerprint(**resolve_render_settings(req))
     return {"fingerprint": fp}
 
 

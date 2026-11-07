@@ -74,9 +74,11 @@ class PixelOwnershipManager:
         """
         Duyệt các elements theo thứ tự sequence/startMs.
         Quy tắc:
-        - Vùng xuất hiện sau sở hữu pixel trong bbox của mình, TRỪ khi vùng trước là container bao quanh nó
+        - Vùng xuất hiện sau sở hữu độc quyền pixel trong bbox của mình
         - Pixel được gán độc quyền cho element sở hữu.
         """
+        self.owner_map.fill(-1)
+        self.protected_mask.fill(False)
         n = len(elements)
         masks: Dict[str, np.ndarray] = {}
 
@@ -104,7 +106,6 @@ class PixelOwnershipManager:
         # nhưng chừa biên container nếu lồng nhau
         for i, el in enumerate(elements):
             x0, y0, x1, y1 = elem_boxes[i]
-            cur_area = (x1 - x0) * (y1 - y0)
 
             cur_mask = np.zeros((self.h, self.w), dtype=bool)
             if x1 > x0 and y1 > y0:
@@ -117,22 +118,17 @@ class PixelOwnershipManager:
                 if later_area <= 0:
                     continue
 
-                inter_w = max(0, min(x1, lx1) - max(x0, lx0))
-                inter_h = max(0, min(y1, ly1) - max(y0, ly0))
-                inter_area = inter_w * inter_h
-
-                if inter_area > 0.8 * later_area and cur_area > later_area * 1.5:
-                    # i bao bọc j: giữ lại viền ngoài cho i
-                    margin = max(2, min(inter_w, inter_h) // 20)
-                    cur_mask[ly0 + margin : ly1 - margin, lx0 + margin : lx1 - margin] = False
-                else:
-                    cur_mask[ly0:ly1, lx0:lx1] = False
+                # Later content owns its complete region. A parent's outer border
+                # remains outside this box; retaining the child's margin would
+                # reveal labels early and assign pixels to two elements.
+                cur_mask[ly0:ly1, lx0:lx1] = False
 
             # Trừ protected regions
             cur_mask[self.protected_mask] = False
 
             el_id = el.get("id", f"elem_{i+1}")
             masks[el_id] = cur_mask
+            self.owner_map[cur_mask] = i
 
         return masks
 

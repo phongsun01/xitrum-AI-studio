@@ -63,6 +63,7 @@ def segment_color_palette_lab(
     flags = cv2.KMEANS_PP_CENTERS
 
     try:
+        cv2.setRNGSeed(0)  # Stable palette ordering when re-exporting saved styles.
         compactness, labels, centers = cv2.kmeans(
             target_pixels_lab, k, None, criteria, 3, flags
         )
@@ -82,7 +83,7 @@ def segment_color_palette_lab(
     for c_id in range(k):
         c_mask = (label_map == c_id)
         count = int(np.count_nonzero(c_mask))
-        if count < 5:
+        if count == 0:
             continue
 
         mean_lab = centers[c_id]
@@ -172,6 +173,18 @@ def build_palette_brush_path(
         if pts:
             path.extend(pts)
             forward = not forward
+
+    # Ensure thin tails, isolated dots and bottom rows are reached by a real
+    # brush footprint, rather than repairing the entire cluster at the end.
+    covered = np.zeros(cluster_mask.shape, np.uint8)
+    radius = max(1, brush_radius - 1)
+    for x, y in path:
+        cv2.circle(covered, (x, y), radius, 1, -1)
+    missing_y, missing_x = np.where(cluster_mask & (covered == 0))
+    for y, x in zip(missing_y, missing_x):
+        if not covered[y, x]:
+            path.append((int(x), int(y)))
+            cv2.circle(covered, (int(x), int(y)), radius, 1, -1)
 
     return path
 
