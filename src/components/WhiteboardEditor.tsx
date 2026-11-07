@@ -263,14 +263,14 @@ export function WhiteboardEditor() {
   };
 
   return (
-    <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "20px" }}>
+    <div className="panel-card" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       {/* Tiêu đề & Giới thiệu */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <PenTool size={28} color="#e06c75" />
           <div>
-            <h2 style={{ margin: 0, fontSize: "1.3rem" }}>Hoạt Hình Bảng Trắng Vẽ Tay (Whiteboard Explainer)</h2>
-            <p style={{ margin: 0, fontSize: "0.85rem", opacity: 0.7 }}>
+            <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Hoạt Hình Bảng Trắng Vẽ Tay (Whiteboard Explainer)</h3>
+            <p className="panel-desc" style={{ margin: 0 }}>
               Biến phụ đề SRT thành video hoạt hình bảng trắng vẽ tay trên nền giấy be ấm (`#F5EBD7`), 100% Offline không tốn credit Cloud.
             </p>
           </div>
@@ -280,15 +280,15 @@ export function WhiteboardEditor() {
       {env && !env.ok && (
         <div
           style={{
-            padding: "10px 14px",
-            borderRadius: "6px",
-            backgroundColor: "rgba(241, 196, 15, 0.12)",
-            border: "1px solid #f1c40f",
-            color: "#f1c40f",
-            fontSize: "0.9rem",
+            padding: "12px 16px",
+            borderRadius: "8px",
+            backgroundColor: "#fffbeb",
+            border: "1px solid #fde68a",
+            color: "#92400e",
+            fontSize: "13px",
             display: "flex",
             flexDirection: "column",
-            gap: "8px",
+            gap: "10px",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -304,16 +304,16 @@ export function WhiteboardEditor() {
               className="primary-btn"
               onClick={handleInstallEnv}
               disabled={installing || loading}
-              style={{ display: "flex", alignItems: "center", gap: "6px" }}
+              style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px", fontSize: "12px" }}
             >
               {installing ? <RefreshCw size={14} className="spin" /> : <Download size={14} />} Cài môi trường tự động
             </button>
             {installing && (
-              <button className="secondary-btn" onClick={handleCancel}>
+              <button className="secondary-btn" onClick={handleCancel} style={{ padding: "6px 12px", fontSize: "12px" }}>
                 Hủy
               </button>
             )}
-            <span style={{ fontSize: "0.8rem", opacity: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span style={{ fontSize: "12px", opacity: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {installLog}
             </span>
           </div>
@@ -321,27 +321,27 @@ export function WhiteboardEditor() {
       )}
 
       {env?.ok && !env.ffmpeg && (
-        <div style={{ fontSize: "0.8rem", opacity: 0.7 }}>
+        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
           Lưu ý: không tìm thấy ffmpeg trong PATH; ghép nhiều cảnh (merge) có thể cần ffmpeg.
         </div>
       )}
 
       {loading && (
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
+          <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: "#e2e8f0", overflow: "hidden" }}>
             <div
               style={{
                 width: `${progress ? progress.percent : 0}%`,
                 height: "100%",
-                background: "#61afef",
+                background: "var(--primary)",
                 transition: "width 0.2s",
               }}
             />
           </div>
-          <span style={{ fontSize: "0.8rem", minWidth: "170px" }}>
+          <span style={{ fontSize: "12px", color: "var(--text-muted)", minWidth: "170px" }}>
             {progress ? `${progress.percent.toFixed(0)}% · ${progress.message}` : "Đang xử lý..."}
           </span>
-          <button className="secondary-btn" onClick={handleCancel} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <button className="secondary-btn" onClick={handleCancel} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 8px", fontSize: "12px" }}>
             <XCircle size={14} /> Hủy
           </button>
         </div>
@@ -351,14 +351,14 @@ export function WhiteboardEditor() {
         <div
           style={{
             padding: "10px 14px",
-            borderRadius: "6px",
-            backgroundColor: statusMsg.ok ? "rgba(46, 204, 113, 0.15)" : "rgba(231, 76, 60, 0.15)",
-            border: `1px solid ${statusMsg.ok ? "#2ecc71" : "#e74c3c"}`,
-            color: statusMsg.ok ? "#2ecc71" : "#e74c3c",
+            borderRadius: "8px",
+            backgroundColor: statusMsg.ok ? "#f0fdf4" : "#fef2f2",
+            border: `1px solid ${statusMsg.ok ? "#bbf7d0" : "#fecaca"}`,
+            color: statusMsg.ok ? "#166534" : "#991b1b",
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            fontSize: "0.9rem",
+            fontSize: "13px",
           }}
         >
           {statusMsg.ok ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
@@ -369,10 +369,10 @@ export function WhiteboardEditor() {
       {/* Grid điều khiển */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
         {/* Cột 1: Phụ đề & Phân cảnh SRT */}
-        <div style={{ backgroundColor: "rgba(255,255,255,0.03)", padding: "16px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)" }}>
+        <div style={{ backgroundColor: "#f8fafc", padding: "16px", borderRadius: "8px", border: "1px solid var(--border-color)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-            <FileText size={18} color="#61afef" />
-            <h3 style={{ margin: 0, fontSize: "1rem" }}>1. Phụ Đề & Phân Cảnh (SRT)</h3>
+            <FileText size={18} color="var(--primary)" />
+            <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600 }}>1. Phụ Đề & Phân Cảnh (SRT)</h4>
           </div>
 
           <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
@@ -381,7 +381,7 @@ export function WhiteboardEditor() {
               readOnly
               placeholder="Chọn tệp phụ đề .srt..."
               value={srtPath}
-              style={{ flex: 1, padding: "8px 12px", borderRadius: "4px", border: "1px solid #444", background: "#222", color: "#fff" }}
+              style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
             />
             <button className="secondary-btn" onClick={handlePickSrt} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
               <FolderOpen size={14} /> Chọn SRT
@@ -398,8 +398,8 @@ export function WhiteboardEditor() {
           </button>
 
           {srtData && (
-            <div style={{ marginTop: "14px", maxHeight: "220px", overflowY: "auto", fontSize: "0.85rem", background: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "6px" }}>
-              <div style={{ fontWeight: "bold", marginBottom: "6px", color: "#98c379" }}>
+            <div style={{ marginTop: "14px", maxHeight: "240px", overflowY: "auto", fontSize: "13px", background: "#ffffff", padding: "10px", borderRadius: "8px", border: "1px solid var(--border-color)" }}>
+              <div style={{ fontWeight: "600", marginBottom: "8px", color: "var(--text-main)" }}>
                 Gợi ý {srtData.scenes.length} phân cảnh (bấm để chọn cảnh dùng cho "Tạo mẫu"):
               </div>
               {srtData.scenes.map((s: any, i: number) => (
@@ -407,17 +407,21 @@ export function WhiteboardEditor() {
                   key={s.sceneIndex}
                   onClick={() => setSelectedScene(i)}
                   style={{
-                    padding: "4px 6px",
-                    borderBottom: "1px solid rgba(255,255,255,0.05)",
+                    padding: "6px 8px",
+                    borderBottom: "1px solid #f1f5f9",
                     cursor: "pointer",
-                    borderRadius: "4px",
-                    background: i === selectedScene ? "rgba(97,175,239,0.18)" : "transparent",
+                    borderRadius: "6px",
+                    background: i === selectedScene ? "#eff6ff" : "transparent",
+                    transition: "background 0.15s ease",
                   }}
                 >
-                  <span style={{ color: "#d19a66" }}>Cảnh {s.sceneIndex}</span>{" "}
-                  ({(s.timelineStartMs / 1000).toFixed(1)}–{(s.timelineEndMs / 1000).toFixed(1)}s, {(s.sceneDurationMs / 1000).toFixed(1)}s)
-                  {s.belowMin && <span style={{ color: "#e5c07b" }}> ⚠ ngắn</span>}
-                  {s.aboveMax && <span style={{ color: "#e5c07b" }}> ⚠ dài</span>}: {s.text.slice(0, 45)}...
+                  <span style={{ fontWeight: 600, color: "var(--primary)" }}>Cảnh {s.sceneIndex}</span>{" "}
+                  <span style={{ color: "var(--text-muted)" }}>
+                    ({(s.timelineStartMs / 1000).toFixed(1)}–{(s.timelineEndMs / 1000).toFixed(1)}s, {(s.sceneDurationMs / 1000).toFixed(1)}s)
+                  </span>
+                  {s.belowMin && <span style={{ color: "#d97706", fontWeight: 500 }}> ⚠ ngắn</span>}
+                  {s.aboveMax && <span style={{ color: "#d97706", fontWeight: 500 }}> ⚠ dài</span>}:{" "}
+                  <span style={{ color: "var(--text-main)" }}>{s.text.slice(0, 45)}...</span>
                 </div>
               ))}
             </div>
@@ -425,10 +429,10 @@ export function WhiteboardEditor() {
         </div>
 
         {/* Cột 2: Cấu hình Render & Xuất Video */}
-        <div style={{ backgroundColor: "rgba(255,255,255,0.03)", padding: "16px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)" }}>
+        <div style={{ backgroundColor: "#f8fafc", padding: "16px", borderRadius: "8px", border: "1px solid var(--border-color)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-            <Layers size={18} color="#98c379" />
-            <h3 style={{ margin: 0, fontSize: "1rem" }}>2. Ảnh Line-Art & Cấu Hình Render</h3>
+            <Layers size={18} color="#16a34a" />
+            <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600 }}>2. Ảnh Line-Art & Cấu Hình Render</h4>
           </div>
 
           <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
@@ -437,7 +441,7 @@ export function WhiteboardEditor() {
               readOnly
               placeholder="Chọn ảnh minh họa 2D line-art (.png)..."
               value={imagePath}
-              style={{ flex: 1, padding: "8px 12px", borderRadius: "4px", border: "1px solid #444", background: "#222", color: "#fff" }}
+              style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
             />
             <button className="secondary-btn" onClick={handlePickImage} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
               <FolderOpen size={14} /> Chọn Ảnh
@@ -450,7 +454,7 @@ export function WhiteboardEditor() {
               placeholder="Đường dẫn annotation.json..."
               value={annotationPath}
               onChange={(e) => setAnnotationPath(e.target.value)}
-              style={{ flex: 1, padding: "8px 12px", borderRadius: "4px", border: "1px solid #444", background: "#222", color: "#fff" }}
+              style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
             />
             <button className="secondary-btn" onClick={handlePickAnnotation}>
               Chọn
@@ -461,34 +465,34 @@ export function WhiteboardEditor() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-            <div>
-              <label style={{ fontSize: "0.8rem", opacity: 0.8 }}>Màu nền giấy</label>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Màu nền giấy</label>
               <input
                 type="text"
                 value={paperColor}
                 onChange={(e) => setPaperColor(e.target.value)}
-                style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid #444", background: "#222", color: "#fff" }}
+                style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
               />
             </div>
-            <div>
-              <label style={{ fontSize: "0.8rem", opacity: 0.8 }}>FPS</label>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>FPS</label>
               <input
                 type="number"
                 value={fps}
                 onChange={(e) => setFps(parseInt(e.target.value) || 30)}
-                style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid #444", background: "#222", color: "#fff" }}
+                style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
               />
             </div>
           </div>
 
-          <div style={{ marginBottom: "12px" }}>
-            <label style={{ fontSize: "0.8rem", opacity: 0.8 }}>File xuất MP4</label>
+          <div className="form-group" style={{ marginBottom: "14px" }}>
+            <label>File xuất MP4</label>
             <input
               type="text"
               value={outputPath}
               onChange={(e) => setOutputPath(e.target.value)}
               placeholder="Đường dẫn file video đầu ra..."
-              style={{ width: "100%", padding: "8px 12px", borderRadius: "4px", border: "1px solid #444", background: "#222", color: "#fff" }}
+              style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
             />
           </div>
 

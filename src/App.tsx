@@ -361,13 +361,6 @@ function App() {
             <Video size={18} /> {!sidebarCollapsed && <span>Tạo Video Muse.ai</span>}
           </button>
           <button
-            className={`nav-item ${activeTab === "proxies" ? "active" : ""}`}
-            onClick={() => setActiveTab("proxies")}
-            title="Quản Lý Proxy"
-          >
-            <Globe size={18} /> {!sidebarCollapsed && <span>Quản Lý Proxy</span>}
-          </button>
-          <button
             className={`nav-item ${activeTab === "audio" ? "active" : ""}`}
             onClick={() => setActiveTab("audio")}
             title="Bóc Tách Audio (Whisper)"
@@ -396,6 +389,13 @@ function App() {
             <Bookmark size={18} /> {!sidebarCollapsed && <span>Thư Viện Templates</span>}
           </button>
           <button
+            className={`nav-item ${activeTab === "proxies" ? "active" : ""}`}
+            onClick={() => setActiveTab("proxies")}
+            title="Quản Lý Proxy"
+          >
+            <Globe size={18} /> {!sidebarCollapsed && <span>Quản Lý Proxy</span>}
+          </button>
+          <button
             className={`nav-item ${activeTab === "settings" ? "active" : ""}`}
             onClick={() => setActiveTab("settings")}
             title="Cài Đặt Hệ Thống"
@@ -410,7 +410,7 @@ function App() {
         <header className="top-bar">
           <div className="title-section">
             <h1>Xitrum AI Studio</h1>
-            <span className="version-badge">v0.6.1 • Rust Multi-Lane • Offline Engine</span>
+            <span className="version-badge">v0.7.1 • Rust Multi-Lane • Offline Engine</span>
           </div>
 
           {/* F14: Multi-Lane Status Indicators */}
