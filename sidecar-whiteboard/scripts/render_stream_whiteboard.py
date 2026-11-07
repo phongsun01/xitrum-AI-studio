@@ -44,15 +44,20 @@ PROGRESS_CALLBACK = None
 
 
 class _CountingWriter:
-    """Bọc cv2.VideoWriter: đếm khung hình đã ghi và gọi PROGRESS_CALLBACK."""
+    """Bọc writer: đếm khung hình đã ghi và gọi PROGRESS_CALLBACK."""
 
     def __init__(self, writer, total_frames: int):
         self._w = writer
         self._total = max(1, int(total_frames))
         self._done = 0
 
-    def isOpened(self):
+    def is_opened(self):
+        if hasattr(self._w, "is_opened"):
+            return self._w.is_opened()
         return self._w.isOpened()
+
+    def isOpened(self):
+        return self.is_opened()
 
     def write(self, frame):
         self._w.write(frame)
@@ -62,7 +67,7 @@ class _CountingWriter:
             cb(min(self._done, self._total), self._total)
 
     def release(self):
-        self._w.release()
+        return self._w.release()
 
 
 # ──────────────────────────────────────────────────────────────
@@ -411,16 +416,23 @@ class RegionStreamRenderer:
         return samples, pen_lifts, sample_cell
 
     # ── 主渲染 ──
-    def render_to(self, raw_path: Path, total_ms: int) -> Path:
+    def render_to(self, final_video_path: Path, total_ms: int) -> Path:
         cfg = self.cfg
         elements = sorted(self.ann["elements"], key=lambda e: e["reveal"]["startMs"])
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(str(raw_path), fourcc, cfg.fps, (self.out_w, self.out_h))
-        if not writer.isOpened():
-            raise RuntimeError("Không mở được bộ ghi video")
+
+        import whiteboard_encoder
+        raw_writer = whiteboard_encoder.create_frame_writer(
+            final_video_path,
+            self.out_w,
+            self.out_h,
+            fps=cfg.fps,
+        )
+        if not raw_writer.is_opened():
+            raise RuntimeError("Không mở được bộ ghi video trực tiếp")
+
         # Khung hình dự tính: round(total_ms * cfg.fps / 1000)
         target_total_frames = max(1, int(round(total_ms * cfg.fps / 1000.0)))
-        writer = _CountingWriter(writer, target_total_frames)
+        writer = _CountingWriter(raw_writer, target_total_frames)
 
         weight_sum = cfg.ink_weight + cfg.color_weight
         written_frames = 0
@@ -525,7 +537,7 @@ class RegionStreamRenderer:
             fill_static_frames(target_total_frames)
         finally:
             writer.release()
-        return raw_path
+        return final_video_path
 
     # 网格起笔专用：带块填充，笔尖与揭墨同步
     def _lay_ink_grid(self, writer, frames: int, samples, pen_lifts, sample_cell, path, allowed) -> None:
@@ -667,7 +679,6 @@ def main(argv=None) -> int:
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    raw_path = out_path.with_name(out_path.stem + "_raw.mp4")
 
     hand_png = Path(args.hand) if args.hand else None
     renderer = RegionStreamRenderer(image_bgr, annotation, cfg, hand_png, args.bare_tip)
@@ -676,10 +687,10 @@ def main(argv=None) -> int:
     print(f"  Số vùng: {len(annotation['elements'])}, tổng thời lượng: {total_ms}ms, "
           f"nét bút: {cfg.ink_path_mode}, tô màu: {cfg.color_fill}")
 
-    renderer.render_to(raw_path, total_ms)
-    final = sr.transcode_h264(raw_path, out_path)
+    # R5: Pipe trực tiếp sang FFmpeg H.264 (hoặc OpenCV fallback an toàn), không lưu mp4v trung gian
+    final = renderer.render_to(out_path, total_ms)
 
-    size_mb = final.stat().st_size / (1024 * 1024)
+    size_mb = final.stat().st_size / (1024 * 1024) if final.exists() else 0.0
     print(f"\nVideo cuối: {final}  ({size_mb:.2f} MB)")
     print("=" * 56)
     print(f"OUTPUT={final}")

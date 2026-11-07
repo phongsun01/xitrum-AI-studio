@@ -344,6 +344,13 @@ impl WhiteboardPipeline {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
         apply_no_window(&mut cmd);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0); // Tạo process group riêng để kill toàn bộ cây tiến trình khi hủy (R5)
+        }
+
         let mut child = cmd.spawn().with_context(|| {
             format!(
                 "Không thể khởi động Whiteboard Python runner (python: {:?}, runner: {:?}). Đã cài Python chưa?",
@@ -407,6 +414,17 @@ impl WhiteboardPipeline {
         let child = lock(&self.current).clone();
         if let Some(c) = child {
             if let Ok(mut c) = c.lock() {
+                #[cfg(unix)]
+                {
+                    extern "C" {
+                        fn kill(pid: i32, sig: i32) -> i32;
+                    }
+                    let pid = c.id() as i32;
+                    unsafe {
+                        // Gửi SIGKILL tới âm pid để kill toàn bộ process group (R5)
+                        let _ = kill(-pid, 9);
+                    }
+                }
                 let _ = c.kill();
             }
         }

@@ -143,3 +143,4 @@ def build_palette_brush_path(
             forward = not forward
 
     return path
+

@@ -206,7 +206,7 @@ Ngoài phạm vi lần 2: viết lại TTS, sinh ảnh, forced alignment từng 
 | **R2** | **ĐÃ HOÀN THÀNH** | Đã triển khai `whiteboard_render_plan.py`: `PixelOwnershipManager` quản lý quyền sở hữu pixel chuẩn xác (giải quyết triệt để vùng lồng nhau, bảo vệ viền container và protectedRegions); `ElementRenderPlan` xây dựng timeline contact points float liên tục `[0.0, 1.0]`, tách biệt quãng đường nhấc bút (pen-up không sinh mực, loại bỏ nét nối giả). |
 | **R3** | **ĐÃ HOÀN THÀNH** | Đã triển khai `whiteboard_palette.py` và chế độ tô màu mới `palette-brush`: gom cụm màu sắc trong không gian CIELAB (DeltaE) bám theo ranh giới nét vẽ, hoàn thành một nhóm màu rồi mới đổi sang nhóm tiếp theo, tích hợp mượt mà vào UI và renderer. Suite unit test `test_r2_r3.py` pass. |
 | R4 | Có sprite nền tảng | Clip rig/anchor, model optional và nguồn asset |
-| R5 | Có encoder/merge cũ | Encode thật, kill-tree, probe và benchmark |
+| **R5** | **ĐÃ HOÀN THÀNH** | Đã triển khai `whiteboard_encoder.py`: trừu tượng hóa `BaseFrameWriter`, sử dụng `FFmpegDirectPipeWriter` pipe thẳng BGR frames sang FFmpeg `libx264` (yuv420p) qua stdin, loại bỏ hoàn toàn video MP4V trung gian; luồng đọc stderr riêng tránh deadlock; quản lý process group để dọn dẹp và kill an toàn toàn bộ cây tiến trình FFmpeg con khi hủy; probe video trước khi đổi tên hoàn tất. Unit test `test_r5_encoder.py` pass. |
 | R6 | Có UI nhiều cảnh nền tảng | Phiên thao tác chỉnh vùng, lưu/mở, preview/xuất |
 | R7 | Chưa nghiệm thu | Báo cáo benchmark và checklist bundle theo nền tảng |
 
