@@ -441,17 +441,49 @@ export function WhiteboardEditor() {
   // Lưu dự án
   const handleSaveProject = async () => {
     let path = projectPath;
+    let projectTitle = "Whiteboard Explainer Project";
+
+    // Tìm folder hoặc file làm căn cứ đặt tên mặc định
+    const samplePath =
+      projectPath ||
+      srtPath ||
+      masterAudioPath ||
+      outputVideoPath ||
+      scenes.find((s) => s.imagePath)?.imagePath ||
+      "";
+
+    let folderName = "";
+    if (samplePath) {
+      const parts = samplePath.split(/[/\\]/).filter(Boolean);
+      parts.pop(); // Bỏ tên file
+      folderName = parts.pop() || "";
+      if (folderName && folderName.trim()) {
+        projectTitle = folderName.trim();
+      }
+    }
+
     if (!path) {
-      const selected = await api.saveFileDialog([{ name: "Whiteboard Project", extensions: ["whiteboard.json", "json"] }]);
+      const defaultFileName = folderName ? `${folderName}.whiteboard.json` : "project.whiteboard.json";
+      const selected = await api.saveFileDialog(
+        [{ name: "Whiteboard Project", extensions: ["whiteboard.json", "json"] }],
+        defaultFileName
+      );
       if (!selected) return;
       path = selected;
       setProjectPath(path);
+    } else {
+      // Nếu đã có đường dẫn dự án, cập nhật lại title từ tên file/folder
+      const filename = path.split(/[/\\]/).pop()?.replace(/\.(whiteboard\.json|json)$/i, "");
+      if (filename && filename.trim()) {
+        projectTitle = filename.trim();
+      }
     }
+
     const project: WhiteboardProject = {
       id: "project-" + Date.now(),
       schemaVersion: 1,
       revision: 1,
-      title: "Whiteboard Explainer Project",
+      title: projectTitle,
       fps,
       paperColor,
       scenes,
@@ -460,7 +492,7 @@ export function WhiteboardEditor() {
     };
     try {
       await api.saveWhiteboardProject(path, project);
-      setStatusMsg({ text: `Đã lưu dự án thành công: ${path}`, ok: true });
+      setStatusMsg({ text: `Đã lưu dự án "${projectTitle}" thành công: ${path}`, ok: true });
     } catch (e: any) {
       setStatusMsg({ text: `Lỗi lưu dự án: ${errText(e)}`, ok: false });
     }
