@@ -1619,10 +1619,12 @@ where
 #[tauri::command]
 pub async fn parse_whiteboard_srt(
     srt_path: String,
+    exact_cues: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
     let wb = Arc::clone(&state.whiteboard);
-    whiteboard_blocking(move || wb.parse_srt(srt_path)).await
+    let exact = exact_cues.unwrap_or(false);
+    whiteboard_blocking(move || wb.parse_srt(srt_path, exact)).await
 }
 
 #[tauri::command]
@@ -1815,6 +1817,7 @@ pub async fn load_whiteboard_project(
 pub async fn render_whiteboard_project(
     project: WhiteboardProject,
     output_video_path: String,
+    resume: Option<bool>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
@@ -1823,6 +1826,7 @@ pub async fn render_whiteboard_project(
     }
 
     let wb = Arc::clone(&state.whiteboard);
+    let should_resume = resume.unwrap_or(false);
     whiteboard_blocking(move || {
         let out_dir = std::path::Path::new(&output_video_path)
             .parent()
@@ -1850,6 +1854,26 @@ pub async fn render_whiteboard_project(
             let scene_out = scene.output_path.clone().unwrap_or_else(|| {
                 out_dir.join(format!("scene_{:02}_{}.mp4", scene_num, scene.id)).to_string_lossy().to_string()
             });
+
+            // Nếu người dùng chọn resume (tạo tiếp) và video cảnh này đã tồn tại hợp lệ (> 1000 bytes)
+            if should_resume && std::path::Path::new(&scene_out).exists() {
+                if let Ok(meta) = std::fs::metadata(&scene_out) {
+                    if meta.len() > 1000 {
+                        let _ = app.emit(
+                            "whiteboard-progress",
+                            serde_json::json!({
+                                "percent": ((idx + 1) as f64) * 100.0 / (total_scenes as f64) * 0.95,
+                                "message": format!("Cảnh {}/{}: Đã render trước đó (bỏ qua)", scene_num, total_scenes),
+                                "sceneId": scene.id,
+                                "sceneIndex": scene_num,
+                                "cached": true,
+                            }),
+                        );
+                        rendered_videos.push(scene_out);
+                        continue;
+                    }
+                }
+            }
 
             // Ghi vào file tạm trước, thành công mới chuyển thành file chính
             let scene_tmp_out = format!("{}.part.mp4", scene_out);

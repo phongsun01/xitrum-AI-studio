@@ -23,6 +23,10 @@ import {
   Save,
   Play,
   Mic,
+  RotateCcw,
+  Check,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 const errText = (e: any): string => String(e?.message ?? e);
@@ -53,6 +57,13 @@ export function WhiteboardEditor() {
   const [voices, setVoices] = useState<{ id: string; name: string; gender: string; region: string }[]>([]);
   const [selectedVoice, setSelectedVoice] = useState("Thùy Dung");
   const [generatingTts, setGeneratingTts] = useState(false);
+  const [ttsSuccess, setTtsSuccess] = useState(false);
+  const [exactCues, setExactCues] = useState(true);
+
+  // Modal xác nhận xuất video
+  const [showAudioConfirmModal, setShowAudioConfirmModal] = useState(false);
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [existingScenesCount, setExistingScenesCount] = useState(0);
 
   const activeScene = scenes[selectedSceneIndex] || null;
 
@@ -155,7 +166,7 @@ export function WhiteboardEditor() {
     setLoading(true);
     setStatusMsg(null);
     try {
-      const res = await api.parseWhiteboardSrt(srtPath);
+      const res = await api.parseWhiteboardSrt(srtPath, exactCues);
 
       // Tự động khởi tạo danh sách cảnh từ SRT nếu dự án đang rỗng
       const initialScenes: WhiteboardSceneItem[] = res.scenes.map((s, idx) => ({
@@ -192,19 +203,34 @@ export function WhiteboardEditor() {
       return;
     }
     setGeneratingTts(true);
+    setTtsSuccess(false);
     setStatusMsg(null);
     try {
       const res = await api.generateWhiteboardSrtTts(srtPath, selectedVoice);
       setMasterAudioPath(res.audio_path);
+      setTtsSuccess(true);
       setStatusMsg({
         text: `Đã tạo giọng đọc VieNeu Master Audio (${res.duration_sec}s): ${res.audio_path}`,
         ok: true,
       });
     } catch (e: any) {
+      setTtsSuccess(false);
       setStatusMsg({ text: `Lỗi tạo giọng đọc từ SRT: ${errText(e)}`, ok: false });
     } finally {
       setGeneratingTts(false);
     }
+  };
+
+  const handleReset = () => {
+    setSrtPath("");
+    setProjectPath("");
+    setOutputVideoPath("");
+    setMasterAudioPath("");
+    setScenes([]);
+    setSelectedSceneIndex(0);
+    setStatusMsg({ text: "Đã làm mới bảng trắng về trạng thái ban đầu.", ok: true });
+    setTtsSuccess(false);
+    refreshEnv();
   };
 
   // Thao tác với danh sách cảnh
@@ -459,20 +485,8 @@ export function WhiteboardEditor() {
     }
   };
 
-  // Xuất toàn bộ dự án
-  const handleRenderFullProject = async () => {
-    if (scenes.length === 0) {
-      setStatusMsg({ text: "Dự án chưa có phân cảnh nào.", ok: false });
-      return;
-    }
-    let out = outputVideoPath;
-    if (!out) {
-      const selected = await api.saveFileDialog([{ name: "Video MP4", extensions: ["mp4"] }]);
-      if (!selected) return;
-      out = selected;
-      setOutputVideoPath(out);
-    }
-
+  // Thực thi render toàn bộ dự án
+  const executeRenderProject = async (targetOut: string, resumeMode: boolean) => {
     const project: WhiteboardProject = {
       id: "project-run",
       schemaVersion: 1,
@@ -482,14 +496,14 @@ export function WhiteboardEditor() {
       paperColor,
       scenes,
       masterAudioPath: masterAudioPath || undefined,
-      outputVideoPath: out,
+      outputVideoPath: targetOut,
     };
 
     setLoading(true);
-    setProgress({ percent: 0, message: "Chuẩn bị xuất toàn bộ dự án..." });
+    setProgress({ percent: 0, message: resumeMode ? "Đang tiếp tục xuất dự án..." : "Chuẩn bị xuất toàn bộ dự án..." });
     setStatusMsg(null);
     try {
-      const res = await api.renderWhiteboardProject(project, out);
+      const res = await api.renderWhiteboardProject(project, targetOut, resumeMode);
       setStatusMsg({
         text: `Xuất thành công toàn bộ dự án (${res.scenes_count || scenes.length} cảnh): ${res.output_path}`,
         ok: true,
@@ -503,6 +517,65 @@ export function WhiteboardEditor() {
       setLoading(false);
       setProgress(null);
     }
+  };
+
+  // Xuất toàn bộ dự án (có kiểm tra audio và resume các cảnh đã có)
+  const handleRenderFullProject = async (forceNoAudio: boolean = false) => {
+    if (scenes.length === 0) {
+      setStatusMsg({ text: "Dự án chưa có phân cảnh nào.", ok: false });
+      return;
+    }
+
+    // 1. Kiểm tra audio: Nếu chưa có file master và không có cảnh nào có audio
+    const hasAnyAudio = Boolean(masterAudioPath || scenes.some((s) => s.audioPath));
+    if (!hasAnyAudio && !forceNoAudio) {
+      setShowAudioConfirmModal(true);
+      return;
+    }
+
+    // 2. Chọn đường dẫn xuất
+    let out = outputVideoPath;
+    if (!out) {
+      let defaultName = "whiteboard_full.mp4";
+      const samplePath =
+        projectPath ||
+        srtPath ||
+        masterAudioPath ||
+        scenes.find((s) => s.imagePath)?.imagePath ||
+        "";
+      if (samplePath) {
+        const parts = samplePath.split(/[/\\]/);
+        parts.pop();
+        const folderName = parts.pop();
+        if (folderName && folderName.trim()) {
+          defaultName = `${folderName}.mp4`;
+        }
+      }
+      const selected = await api.saveFileDialog(
+        [{ name: "Video MP4", extensions: ["mp4"] }],
+        defaultName
+      );
+      if (!selected) return;
+      out = selected;
+      setOutputVideoPath(out);
+    }
+
+    // 3. Đếm số cảnh đã render hoàn tất trước đó trong thư mục xuất
+    let countFinished = 0;
+    scenes.forEach((s) => {
+      // Nếu scene đã có trạng thái 'done' hoặc có file outputPath hợp lệ
+      if (s.status === "done" || s.outputPath) {
+        countFinished += 1;
+      }
+    });
+
+    if (countFinished > 0 && countFinished < scenes.length) {
+      setExistingScenesCount(countFinished);
+      setShowResumeModal(true);
+      return;
+    }
+
+    await executeRenderProject(out, false);
   };
 
   return (
@@ -519,16 +592,25 @@ export function WhiteboardEditor() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button className="secondary-btn" onClick={handleOpenProject} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+        <div style={{ display: "flex", gap: "8px", opacity: loading ? 0.45 : 1.0, pointerEvents: loading ? "none" : "auto", transition: "opacity 0.2s" }}>
+          <button
+            className="secondary-btn"
+            onClick={handleReset}
+            disabled={loading || generatingTts}
+            title="Làm mới bảng trắng về trạng thái rỗng"
+            style={{ display: "flex", alignItems: "center", gap: "4px" }}
+          >
+            <RotateCcw size={14} /> Làm Mới
+          </button>
+          <button className="secondary-btn" onClick={handleOpenProject} disabled={loading} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
             <FolderOpen size={14} /> Mở Dự Án
           </button>
-          <button className="secondary-btn" onClick={handleSaveProject} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <button className="secondary-btn" onClick={handleSaveProject} disabled={loading} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
             <Save size={14} /> Lưu Dự Án
           </button>
           <button
             className="primary-btn"
-            onClick={handleRenderFullProject}
+            onClick={() => handleRenderFullProject(false)}
             disabled={loading || scenes.length === 0}
             style={{ display: "flex", alignItems: "center", gap: "6px" }}
           >
@@ -577,7 +659,7 @@ export function WhiteboardEditor() {
       )}
 
       {/* Bố cục 2 Cột: Quản lý Phân Cảnh & Chi Tiết Cảnh */}
-      <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "400px 1fr", gap: "16px" }}>
         {/* Cột 1: Danh sách Phân Cảnh */}
         <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column", gap: "10px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -608,11 +690,27 @@ export function WhiteboardEditor() {
               </button>
             </div>
 
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--text-muted)", margin: "2px 0" }}>
+              <input
+                type="checkbox"
+                id="wb-exact-cues"
+                checked={exactCues}
+                onChange={(e) => setExactCues(e.target.checked)}
+                style={{ cursor: "pointer" }}
+              />
+              <label htmlFor="wb-exact-cues" style={{ cursor: "pointer" }} title="Mỗi câu phụ đề trong file SRT sẽ tạo thành 1 phân cảnh độc lập (không tự động gộp theo thời gian)">
+                Giữ nguyên 1 câu SRT = 1 cảnh
+              </label>
+            </div>
+
             {/* Tạo giọng đọc VieNeu-TTS 1 chạm từ file SRT */}
             <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
               <select
                 value={selectedVoice}
-                onChange={(e) => setSelectedVoice(e.target.value)}
+                onChange={(e) => {
+                  setSelectedVoice(e.target.value);
+                  setTtsSuccess(false);
+                }}
                 style={{ flex: 1, padding: "5px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
               >
                 {voices.length > 0 ? (
@@ -636,23 +734,84 @@ export function WhiteboardEditor() {
                 onClick={handleGenerateSrtTts}
                 disabled={!srtPath || generatingTts || loading}
                 title="Tạo giọng đọc thuyết minh master từ toàn bộ nội dung SRT"
-                style={{ padding: "5px 10px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px", color: "var(--primary)", whiteSpace: "nowrap" }}
+                style={{
+                  padding: "5px 10px",
+                  fontSize: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  color: ttsSuccess ? "#16a34a" : "var(--primary)",
+                  borderColor: ttsSuccess ? "#86efac" : undefined,
+                  backgroundColor: ttsSuccess ? "#f0fdf4" : undefined,
+                  whiteSpace: "nowrap",
+                }}
               >
-                {generatingTts ? <RefreshCw size={12} className="spin" /> : <Mic size={12} />}
-                Tạo TTS
+                {generatingTts ? (
+                  <RefreshCw size={12} className="spin" />
+                ) : ttsSuccess ? (
+                  <Check size={13} color="#16a34a" />
+                ) : (
+                  <Mic size={12} />
+                )}
+                {generatingTts ? "Đang tạo..." : ttsSuccess ? "Đã tạo xong" : "Tạo TTS"}
               </button>
             </div>
 
+            {/* Chỉ báo trạng thái đang tạo TTS */}
+            {generatingTts && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "6px 10px",
+                  borderRadius: "6px",
+                  backgroundColor: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  fontSize: "12px",
+                  color: "#1d4ed8",
+                }}
+              >
+                <RefreshCw size={14} className="spin" style={{ flexShrink: 0 }} />
+                <span>Đang tổng hợp giọng đọc VieNeu TTS từ file SRT...</span>
+              </div>
+            )}
+
             {/* File âm thanh Master Audio (nếu đã có sẵn hoặc vừa tạo) */}
             <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-              <input
-                type="text"
-                placeholder="Chọn file âm thanh (.wav/.mp3) đã có..."
-                value={masterAudioPath ? masterAudioPath.split("/").pop() : ""}
-                readOnly
-                title={masterAudioPath}
-                style={{ flex: 1, padding: "5px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: masterAudioPath ? "#f0fdf4" : "#ffffff" }}
-              />
+              <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
+                <input
+                  type="text"
+                  placeholder="Chọn file âm thanh (.wav/.mp3) đã có..."
+                  value={masterAudioPath ? masterAudioPath.split(/[/\\]/).pop() : ""}
+                  readOnly
+                  title={masterAudioPath || "Chưa có file âm thanh"}
+                  style={{
+                    width: "100%",
+                    padding: "5px 26px 5px 8px",
+                    fontSize: "12px",
+                    borderRadius: "6px",
+                    border: masterAudioPath ? "1px solid #86efac" : "1px solid #fca5a5",
+                    background: masterAudioPath ? "#f0fdf4" : "#fef2f2",
+                  }}
+                />
+                <span
+                  title={masterAudioPath ? "Đã có âm thanh master" : "Chưa có file âm thanh (video xuất sẽ không có tiếng)"}
+                  style={{
+                    position: "absolute",
+                    right: "7px",
+                    display: "flex",
+                    alignItems: "center",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {masterAudioPath ? (
+                    <Volume2 size={13} color="#16a34a" />
+                  ) : (
+                    <VolumeX size={13} color="#ef4444" />
+                  )}
+                </span>
+              </div>
               <button
                 className="secondary-btn"
                 onClick={handlePickMasterAudio}
@@ -897,6 +1056,129 @@ export function WhiteboardEditor() {
           </div>
         )}
       </div>
+
+      {/* Modal 1: Cảnh báo chưa có file âm thanh khi Xuất toàn bộ */}
+      {showAudioConfirmModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "16px",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "10px",
+              padding: "20px",
+              maxWidth: "440px",
+              width: "100%",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#b45309" }}>
+              <AlertCircle size={24} />
+              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 600 }}>Cảnh báo: Chưa có âm thanh!</h3>
+            </div>
+            <p style={{ margin: 0, fontSize: "13px", color: "#475569", lineHeight: 1.5 }}>
+              Dự án hiện <strong>chưa có file âm thanh Master</strong> và các phân cảnh cũng chưa gắn file audio riêng. Nếu tiếp tục xuất, video thu được sẽ <strong>không có tiếng</strong> (video câm).
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}>
+              <button
+                className="secondary-btn"
+                onClick={() => setShowAudioConfirmModal(false)}
+                style={{ padding: "6px 14px", fontSize: "13px" }}
+              >
+                Hủy bỏ (Để chọn/tạo audio)
+              </button>
+              <button
+                className="primary-btn"
+                onClick={() => {
+                  setShowAudioConfirmModal(false);
+                  handleRenderFullProject(true);
+                }}
+                style={{ padding: "6px 14px", fontSize: "13px", backgroundColor: "#f59e0b", borderColor: "#d97706" }}
+              >
+                Tiếp tục (Xuất video không tiếng)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Tùy chọn Tiếp tục (Resume) hoặc Tạo lại từ đầu */}
+      {showResumeModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "16px",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "10px",
+              padding: "20px",
+              maxWidth: "460px",
+              width: "100%",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--primary)" }}>
+              <Film size={24} />
+              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 600 }}>Tùy chọn xuất dự án</h3>
+            </div>
+            <p style={{ margin: 0, fontSize: "13px", color: "#475569", lineHeight: 1.5 }}>
+              Hệ thống phát hiện đã có <strong>{existingScenesCount}/{scenes.length}</strong> phân cảnh được render hoàn chỉnh trước đó. Bạn muốn tiếp tục từ phân cảnh chưa xong hay tạo lại toàn bộ từ đầu?
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}>
+              <button
+                className="secondary-btn"
+                onClick={() => {
+                  setShowResumeModal(false);
+                  if (outputVideoPath) executeRenderProject(outputVideoPath, false);
+                }}
+                style={{ padding: "6px 14px", fontSize: "13px" }}
+              >
+                Tạo lại từ đầu
+              </button>
+              <button
+                className="primary-btn"
+                onClick={() => {
+                  setShowResumeModal(false);
+                  if (outputVideoPath) executeRenderProject(outputVideoPath, true);
+                }}
+                style={{ padding: "6px 14px", fontSize: "13px" }}
+              >
+                Tiếp tục các cảnh còn lại
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

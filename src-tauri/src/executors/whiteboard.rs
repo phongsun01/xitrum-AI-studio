@@ -22,6 +22,8 @@ pub enum WhiteboardRequest {
         #[serde(default)]
         task_id: String,
         srt_path: String,
+        #[serde(default)]
+        exact_cues: bool,
         #[serde(default = "default_target_sec")]
         target_sec: f64,
         #[serde(default = "default_min_sec")]
@@ -520,10 +522,11 @@ impl WhiteboardPipeline {
         }
     }
 
-    pub fn parse_srt(&self, srt_path: String) -> Result<serde_json::Value> {
+    pub fn parse_srt(&self, srt_path: String, exact_cues: bool) -> Result<serde_json::Value> {
         let req = WhiteboardRequest::ParseSrt {
             task_id: uuid::Uuid::new_v4().to_string(),
             srt_path,
+            exact_cues,
             target_sec: 30.0,
             min_sec: 25.0,
             max_sec: 35.0,

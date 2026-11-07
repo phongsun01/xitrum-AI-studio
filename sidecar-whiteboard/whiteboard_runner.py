@@ -91,6 +91,7 @@ def handle_analyze_image_style(req):
 def handle_parse_srt(req):
     import parse_srt
     srt_path = req.get("srt_path")
+    exact_cues = bool(req.get("exact_cues", False))
     target_sec = float(req.get("target_sec", 30.0))
     min_sec = float(req.get("min_sec", 25.0))
     max_sec = float(req.get("max_sec", 35.0))
@@ -103,7 +104,27 @@ def handle_parse_srt(req):
     if not cues:
         raise ValueError("Không tìm thấy dòng phụ đề nào trong tệp SRT.")
 
-    scenes = parse_srt.group_scenes(cues, target_sec, min_sec, max_sec)
+    if exact_cues:
+        scenes = []
+        n = len(cues)
+        for idx, cue in enumerate(cues):
+            start_ms = 0 if idx == 0 else cue["startMs"]
+            end_ms = cue["endMs"] if idx == n - 1 else cues[idx + 1]["startMs"]
+            scenes.append({
+                "sceneIndex": idx + 1,
+                "startMs": cue["startMs"],
+                "endMs": cue["endMs"],
+                "timelineStartMs": start_ms,
+                "timelineEndMs": end_ms,
+                "sceneDurationMs": max(1000, end_ms - start_ms),
+                "belowMin": False,
+                "aboveMax": False,
+                "cueRange": [cue["index"], cue["index"]],
+                "text": cue["text"]
+            })
+    else:
+        scenes = parse_srt.group_scenes(cues, target_sec, min_sec, max_sec)
+
     return {"cues": cues, "scenes": scenes}
 
 

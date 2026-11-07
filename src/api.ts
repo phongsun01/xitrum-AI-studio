@@ -351,17 +351,21 @@ export const api = {
   },
 
   // Mở hộp thoại lưu file
-  saveFileDialog: async (filters?: { name: string; extensions: string[] }[]) => {
+  saveFileDialog: async (
+    filters?: { name: string; extensions: string[] }[],
+    defaultPath?: string
+  ) => {
     const { save } = await import("@tauri-apps/plugin-dialog");
     const selected = await save({
       filters,
+      defaultPath,
     });
     return selected as string | null;
   },
 
   // Whiteboard Animation API (F16)
-  parseWhiteboardSrt: (srtPath: string) =>
-    invoke<WhiteboardParseSrtResponse>("parse_whiteboard_srt", { srtPath }),
+  parseWhiteboardSrt: (srtPath: string, exactCues?: boolean) =>
+    invoke<WhiteboardParseSrtResponse>("parse_whiteboard_srt", { srtPath, exactCues: exactCues ?? false }),
 
   generateWhiteboardAnnotation: (
     imagePath: string,
@@ -439,11 +443,13 @@ export const api = {
 
   renderWhiteboardProject: (
     project: WhiteboardProject,
-    outputVideoPath: string
+    outputVideoPath: string,
+    resume?: boolean
   ) =>
     invoke<WhiteboardRenderResponse>("render_whiteboard_project", {
       project,
       outputVideoPath,
+      resume,
     }),
 
   /** Dừng thao tác Whiteboard đang chạy (render, ghép, cài môi trường). */

@@ -5,14 +5,14 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.7.3 (Whiteboard Studio Multi-Scene, AI Stroke Planner & Enhanced Rendering)
+## 📦 Phiên Bản Hiện Tại: v0.7.4 (Whiteboard Project Render Resume, Exact Cues Mapping & Calligraphy Brush Asset)
 
 Nâng cấp quan trọng phân hệ **Whiteboard Explainer Animation** lên chuẩn kiến trúc W0-W5 chuyên nghiệp:
 
-### 🎨 1. Whiteboard Studio Đa Phân Cảnh (Multi-Scene Project W1)
-- **Quản Lý Dự Án Theo Phân Cảnh**: Hỗ trợ tạo, sắp xếp thứ tự, chỉnh sửa từng cảnh (Scene) độc lập hoặc xuất video toàn dự án.
-- **Tự Động Phân Đoạn & Nhận Diện Vùng Vẽ (W4)**: Trích xuất thứ tự vẽ thông minh theo layout, phát hiện vùng viền nét (Ink) và tô màu (Color fill).
-- **Lập Kế Hoạch Nét Vẽ Tự Nhiên (W5 Stroke Planner)**: Áp dụng thuật toán bám khung xương (skeleton tracking), endpoint-first, lướt qua ngã ba đường thẳng giúp tay vẽ tự nhiên như họa sĩ thực thụ.
+### 🎨 1. Whiteboard Studio Đa Phân Cảnh (Multi-Scene Project W1 & W3/W4)
+- **Render Resume Thông Minh**: Cho phép tiếp tục render các cảnh còn lại mà không cần tạo lại từ đầu nếu gặp sự cố hoặc bổ sung cảnh.
+- **Khớp Phụ Đề Chính Xác (Exact Cues Mapping)**: Hỗ trợ ánh xạ từng cue thoại SRT thành 1 cảnh riêng biệt chuẩn xác thời lượng.
+- **Bút Lông Thư Pháp (Calligraphy Brush Asset)**: Bổ sung asset bút lông truyền thống cho hoạt họa bảng trắng phong cách thư họa.
 
 ### 🎙️ 2. Tích Hợp VieNeu-TTS Trực Tiếp Cho Whiteboard (W2)
 - **Sinh Giọng Đọc Trực Tiếp Trong Editor**: Chọn giọng đọc tiếng Việt offline (Thùy Dung, Quỳnh Nhi...) và tạo audio kèm thời lượng chính xác cho từng cảnh whiteboard.
