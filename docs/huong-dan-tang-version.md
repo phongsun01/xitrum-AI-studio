@@ -55,18 +55,46 @@ Tại dòng tiêu đề phiên bản hiện tại:
 
 ## ⚡ Các Lệnh Cần Chạy Sau Khi Đổi Version
 
-Sau khi đổi version ở 5 file trên, chạy các lệnh sau để cập nhật lockfiles và kiểm tra:
+Sau khi đổi version ở 5 file trên, chạy các lệnh sau để cập nhật lockfiles, kiểm tra, tạo Git Tag và đẩy lên GitHub:
 
 ```bash
 # 1. Cập nhật Cargo.lock cho Rust
 cd src-tauri && cargo check && cd ..
 
-# 2. Build thử Frontend để đảm bảo TypeScript không lỗi
+# 2. Build thử Frontend để đảm bảo TypeScript & Vite không lỗi
 npm run build
 
-# 3. Commit và Push
+# 3. Commit thay đổi phiên bản
 git add -A
 git commit -m "chore(release): bump version to v0.7.2"
+
+# 4. Tạo Git Tag (gắn nhãn phiên bản)
+git tag -a v0.7.2 -m "Release v0.7.2"
+
+# 5. Đẩy (Push) cả commit nhánh main và Git Tag lên GitHub
 git push origin main
+git push origin v0.7.2
 ```
+
+> 💡 **Mẹo**: Nếu muốn đẩy cùng lúc cả commit và tất cả các tags chưa push lên GitHub chỉ bằng 1 lệnh:
+> ```bash
+> git push origin main --tags
+> ```
+
+---
+
+## 🏷️ Quản Lý Git Tags Khi Cần Thiết
+
+- **Xem danh sách các tag hiện có**:
+  ```bash
+  git tag -n
+  ```
+- **Xóa tag ở local nếu tạo nhầm**:
+  ```bash
+  git tag -d v0.7.2
+  ```
+- **Xóa tag trên remote GitHub (nếu lỡ push nhầm)**:
+  ```bash
+  git push --delete origin v0.7.2
+  ```
 
