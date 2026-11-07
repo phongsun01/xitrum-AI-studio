@@ -192,7 +192,10 @@ impl WhiteboardPipeline {
         }
 
         if retry {
-            *guard = None;
+            if let Some((mut old_child, _, _)) = guard.take() {
+                let _ = old_child.kill();
+                let _ = old_child.wait();
+            }
             let (child, mut stdin, mut reader) = self.spawn_process()?;
             writeln!(stdin, "{}", req_json)?;
             stdin.flush()?;

@@ -62,39 +62,57 @@ def parse_srt(text: str) -> list[dict]:
 
 def group_scenes(cues: list[dict], target_sec: float, min_sec: float, max_sec: float) -> list[dict]:
     """
-    按目标时长把连续字幕聚成场景：累积到 target 附近就断一幕，
-    但不小于 min、不大于 max（超过 max 强制断幕）。
+    Chia các câu phụ đề liên tiếp thành các cảnh (scenes) theo thời lượng mục tiêu (target_sec).
+    Quy tắc chuẩn:
+    - Nếu cảnh kế tiếp có khoảng trống thời gian với cảnh trước (silence gap),
+      startMs của cảnh sau được tính bao gồm cả silence để khớp hoàn toàn với tổng timeline SRT.
+    - Cảnh đạt ngưỡng target_ms (và tối thiểu min_ms) sẽ ngắt cảnh.
+    - Nếu thêm cue tiếp theo làm vượt max_ms thì ngắt cảnh ngay lập tức.
     """
+    if not cues:
+        return []
+
     scenes: list[dict] = []
     bucket: list[dict] = []
     target_ms, min_ms, max_ms = target_sec * 1000, min_sec * 1000, max_sec * 1000
 
+    last_scene_end = 0
+
     def flush() -> None:
+        nonlocal last_scene_end
         if not bucket:
             return
-        start = bucket[0]["startMs"]
+        # Bắt đầu cảnh từ mốc kết thúc của cảnh trước đó (nếu có gap) hoặc từ đầu cue đầu tiên
+        # để đảm bảo timeline tổng của các cảnh liên tục và khớp với audio/SRT gốc.
+        start = bucket[0]["startMs"] if not scenes else last_scene_end
         end = bucket[-1]["endMs"]
+        duration = max(0, end - start)
         scenes.append({
             "sceneIndex": len(scenes) + 1,
             "startMs": start,
             "endMs": end,
-            "sceneDurationMs": max(0, end - start),
+            "sceneDurationMs": duration,
             "cueRange": [bucket[0]["index"], bucket[-1]["index"]],
             "text": " ".join(c["text"] for c in bucket).strip(),
         })
+        last_scene_end = end
         bucket.clear()
 
     for cue in cues:
-        # 若把这条并进当前幕会超过 max，先断幕（避免出现超长幕）
+        # Nếu cộng dồn cue này sẽ vượt max_ms thì chốt cảnh hiện tại trước
         if bucket:
-            span_with = cue["endMs"] - bucket[0]["startMs"]
-            if span_with > max_ms:
+            current_start = bucket[0]["startMs"] if not scenes else last_scene_end
+            span_with = cue["endMs"] - current_start
+            if span_with > max_ms and (cue["startMs"] - current_start) >= min_ms:
                 flush()
+
         bucket.append(cue)
-        span = bucket[-1]["endMs"] - bucket[0]["startMs"]
-        # 达到目标且不短于 min 即断幕
+        current_start = bucket[0]["startMs"] if not scenes else last_scene_end
+        span = bucket[-1]["endMs"] - current_start
+        # Đạt ngưỡng mục tiêu và không ngắn hơn min_ms thì ngắt cảnh
         if span >= target_ms and span >= min_ms:
             flush()
+
     flush()
     return scenes
 

@@ -9,9 +9,26 @@ def main(image_path: str, annotation_path: str, output_path: str) -> None:
     image = Image.open(image_path).convert("RGBA")
     overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    font_file = "C:/Windows/Fonts/msyh.ttc"
-    font = ImageFont.truetype(font_file, 28)
-    small_font = ImageFont.truetype(font_file, 18)
+    font_candidates = [
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    font = None
+    small_font = None
+    for fc in font_candidates:
+        if Path(fc).exists():
+            try:
+                font = ImageFont.truetype(fc, 28)
+                small_font = ImageFont.truetype(fc, 18)
+                break
+            except Exception:
+                pass
+    if font is None or small_font is None:
+        font = ImageFont.load_default()
+        small_font = ImageFont.load_default()
     colors = [(38, 103, 255, 225), (255, 105, 92, 225), (41, 167, 102, 225), (181, 100, 255, 225)]
 
     data = json.loads(Path(annotation_path).read_text(encoding="utf-8"))
