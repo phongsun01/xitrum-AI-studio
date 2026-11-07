@@ -34,10 +34,14 @@ def segment_color_palette_lab(
     ink_mask: np.ndarray,
     max_colors: int = 8,
     delta_e_threshold: float = 14.0,
+    subject_first: bool = False,
 ) -> List[ColorCluster]:
     """
     Phân tích và gom cụm màu sắc trong không gian Lab cho các pixel được phép tô:
     Pixel cần tô = allowed_mask & (~ink_mask)
+
+    subject_first (R4b): Ưu tiên tô chi tiết chủ thể (foreground) trước nền (background).
+    Chủ thể thường có độ bão hòa cao hơn, độ tương phản cao, và nằm tập trung ở trung tâm vùng.
     """
     h, w = bgr_img.shape[:2]
     paint_mask = allowed_mask & (~ink_mask)
@@ -94,8 +98,35 @@ def segment_color_palette_lab(
             )
         )
 
-    # Sắp xếp các cụm màu: cụm diện tích lớn hơn hoặc màu tối/nền trước, chi tiết sau
-    clusters.sort(key=lambda c: -c.pixel_count)
+    if subject_first and len(clusters) > 1:
+        # R4b: Sắp xếp theo mức độ ưu tiên Chủ thể (Subject First):
+        # Điểm ưu tiên cao: độ bão hòa màu cao (Chroma C* = sqrt(a*^2 + b*^2) trong Lab),
+        # hoặc độ tương phản với nền (L* khác biệt), diện tích vừa phải/tập trung.
+        # Nền (background) thường có diện tích áp đảo, độ bão hòa thấp hoặc tiệm cận màu giấy.
+        def subject_score(c: ColorCluster) -> float:
+            # L*: c.mean_lab[0], a*: c.mean_lab[1], b*: c.mean_lab[2]
+            # Lưu ý trong OpenCV uint8: L* [0..255], a* [0..255] offset 128, b* [0..255] offset 128
+            a_val = float(c.mean_lab[1]) - 128.0
+            b_val = float(c.mean_lab[2]) - 128.0
+            chroma = math.hypot(a_val, b_val)
+            
+            # Tính độ lệch tâm (càng gần tâm vùng allowed thì càng là chủ thể)
+            ys, xs = np.nonzero(c.mask)
+            if len(ys) > 0:
+                cy, cx = float(np.mean(ys)), float(np.mean(xs))
+                # Khoảng cách chuẩn hóa tới tâm ảnh/vùng
+                dist_center = math.hypot(cx - w / 2.0, cy - h / 2.0) / max(1.0, math.hypot(w / 2.0, h / 2.0))
+            else:
+                dist_center = 1.0
+
+            # Điểm subject: chroma cao + gần trung tâm hơn, ưu tiên hơn mảng nền nhạt bao trùm
+            return chroma * 1.5 - dist_center * 30.0 - (c.pixel_count / float(n_pixels)) * 10.0
+
+        clusters.sort(key=subject_score, reverse=True)
+    else:
+        # Sắp xếp mặc định: cụm diện tích lớn hơn trước, chi tiết sau
+        clusters.sort(key=lambda c: -c.pixel_count)
+
     return clusters
 
 

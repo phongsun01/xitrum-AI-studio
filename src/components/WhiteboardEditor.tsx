@@ -421,6 +421,70 @@ export function WhiteboardEditor() {
     }
   };
 
+  // R6: Chỉnh sửa trực quan các vùng vẽ (Elements Editor)
+  const handleUpdateElementDirection = async (elIndex: number, newDirection: string) => {
+    if (!activeScene || !activeScene.elements) return;
+    const updatedElements = [...activeScene.elements];
+    updatedElements[elIndex] = {
+      ...updatedElements[elIndex],
+      reveal: {
+        ...updatedElements[elIndex].reveal,
+        direction: newDirection,
+      },
+    };
+    updateActiveScene({ elements: updatedElements });
+    await syncAnnotationElements(updatedElements);
+  };
+
+  const handleUpdateElementDuration = async (elIndex: number, newDurationMs: number) => {
+    if (!activeScene || !activeScene.elements) return;
+    const updatedElements = [...activeScene.elements];
+    updatedElements[elIndex] = {
+      ...updatedElements[elIndex],
+      reveal: {
+        ...updatedElements[elIndex].reveal,
+        durationMs: Math.max(100, newDurationMs),
+      },
+    };
+    updateActiveScene({ elements: updatedElements });
+    await syncAnnotationElements(updatedElements);
+  };
+
+  const handleMoveElementSequence = async (elIndex: number, direction: "up" | "down") => {
+    if (!activeScene || !activeScene.elements) return;
+    const targetIdx = direction === "up" ? elIndex - 1 : elIndex + 1;
+    if (targetIdx < 0 || targetIdx >= activeScene.elements.length) return;
+
+    const list = [...activeScene.elements];
+    const temp = list[elIndex];
+    list[elIndex] = list[targetIdx];
+    list[targetIdx] = temp;
+
+    // Cập nhật lại số sequence tăng dần
+    const reindexed = list.map((item, idx) => ({
+      ...item,
+      sequence: idx + 1,
+    }));
+
+    updateActiveScene({ elements: reindexed });
+    await syncAnnotationElements(reindexed);
+  };
+
+  const syncAnnotationElements = async (elements: typeof activeScene.elements) => {
+    if (!activeScene || !activeScene.annotationPath || !elements) return;
+    try {
+      const payload = {
+        schemaVersion: 1,
+        sceneId: activeScene.id,
+        sceneDurationMs: activeScene.durationMs,
+        elements,
+      };
+      await api.saveWhiteboardAnnotation(activeScene.annotationPath, payload);
+    } catch (e) {
+      console.warn("Không đồng bộ được annotation.json:", e);
+    }
+  };
+
   // Render một cảnh hiện tại
   const handleRenderSingleScene = async () => {
     if (!activeScene || !activeScene.imagePath) {
@@ -1095,16 +1159,21 @@ export function WhiteboardEditor() {
               </div>
             </div>
 
-            {/* W4: Danh sách các vùng vẽ (Elements / Regions) trực quan */}
+            {/* W4 / R6: Danh sách & Biên tập các vùng vẽ (Elements Editor) trực quan */}
             {activeScene.elements && activeScene.elements.length > 0 && (
               <div style={{ background: "#ffffff", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
-                <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "6px" }}>
-                  Thứ tự & Vùng vẽ nhận diện ({activeScene.elements.length} vùng)
-                </label>
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "160px", overflowY: "auto" }}>
-                  {activeScene.elements.map((el) => (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: 600 }}>
+                    Biên tập vùng vẽ ({activeScene.elements.length} vùng)
+                  </label>
+                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                    Đổi thứ tự, hướng quét và thời lượng từng nét
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "200px", overflowY: "auto" }}>
+                  {activeScene.elements.map((el, idx) => (
                     <div
-                      key={el.id}
+                      key={el.id || idx}
                       style={{
                         padding: "6px 8px",
                         borderRadius: "4px",
@@ -1114,17 +1183,91 @@ export function WhiteboardEditor() {
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "space-between",
+                        gap: "8px",
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                        <span style={{ fontWeight: 700, color: "var(--primary)" }}>#{el.sequence}</span>
-                        <span>{el.label || el.id}</span>
-                        <span style={{ fontSize: "10px", color: "#64748b", background: "#e2e8f0", padding: "1px 4px", borderRadius: "3px" }}>
-                          [{el.region.x}, {el.region.y}, {el.region.width}x{el.region.height}]
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => handleMoveElementSequence(idx, "up")}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: "0 2px",
+                              cursor: idx === 0 ? "not-allowed" : "pointer",
+                              opacity: idx === 0 ? 0.3 : 1,
+                              lineHeight: 1,
+                            }}
+                            title="Di chuyển lên trước"
+                          >
+                            <ArrowUp size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === (activeScene.elements?.length ?? 1) - 1}
+                            onClick={() => handleMoveElementSequence(idx, "down")}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: "0 2px",
+                              cursor: idx === (activeScene.elements?.length ?? 1) - 1 ? "not-allowed" : "pointer",
+                              opacity: idx === (activeScene.elements?.length ?? 1) - 1 ? 0.3 : 1,
+                              lineHeight: 1,
+                            }}
+                            title="Di chuyển xuống sau"
+                          >
+                            <ArrowDown size={11} />
+                          </button>
+                        </div>
+                        <span style={{ fontWeight: 700, color: "var(--primary)", minWidth: "22px" }}>#{el.sequence}</span>
+                        <span style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={el.label || el.id}>
+                          {el.label || el.id}
+                        </span>
+                        <span style={{ fontSize: "10px", color: "#64748b", background: "#e2e8f0", padding: "1px 4px", borderRadius: "3px", whiteSpace: "nowrap" }}>
+                          [{el.region.x},{el.region.y} {el.region.width}x{el.region.height}]
                         </span>
                       </div>
-                      <div style={{ fontSize: "11px", color: "#059669", fontWeight: 500 }}>
-                        {((el.reveal.durationMs || 0) / 1000).toFixed(1)}s ({el.reveal.direction})
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <select
+                          value={el.reveal.direction || "left_to_right"}
+                          onChange={(e) => handleUpdateElementDirection(idx, e.target.value)}
+                          style={{
+                            padding: "2px 4px",
+                            fontSize: "11px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            background: "#ffffff",
+                          }}
+                          title="Hướng quét nét vẽ"
+                        >
+                          <option value="left_to_right">Trái sang phải (L→R)</option>
+                          <option value="top_to_bottom">Trên xuống dưới (T↓B)</option>
+                          <option value="right_to_left">Phải sang trái (R←L)</option>
+                          <option value="bottom_to_top">Dưới lên trên (B↑T)</option>
+                        </select>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+                          <input
+                            type="number"
+                            min="100"
+                            step="200"
+                            value={el.reveal.durationMs || 1000}
+                            onChange={(e) => handleUpdateElementDuration(idx, parseInt(e.target.value) || 500)}
+                            style={{
+                              width: "55px",
+                              padding: "2px 4px",
+                              fontSize: "11px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              textAlign: "right",
+                            }}
+                            title="Thời lượng vẽ vùng này (ms)"
+                          />
+                          <span style={{ fontSize: "10px", color: "#64748b" }}>ms</span>
+                        </div>
                       </div>
                     </div>
                   ))}

@@ -129,6 +129,7 @@ pub fn run() {
             render_whiteboard_preview,
             merge_whiteboard_scenes,
             save_whiteboard_project,
+            save_whiteboard_annotation,
             load_whiteboard_project,
             render_whiteboard_project,
             cancel_whiteboard,

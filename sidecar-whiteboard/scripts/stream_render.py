@@ -97,6 +97,8 @@ class Config:
     ink_path_mode: str = "grid"
     skeleton_min_points: int = 8        # 骨架笔画最少点数（过滤碎片）
     skeleton_resample_spacing: float = 2.5  # 骨架重采样间距（像素）
+    # R4b: Ưu tiên chủ thể trước nền khi tô màu (subject-first)
+    subject_first: bool = False
 
 
 # ──────────────────────────────────────────────────────────────

@@ -319,8 +319,8 @@ class RegionStreamRenderer:
             writer.write(self._snapshot_with_tip(cx, cy))
             last = ci
 
-    def _wash_palette_brush(self, writer, frames: int, allowed: np.ndarray) -> None:
-        """Tô màu theo từng nhóm màu Lab (R3: palette-brush) bám ranh giới mực."""
+    def _wash_palette_brush(self, writer, frames: int, allowed: np.ndarray, subject_first: bool = False) -> None:
+        """Tô màu theo từng nhóm màu Lab (R3: palette-brush) bám ranh giới mực (hỗ trợ subject-first R4b)."""
         if frames <= 0:
             return
         import whiteboard_palette
@@ -329,6 +329,7 @@ class RegionStreamRenderer:
             allowed_mask=allowed,
             ink_mask=self.ink_pixels,
             max_colors=6,
+            subject_first=subject_first,
         )
         if not clusters:
             self._wash_contour(writer, frames, allowed)
@@ -544,7 +545,7 @@ class RegionStreamRenderer:
                     if cfg.color_fill == "contour-wipe":
                         self._wash_contour(f_writer, color_frames, allowed)
                     elif cfg.color_fill == "palette-brush":
-                        self._wash_palette_brush(f_writer, color_frames, allowed)
+                        self._wash_palette_brush(f_writer, color_frames, allowed, subject_first=getattr(cfg, "subject_first", False))
                     else:
                         self._wash_brush(f_writer, color_frames, centers, allowed)
 
@@ -620,6 +621,8 @@ def _parse_args(argv=None):
     p.add_argument("--brush-radius", type=int, default=None)
     p.add_argument("--cap-long-edge", type=int, default=None,
                    help="Giới hạn pixel cạnh dài của đầu ra (xem trước có thể giảm để chạy nhanh, mặc định 1080)")
+    p.add_argument("--subject-first", action="store_true",
+                   help="Ưu tiên tô chi tiết chủ thể trước nền khi tô màu (R4b)")
     return p.parse_args(argv)
 
 
@@ -645,6 +648,7 @@ def _build_cfg(args) -> sr.Config:
     kw["ink_path_mode"] = args.ink_path
     kw["color_fill"] = args.color_fill
     kw["pause_mode"] = args.pause
+    kw["subject_first"] = bool(getattr(args, "subject_first", False))
     return sr.Config(**kw)
 
 

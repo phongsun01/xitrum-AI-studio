@@ -51,6 +51,30 @@ class WhiteboardR4R6Test(unittest.TestCase):
         res2 = rig.stamp(canvas.copy(), x=200, y=200, pen_down=False, dx=0.0, dy=0.0)
         self.assertEqual(res2.shape, (500, 500, 3))
 
+    def test_r4b_palette_subject_first(self):
+        """Kiểm tra R4b: subject-first sắp xếp cụm màu chủ thể (độ bão hòa cao/nội bộ) trước nền."""
+        import whiteboard_palette
+        img = np.ones((200, 200, 3), dtype=np.uint8) * 240  # Nền xám nhạt
+        # Vẽ một quả cầu đỏ rực rỡ ở trung tâm (chủ thể)
+        cv2.circle(img, (100, 100), 30, (0, 0, 220), -1)
+
+        allowed = np.ones((200, 200), dtype=bool)
+        ink = np.zeros((200, 200), dtype=bool)
+
+        clusters_default = whiteboard_palette.segment_color_palette_lab(
+            img, allowed, ink, max_colors=4, subject_first=False
+        )
+        clusters_subject_first = whiteboard_palette.segment_color_palette_lab(
+            img, allowed, ink, max_colors=4, subject_first=True
+        )
+
+        self.assertGreater(len(clusters_default), 1)
+        self.assertGreater(len(clusters_subject_first), 1)
+        # Khi subject_first=True, cụm màu chủ thể (đỏ) phải được xếp lên đầu tiên
+        first_cluster = clusters_subject_first[0]
+        # Màu đỏ BGR có R cao (channel 2)
+        self.assertGreater(first_cluster.mean_bgr[2], 150)
+
     def test_r6_annotation_preview(self):
         """Kiểm tra render preview overlay các vùng vẽ."""
         img_p = self.tmp / "sample.png"

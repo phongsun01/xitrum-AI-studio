@@ -1819,6 +1819,27 @@ pub async fn save_whiteboard_project(
 }
 
 #[tauri::command]
+pub async fn save_whiteboard_annotation(
+    file_path: String,
+    annotation: serde_json::Value,
+) -> Result<serde_json::Value, AppError> {
+    let path = std::path::Path::new(&file_path);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let tmp_path = format!("{}.tmp", file_path);
+    let json_str = serde_json::to_string_pretty(&annotation)
+        .map_err(|e| AppError::Other(format!("Lỗi serialize annotation: {}", e)))?;
+
+    std::fs::write(&tmp_path, json_str)
+        .map_err(|e| AppError::Other(format!("Lỗi ghi tệp tạm: {}", e)))?;
+    std::fs::rename(&tmp_path, &file_path)
+        .map_err(|e| AppError::Other(format!("Lỗi lưu tệp annotation nguyên tử: {}", e)))?;
+
+    Ok(serde_json::json!({ "success": true, "filePath": file_path }))
+}
+
+#[tauri::command]
 pub async fn load_whiteboard_project(
     file_path: String,
 ) -> Result<WhiteboardProject, AppError> {

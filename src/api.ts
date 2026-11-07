@@ -449,6 +449,12 @@ export const api = {
       project,
     }),
 
+  saveWhiteboardAnnotation: (filePath: string, annotation: unknown) =>
+    invoke<{ success: boolean; filePath: string }>("save_whiteboard_annotation", {
+      filePath,
+      annotation,
+    }),
+
   loadWhiteboardProject: (filePath: string) =>
     invoke<WhiteboardProject>("load_whiteboard_project", {
       filePath,
