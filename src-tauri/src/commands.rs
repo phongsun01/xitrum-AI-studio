@@ -1236,48 +1236,17 @@ pub async fn analyze_image(
 // MỐC 5: HẬU KỲ HOÀN CHỈNH (FFMPEG MERGE & POST-PRODUCTION)
 // ==========================================
 
-/// Tạo file phụ đề .srt chuẩn UTF-8 từ danh sách phân cảnh kịch bản
-fn generate_srt_content(scenes: &[ScriptSceneItem]) -> String {
-    let mut srt = String::new();
-    let mut current_sec: f32 = 0.0;
-
-    for (idx, scene) in scenes.iter().enumerate() {
-        let dur = if scene.duration_sec > 0.0 { scene.duration_sec } else { 5.0 };
-        let start_sec = current_sec;
-        let end_sec = current_sec + dur;
-        current_sec = end_sec;
-
-        let start_fmt = format_srt_timestamp(start_sec);
-        let end_fmt = format_srt_timestamp(end_sec);
-
-        srt.push_str(&format!("{}\n", idx + 1));
-        srt.push_str(&format!("{} --> {}\n", start_fmt, end_fmt));
-        let narration = scene.narration.trim();
-        srt.push_str(&format!("{}\n\n", narration));
-    }
-
-    srt
-}
-
-fn format_srt_timestamp(seconds: f32) -> String {
-    let total_ms = (seconds * 1000.0) as i64;
-    let ms = total_ms % 1000;
-    let total_s = total_ms / 1000;
-    let s = total_s % 60;
-    let total_m = total_s / 60;
-    let m = total_m % 60;
-    let h = total_m / 60;
-    format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
-}
 
 #[tauri::command]
 pub async fn render_script_postproduction(
     script_id: String,
     burn_subtitles: bool,
+    mode: Option<String>,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
     use tauri_plugin_shell::ShellExt;
+    use crate::render_planner::{RenderPlanner, RenderPlanItem};
 
     let script = state
         .db
@@ -1287,6 +1256,8 @@ pub async fn render_script_postproduction(
     if script.scenes.is_empty() {
         return Err(AppError::Other("Kịch bản không có phân cảnh nào để ghép".into()));
     }
+
+    let render_mode = mode.unwrap_or_else(|| "preview".to_string());
 
     let config = state.db.get_config().unwrap_or_default();
     let out_dir = Path::new(&config.output_dir);
@@ -1298,73 +1269,81 @@ pub async fn render_script_postproduction(
     let unique_id = uuid::Uuid::new_v4().to_string();
     let short_id = &unique_id[..8];
 
-    // 1. Chuẩn bị video clips cho từng scene
-    // Nếu scene có video_path thật thì dùng, nếu chưa có (ví dụ test hoặc Muse chưa chạy)
-    // thì tự động sinh color slide kèm text tiêu đề để đảm bảo file video ra mượt mà
-    let mut scene_video_clips: Vec<String> = Vec::new();
-    let (res_w, res_h) = if script.ratio == "9:16" {
-        ("720", "1280")
-    } else {
-        ("1280", "720")
-    };
-
+    // 1. Chuyển đổi scenes sang RenderPlanItems để tính toán timeline integer ms
+    let mut plan_items = Vec::new();
     for (idx, scene) in script.scenes.iter().enumerate() {
-        if let Some(ref v_path) = scene.video_path {
-            if Path::new(v_path).exists() {
-                scene_video_clips.push(v_path.clone());
-                continue;
-            }
-        }
+        plan_items.push(RenderPlanItem {
+            scene_index: idx,
+            scene_id: scene.id.clone(),
+            video_path: scene.video_path.as_ref().map(PathBuf::from),
+            audio_path: scene.audio_path.as_ref().map(PathBuf::from),
+            configured_duration_ms: (scene.duration_sec.max(2.0) * 1000.0) as u64,
+            narration: scene.narration.clone(),
+        });
+    }
 
-        // Tạo clip màu nền tương ứng thời lượng duration_sec
-        let dur = if scene.duration_sec > 0.0 { scene.duration_sec } else { 5.0 };
-        let clip_path = temp_dir.join(format!("scene_clip_{}_{}.mp4", short_id, idx));
-        let clip_path_str = clip_path.to_string_lossy().to_string();
+    // 2. Tạo RenderManifest bằng RenderPlanner (chuẩn hóa mốc thời gian ms, kiểm tra clip thiếu)
+    let manifest = RenderPlanner::create_render_plan(
+        &app_handle,
+        &script.id,
+        &render_mode,
+        &script.ratio,
+        &plan_items,
+    )
+    .await
+    .map_err(|e| AppError::Other(e))?;
 
-        let colors = ["#1e293b", "#0f172a", "#1e1b4b", "#172554", "#064e3b", "#312e81"];
-        let color = colors[idx % colors.len()];
+    let mut temp_files_to_clean: Vec<PathBuf> = Vec::new();
 
-        let synth_args = [
-            "-y",
-            "-f", "lavfi",
-            "-i", &format!("color=c={}:s={}x{}:d={:.2}", color, res_w, res_h, dur),
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
-            &clip_path_str,
-        ];
+    // 3. Chuẩn hóa từng clip video theo chuẩn: scale/pad SAR 1:1, fps=30, yuv420p, freeze frame nếu ngắn
+    let mut normalized_video_clips: Vec<String> = Vec::new();
+    for (idx, sc) in manifest.scenes.iter().enumerate() {
+        let norm_v_path = temp_dir.join(format!("norm_video_{}_{}.mp4", short_id, idx));
+        let norm_v_str = norm_v_path.to_string_lossy().to_string();
+        temp_files_to_clean.push(norm_v_path.clone());
 
-        let output = app_handle
+        let norm_args = RenderPlanner::build_video_normalization_args(
+            sc.source_video_path.as_deref(),
+            sc.target_duration_ms,
+            sc.video_duration_ms,
+            manifest.canvas_width,
+            manifest.canvas_height,
+            idx,
+            &norm_v_str,
+        );
+        let arg_refs: Vec<&str> = norm_args.iter().map(|s| s.as_str()).collect();
+
+        let norm_res = app_handle
             .shell()
             .sidecar("ffmpeg")
-            .map_err(|e| AppError::Other(format!("FFmpeg sidecar error: {e}")))?
-            .args(synth_args)
+            .map_err(|e| AppError::Other(format!("FFmpeg error: {e}")))?
+            .args(arg_refs)
             .output()
             .await
-            .map_err(|e| AppError::Other(format!("Lỗi tạo video scene: {e}")))?;
+            .map_err(|e| AppError::Other(format!("Lỗi chuẩn hóa video cảnh {}: {e}", idx + 1)))?;
 
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Other(format!("FFmpeg synth scene failed: {err}")));
+        if !norm_res.status.success() {
+            let err = String::from_utf8_lossy(&norm_res.stderr);
+            return Err(AppError::Other(format!("Normalize video cảnh {} thất bại: {err}", idx + 1)));
         }
 
-        scene_video_clips.push(clip_path_str);
+        normalized_video_clips.push(norm_v_str);
     }
 
-    // 2. Nối video clips bằng concat demuxer
-    let concat_list_file = temp_dir.join(format!("script_concat_{}.txt", short_id));
-    let mut concat_txt = String::new();
-    for clip in &scene_video_clips {
-        let norm = clip.replace('\\', "/");
-        concat_txt.push_str(&format!("file '{}'\n", norm));
+    // 4. Ghép toàn bộ video clips đã chuẩn hóa (bảo đảm đồng nhất frame rate, size, SAR)
+    let concat_v_list_file = temp_dir.join(format!("concat_v_list_{}.txt", short_id));
+    let mut concat_v_txt = String::new();
+    for clip in &normalized_video_clips {
+        concat_v_txt.push_str(&format!("file '{}'\n", clip.replace('\\', "/")));
     }
-    std::fs::write(&concat_list_file, &concat_txt)
-        .map_err(|e| AppError::Other(format!("Lỗi ghi file concat: {e}")))?;
-    let concat_list_str = concat_list_file.to_string_lossy().to_string();
+    std::fs::write(&concat_v_list_file, &concat_v_txt)
+        .map_err(|e| AppError::Other(format!("Lỗi ghi file danh sách video concat: {e}")))?;
+    temp_files_to_clean.push(concat_v_list_file.clone());
 
     let raw_concat_video = temp_dir.join(format!("raw_video_{}.mp4", short_id));
     let raw_concat_video_str = raw_concat_video.to_string_lossy().to_string();
+    temp_files_to_clean.push(raw_concat_video.clone());
 
-    // S6: Ghép video scenes với re-encoding chuẩn hóa để đảm bảo cùng codec H.264/yuv420p và fps ổn định
     let concat_output = app_handle
         .shell()
         .sidecar("ffmpeg")
@@ -1373,7 +1352,7 @@ pub async fn render_script_postproduction(
             "-y",
             "-f", "concat",
             "-safe", "0",
-            "-i", &concat_list_str,
+            "-i", &concat_v_list_file.to_string_lossy(),
             "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
             "-r", "30",
@@ -1388,50 +1367,56 @@ pub async fn render_script_postproduction(
         return Err(AppError::Other(format!("Concat video failed: {err}")));
     }
 
-    // 3. Chuẩn bị track audio giọng đọc tổng hợp (TTS track)
-    let full_tts_audio = temp_dir.join(format!("full_tts_{}.wav", short_id));
-    let full_tts_audio_str = full_tts_audio.to_string_lossy().to_string();
-
-    let mut tts_audio_list = String::new();
+    // 5. Chuẩn hóa và ghép từng clip audio (resample 44100Hz, stereo, pad đuôi)
+    let mut normalized_audio_clips: Vec<String> = Vec::new();
     let mut has_any_real_tts = false;
-    for (idx, scene) in script.scenes.iter().enumerate() {
-        if let Some(ref a_path) = scene.audio_path {
-            if Path::new(a_path).exists() {
-                let norm = a_path.replace('\\', "/");
-                tts_audio_list.push_str(&format!("file '{}'\n", norm));
-                has_any_real_tts = true;
-                continue;
-            }
-        }
-        // Tạo đoạn im lặng tương ứng duration
-        let dur = if scene.duration_sec > 0.0 { scene.duration_sec } else { 5.0 };
-        let silence_wav = temp_dir.join(format!("silence_{}_{}.wav", short_id, idx));
-        let silence_str = silence_wav.to_string_lossy().to_string();
+    for (idx, sc) in manifest.scenes.iter().enumerate() {
+        let norm_a_path = temp_dir.join(format!("norm_audio_{}_{}.wav", short_id, idx));
+        let norm_a_str = norm_a_path.to_string_lossy().to_string();
+        temp_files_to_clean.push(norm_a_path.clone());
 
-        let _ = app_handle
+        if sc.source_audio_path.is_some() {
+            has_any_real_tts = true;
+        }
+
+        let a_args = RenderPlanner::build_audio_normalization_args(
+            sc.source_audio_path.as_deref(),
+            sc.target_duration_ms,
+            &norm_a_str,
+        );
+        let a_refs: Vec<&str> = a_args.iter().map(|s| s.as_str()).collect();
+
+        let a_res = app_handle
             .shell()
             .sidecar("ffmpeg")
             .map_err(|e| AppError::Other(format!("FFmpeg error: {e}")))?
-            .args([
-                "-y",
-                "-f", "lavfi",
-                "-i", &format!("anullsrc=r=44100:cl=mono:d={:.2}", dur),
-                "-c:a", "pcm_s16le",
-                &silence_str,
-            ])
+            .args(a_refs)
             .output()
-            .await;
+            .await
+            .map_err(|e| AppError::Other(format!("Lỗi chuẩn hóa âm thanh cảnh {}: {e}", idx + 1)))?;
 
-        let norm = silence_str.replace('\\', "/");
-        tts_audio_list.push_str(&format!("file '{}'\n", norm));
+        if !a_res.status.success() {
+            let err = String::from_utf8_lossy(&a_res.stderr);
+            return Err(AppError::Other(format!("Normalize audio cảnh {} thất bại: {err}", idx + 1)));
+        }
+
+        normalized_audio_clips.push(norm_a_str);
     }
 
-    let tts_list_file = temp_dir.join(format!("tts_concat_list_{}.txt", short_id));
-    std::fs::write(&tts_list_file, &tts_audio_list)
-        .map_err(|e| AppError::Other(format!("Lỗi ghi file tts concat: {e}")))?;
-    let tts_list_str = tts_list_file.to_string_lossy().to_string();
+    let concat_a_list_file = temp_dir.join(format!("concat_a_list_{}.txt", short_id));
+    let mut concat_a_txt = String::new();
+    for a_clip in &normalized_audio_clips {
+        concat_a_txt.push_str(&format!("file '{}'\n", a_clip.replace('\\', "/")));
+    }
+    std::fs::write(&concat_a_list_file, &concat_a_txt)
+        .map_err(|e| AppError::Other(format!("Lỗi ghi file danh sách audio concat: {e}")))?;
+    temp_files_to_clean.push(concat_a_list_file.clone());
 
-    let tts_concat_res = app_handle
+    let full_tts_audio = temp_dir.join(format!("full_tts_{}.wav", short_id));
+    let full_tts_audio_str = full_tts_audio.to_string_lossy().to_string();
+    temp_files_to_clean.push(full_tts_audio.clone());
+
+    let a_concat_res = app_handle
         .shell()
         .sidecar("ffmpeg")
         .map_err(|e| AppError::Other(format!("FFmpeg error: {e}")))?
@@ -1439,27 +1424,27 @@ pub async fn render_script_postproduction(
             "-y",
             "-f", "concat",
             "-safe", "0",
-            "-i", &tts_list_str,
+            "-i", &concat_a_list_file.to_string_lossy(),
             "-c:a", "pcm_s16le",
             &full_tts_audio_str,
         ])
         .output()
         .await
-        .map_err(|e| AppError::Other(format!("Lỗi ghép track âm thanh TTS: {e}")))?;
+        .map_err(|e| AppError::Other(format!("Lỗi ghép nối track âm thanh: {e}")))?;
 
-    if !tts_concat_res.status.success() {
-        let err = String::from_utf8_lossy(&tts_concat_res.stderr);
+    if !a_concat_res.status.success() {
+        let err = String::from_utf8_lossy(&a_concat_res.stderr);
         return Err(AppError::Other(format!("Concat audio failed: {err}")));
     }
 
-    // 4. Tạo phụ đề SRT
-    let srt_content = generate_srt_content(&script.scenes);
+    // 6. Sinh phụ đề SRT chính xác 100% từ RenderManifest timeline
+    let srt_content = RenderPlanner::generate_srt_from_manifest(&manifest);
     let srt_file = out_dir.join(format!("{}_{}.srt", script.title.replace(' ', "_"), short_id));
     let srt_file_str = srt_file.to_string_lossy().to_string();
     std::fs::write(&srt_file, srt_content)
         .map_err(|e| AppError::Other(format!("Lỗi lưu file phụ đề SRT: {e}")))?;
 
-    // 5. Kiểm tra nhạc nền BGM để ducking (S10: sắp xếp danh sách file theo thứ tự bảng chữ cái để chọn bài ổn định)
+    // 7. Kiểm tra BGM
     let mut selected_music_path: Option<String> = None;
     if let Some(ref music_dir) = config.music_dir {
         let dir_p = Path::new(music_dir);
@@ -1483,8 +1468,7 @@ pub async fn render_script_postproduction(
         }
     }
 
-    // 6. Ghép toàn bộ vào file thành phẩm cuối cùng:
-    // Video + TTS Audio + BGM ducking + SRT Subtitles
+    // 8. Xuất video hoàn chỉnh
     let safe_title = script.title.replace(|c: char| !c.is_alphanumeric() && c != '_' && c != '-', "_");
     let final_mp4 = out_dir.join(format!("{}_{}.mp4", safe_title, short_id));
     let final_mp4_str = final_mp4.to_string_lossy().to_string();
@@ -1505,12 +1489,10 @@ pub async fn render_script_postproduction(
         final_args.push(bgm.clone());
     }
 
-    // Xử lý bộ lọc filter_complex cho Audio Ducking và Phụ đề
     let mut filter_complex = String::new();
     let vol = config.music_volume.clamp(0.01, 1.0);
 
     if has_bgm {
-        // S5: Audio Ducking bằng sidechaincompressor: lấy giọng TTS [1:a] làm sidechain điều khiển nén BGM [2:a]
         filter_complex.push_str(&format!(
             "[2:a]volume={:.2}[bgm_pre];[1:a]asplit=2[voice_main][voice_side];[bgm_pre][voice_side]sidechaincompress=threshold=0.125:ratio=4:attack=50:release=1000[bgm_ducked];[voice_main][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2[aout]",
             vol
@@ -1519,7 +1501,6 @@ pub async fn render_script_postproduction(
         filter_complex.push_str("[1:a]anull[aout]");
     }
 
-    // Phụ đề burn-in (nếu burn_subtitles = true)
     let srt_escaped = srt_file_str.replace('\\', "/").replace(':', "\\:");
     let mut video_map = "0:v:0".to_string();
     if burn_subtitles {
@@ -1558,14 +1539,17 @@ pub async fn render_script_postproduction(
 
     if !render_res.status.success() {
         let err = String::from_utf8_lossy(&render_res.stderr);
+        // Luôn dọn file tạm khi gặp lỗi
+        for p in &temp_files_to_clean {
+            let _ = std::fs::remove_file(p);
+        }
         return Err(AppError::Other(format!("FFmpeg render failed: {err}")));
     }
 
-    // Dọn file tạm
-    let _ = std::fs::remove_file(&concat_list_file);
-    let _ = std::fs::remove_file(&raw_concat_video);
-    let _ = std::fs::remove_file(&full_tts_audio);
-    let _ = std::fs::remove_file(&tts_list_file);
+    // Dọn file tạm sau khi thành công
+    for p in &temp_files_to_clean {
+        let _ = std::fs::remove_file(p);
+    }
 
     // Cập nhật trạng thái kịch bản thành "done"
     state.db.update_script_status(&script.id, "done")?;
@@ -1577,6 +1561,10 @@ pub async fn render_script_postproduction(
         "has_tts": has_any_real_tts,
         "has_bgm": has_bgm,
         "burned_subtitles": burn_subtitles,
+        "mode": manifest.mode,
+        "total_duration_ms": manifest.total_duration_ms,
+        "placeholder_count": manifest.placeholder_count,
+        "warnings": manifest.warnings,
     }))
 }
 

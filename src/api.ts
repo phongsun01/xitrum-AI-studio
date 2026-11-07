@@ -301,8 +301,8 @@ export const api = {
       { scriptId }
     ),
 
-  // Hậu kỳ FFmpeg hoàn chỉnh (Mốc 5)
-  renderScriptPostproduction: (scriptId: string, burnSubtitles: boolean) =>
+  // Hậu kỳ FFmpeg hoàn chỉnh (Mốc 5 - G2 Timeline Media Planner)
+  renderScriptPostproduction: (scriptId: string, burnSubtitles: boolean, mode: "preview" | "final" = "preview") =>
     invoke<{
       ok: boolean;
       video_path: string;
@@ -310,7 +310,11 @@ export const api = {
       has_tts: boolean;
       has_bgm: boolean;
       burned_subtitles: boolean;
-    }>("render_script_postproduction", { scriptId, burnSubtitles }),
+      mode?: string;
+      total_duration_ms?: number;
+      placeholder_count?: number;
+      warnings?: string[];
+    }>("render_script_postproduction", { scriptId, burnSubtitles, mode }),
 
   // Mở hộp thoại chọn file trên Windows
   pickFile: async (filters?: { name: string; extensions: string[] }[]) => {

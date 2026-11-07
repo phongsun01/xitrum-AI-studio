@@ -5,7 +5,29 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.7.1 (Baseline Hardening, Versioned DB Migration, OS Secret Store & Diagnostics)
+## 📦 Phiên Bản Hiện Tại: v0.7.2 (G1 Durable Queue & G2 Timeline Media Planner & Media Normalization)
+
+Nâng cấp quan trọng theo kế hoạch kiến trúc G1 & G2 sau phân tích hệ thống Sesame Studio, hoàn thiện tính chịu lỗi hàng đợi và xử lý timeline video/audio trung thực:
+
+### ⏱️ 1. Timeline Media Planner & Mốc Thời Gian Số Nguyên (G2 Timeline)
+- **Độ Chính Xác Millisecond (ms)**: Toàn bộ timeline video, audio TTS và phụ đề được tính toán bằng số nguyên ms dựa trên probe độ dài audio/video thực tế.
+- **Bảo Vệ Giọng Nói 100%**: Chính sách video ngắn hơn audio sẽ tự động áp dụng đóng băng khung hình cuối (`tpad=stop_mode=clone`), tuyệt đối không âm thầm cắt ngắn lời thoại.
+- **Phụ Đề SRT Khớp Tuyệt Đối**: File SRT được tạo trực tiếp từ RenderManifest timeline, đồng bộ hoàn hảo từng frame giữa hình ảnh, giọng đọc và text hiển thị.
+
+### 🎬 2. Chuẩn Hóa Media Đa Nền Tảng Trước Concat (G2 Normalization)
+- **Chuẩn Hóa Canvas & Aspect Ratio**: Tự động scale & pad đưa về chuẩn SAR 1:1, hỗ trợ tỷ lệ 16:9 (1280x720), 9:16 (720x1280), 1:1 (1080x1080).
+- **Thống Nhất Codec & Audio Format**: Đưa toàn bộ clip về `libx264`, `yuv420p`, cố định `30fps`; audio chuẩn hóa về `pcm_s16le`, `44100Hz`, `stereo` trước khi ghép demuxer.
+- **Phân Định Rõ Ràng Preview & Final**: Chế độ **Preview** hỗ trợ tạo slide màu xem trước cho các cảnh chưa sinh video; Chế độ **Final** kiểm tra nghiêm ngặt và chặn xuất nếu thiếu video thực tế.
+- **Dọn Dẹp Tự Động**: Tự động dọn toàn bộ file tạm và manifest intermediate ngay cả khi lệnh hủy hoặc gặp lỗi.
+
+### 🛡️ 3. Hàng Đợi Bền Vững & Chống Gửi Trùng Lặp (G1 Durable Queue)
+- **ID-Based Queue & Startup Auto Recovery**: Hàng đợi chuyển sang điều phối dựa trên ID, tự động nạp lại các task pending/running từ SQLite khi khởi động ứng dụng.
+- **Generation Key Deduplication**: Sinh khóa băm SHA256 từ prompt, model, tham số và hash ảnh để ngăn chặn double-dispatch, hỗ trợ tạo biến thể mới tường minh.
+- **Cancellation-Aware**: Nhận biết tín hiệu hủy sớm ngay trong lúc đợi cấp phát tài nguyên semaphore, dọn sạch process con và tránh stale overwrite.
+
+---
+
+## 📦 Lịch Sử Phiên Bản: v0.7.1 (Baseline Hardening, Versioned DB Migration, OS Secret Store & Diagnostics)
 
 Nâng cấp quan trọng theo kế hoạch kiến trúc G0 sau phân tích hệ thống Sesame Studio, hoàn thiện tính ổn định, đóng gói và bảo mật:
 

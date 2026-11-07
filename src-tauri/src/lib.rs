@@ -8,6 +8,7 @@ pub mod migrations;
 pub mod models;
 pub mod paths;
 pub mod queue;
+pub mod render_planner;
 pub mod secret_store;
 pub mod state;
 

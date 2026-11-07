@@ -18,6 +18,7 @@ import {
   Send,
   Video,
   FileText,
+  Eye,
   Music,
   Lock,
   Unlock,
@@ -517,7 +518,7 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
   };
 
   // Mốc 5: Hậu kỳ hoàn chỉnh (FFmpeg Merge: Clips + TTS Audio + BGM ducking + SRT Subtitles)
-  const handleRenderPostproduction = async () => {
+  const handleRenderPostproduction = async (mode: "preview" | "final" = "preview") => {
     if (!currentScript) return;
     if (currentScript.scenes.length === 0) {
       onAddToast("warn", "Kịch bản không có phân cảnh nào để xuất!");
@@ -526,12 +527,16 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
 
     try {
       setRenderingPostproduction(true);
-      onAddToast("info", "Đang tiến hành ghép nối video, lồng tiếng TTS và phụ đề...");
+      onAddToast("info", mode === "final" ? "Đang xuất bản Final (kiểm tra đầy đủ video cảnh)..." : "Đang tạo bản Preview xem thử...");
 
-      const res = await api.renderScriptPostproduction(currentScript.id, burnSubtitles);
+      const res = await api.renderScriptPostproduction(currentScript.id, burnSubtitles, mode);
       if (res.ok) {
         setRenderedResult(res);
-        onAddToast("success", "🎬 Xuất video hoàn chỉnh thành công!");
+        if (res.mode === "final") {
+          onAddToast("success", "🎬 Xuất bản Final video thành công 100%!");
+        } else {
+          onAddToast("success", `🎬 Tạo bản Preview thành công! ${res.placeholder_count ? `(${res.placeholder_count} cảnh dùng slide tạm)` : ""}`);
+        }
         loadScripts();
       }
     } catch (e: any) {
@@ -700,13 +705,24 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
                 {dispatchingQueue ? "Đang đẩy..." : "🚀 Đẩy Vào Queue"}
               </button>
               <button
+                className="secondary-btn"
+                style={{ backgroundColor: "#f0fdf4", borderColor: "#10b981", color: "#047857" }}
+                onClick={() => handleRenderPostproduction("preview")}
+                disabled={renderingPostproduction}
+                title="Tạo nhanh bản xem thử (chấp nhận slide màu nếu cảnh chưa có video)"
+              >
+                {renderingPostproduction ? <RotateCw size={15} className="spin" /> : <Eye size={15} />}
+                {renderingPostproduction ? "Đang xuất..." : "👁️ Xem Thử (Preview)"}
+              </button>
+              <button
                 className="primary-btn"
                 style={{ backgroundColor: "#059669" }}
-                onClick={handleRenderPostproduction}
+                onClick={() => handleRenderPostproduction("final")}
                 disabled={renderingPostproduction}
+                title="Xuất bản cuối cùng (yêu cầu tất cả các cảnh phải có video thật)"
               >
                 {renderingPostproduction ? <RotateCw size={15} className="spin" /> : <Video size={15} />}
-                {renderingPostproduction ? "Đang xuất hậu kỳ..." : "🎬 Xuất Video Hoàn Thiện"}
+                {renderingPostproduction ? "Đang xuất..." : "🎬 Xuất Bản Final"}
               </button>
             </div>
           </div>
