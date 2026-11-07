@@ -175,3 +175,33 @@ Thứ tự triển khai mặc định: **W0 → W1 → W2 → W3 → W4 → W5 �
 - Dự án cũ: đọc annotation cũ, mở luồng render một cảnh; nâng schema bằng adapter, không tự ghi đè file người dùng.
 
 Tài liệu này là đầu vào triển khai. Mỗi mốc cập nhật trạng thái, bằng chứng kiểm thử, giới hạn và thay đổi schema thực tế ngay trong tài liệu hoặc báo cáo liên kết.
+
+---
+
+## 8. Báo cáo triển khai chi tiết (Cập nhật 07/11/2026)
+
+### 8.1. Tiến độ hoàn thành các giai đoạn (W0 → W5)
+
+| Giai đoạn | Nội dung trọng tâm | Trạng thái | Bằng chứng kiểm thử / Kết quả |
+|---|---|:---:|---|
+| **W0 — Schema & Frame Budget** | - Định nghĩa schema TypeScript `src/types/whiteboard.ts`<br>- Adapter Python `whiteboard_schema.py` tương thích ngược<br>- Tính frame budget chuẩn xác `round(durationMs * fps / 1000)` | **Hoàn thành** | `test_w0_contracts.py` (5 tests passed). Tránh lệch/tích lũy sai số khung hình. |
+| **W1 — Quản lý dự án nhiều cảnh** | - Cấu trúc `WhiteboardProject` 3+ cảnh<br>- Lệnh Rust `save_whiteboard_project`, `load_whiteboard_project`<br>- UI 2 cột (danh sách cảnh bên trái, thiết lập bên phải) trong `WhiteboardEditor.tsx` | **Hoàn thành** | `test_w1_project.py` (4 tests passed). Lưu/tải/kéo thả sắp xếp cảnh trơn tru. |
+| **W2 — Âm thanh Master & Cảnh lẻ** | - Module `whiteboard_audio.py` (probe, trim, mux AAC qua FFmpeg)<br>- Nâng cấp Python 3.11 Homebrew, tích hợp VieNeu TTS 3.8.3 Turbo (48kHz, 25 giọng)<br>- Nút tạo TTS 1 chạm từ file SRT và nút chọn âm thanh có sẵn<br>- Xử lý tách nền trong suốt cho `drawing-hand.png` bằng BFS Flood Fill bảo toàn chi tiết ngòi bút | **Hoàn thành** | `test_w2_audio.py` (6 tests passed). Khớp chính xác timeline lời đọc, không mất tiếng. |
+| **W3 — Nhận diện ảnh & Tự chọn kiểu** | - Module `whiteboard_analyzer.py`: phân loại `line_art_mono`, `filled_mono`, `colored`, `blank`<br>- Tự động chuyển 100% budget cho nét bút khi ảnh chỉ có nét (`colorFill="none"`)<br>- Dropdown UI override và sinh seed ngẫu nhiên cho preset | **Hoàn thành** | `test_w3_style.py` (6 tests passed). Tiết kiệm tối đa thời gian vẽ, không phí thời gian tô trắng. |
+| **W4 — Tách vùng & Thứ tự vẽ tự nhiên** | - Module `whiteboard_segmenter.py`: gom nhóm thông minh theo thành phần `container` → `illustration` → `text`<br>- Bảo toàn dấu thanh tiếng Việt không bị tách rời kỳ dị<br>- Cải tiến `_allowed_mask` chống đứt nét viền ngoài của container khi trừ mặt nạ | **Hoàn thành** | `test_w4_segmentation.py` (4 tests passed). Nét vẽ diễn hoạt tự nhiên theo trình tự đọc. |
+| **W5 — Nét bút & Tô màu thích ứng** | - Module `whiteboard_stroke_planner.py`: duyệt nét từ endpoint ($degree=1$), đi thẳng qua giao điểm/ngã tư, vòng kín một chiều<br>- Cơ chế Pen Up / Pen Down (`pen_lifts`): Tuyệt đối không vẽ nét nối giả khi di chuyển giữa các stroke rời<br>- Phân bổ ngân sách thời lượng thích ứng theo tổng độ dài nét vẽ thực tế và diện tích màu tô | **Hoàn thành** | `test_w5_strokes.py` (5 tests passed). Đầu bút bám khớp chính xác 100% từng pixel reveal. |
+
+> **Tổng kết kiểm thử hệ thống:** 37/37 unit & integration tests trong thư mục `sidecar-whiteboard/tests` vượt qua 100% (`OK`). Frontend Vite/React TypeScript build đạt tiêu chuẩn không phát sinh cảnh báo lỗi.
+
+---
+
+### 8.2. Tính năng bổ sung tiện ích cho người dùng
+- **Whiteboard Visual Prompt Generator**: Tích hợp công cụ sinh prompt tạo ảnh chuyên biệt cho bảng trắng (minimalist clean whiteboard line art sketch, black ink on pure solid white background) trong màn hình `Ý Tưởng => Kịch Bản` (`IdeaScriptEditor.tsx`) với nút "Áp Dụng" và "Copy" thuận tiện.
+
+---
+
+### 8.3. Hướng tiếp theo (W6 — Encode, Cache & Nghiệm thu phát hành)
+1. **Pipe Video Frame trực tiếp**: Tối ưu đường ống xuất video truyền trực tiếp sang FFmpeg process pipe thay vì lưu qua file trung gian.
+2. **Cơ chế Cache thông minh**: Lưu kết quả phân tích và render theo hash ảnh, annotation, audio và settings để tái xuất tức thì khi không có thay đổi.
+3. **Quản lý tiến trình & Dọn dẹp**: Đảm bảo lệnh hủy (cancel) từ giao diện dừng triệt để cây tiến trình ffmpeg/python con mà không để lại file rác.
+

@@ -1,18 +1,28 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
 import {
+  WhiteboardProject,
+  WhiteboardSceneItem,
+  WhiteboardEnvCheck,
+} from "../types/whiteboard";
+import {
   PenTool,
-  FileText,
   Layers,
   FolderOpen,
   CheckCircle2,
   AlertCircle,
   Film,
-  Sparkles,
   RefreshCw,
   XCircle,
   Download,
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  Save,
+  Play,
+  Mic,
 } from "lucide-react";
 
 const errText = (e: any): string => String(e?.message ?? e);
@@ -20,35 +30,44 @@ const isCancelled = (e: any): boolean => errText(e).startsWith("CANCELLED");
 
 export function WhiteboardEditor() {
   const [srtPath, setSrtPath] = useState("");
-  const [imagePath, setImagePath] = useState("");
-  const [annotationPath, setAnnotationPath] = useState("");
-  const [outputPath, setOutputPath] = useState("");
+  const [projectPath, setProjectPath] = useState("");
+  const [outputVideoPath, setOutputVideoPath] = useState("");
+  const [masterAudioPath, setMasterAudioPath] = useState("");
+
   const [fps, setFps] = useState(30);
   const [paperColor, setPaperColor] = useState("#F5EBD7");
 
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  const [srtData, setSrtData] = useState<{
-    cues: any[];
-    scenes: any[];
-  } | null>(null);
-  const [selectedScene, setSelectedScene] = useState(0);
+  // Danh sách các cảnh trong dự án
+  const [scenes, setScenes] = useState<WhiteboardSceneItem[]>([]);
+  const [selectedSceneIndex, setSelectedSceneIndex] = useState(0);
 
   const [progress, setProgress] = useState<{ percent: number; message: string } | null>(null);
-  const [env, setEnv] = useState<{ ok: boolean; missing: string[]; error?: string; ffmpeg?: string | null } | null>(null);
+  const [env, setEnv] = useState<WhiteboardEnvCheck | null>(null);
   const [installing, setInstalling] = useState(false);
   const [installLog, setInstallLog] = useState("");
+
+  // VieNeu-TTS Voice selection
+  const [voices, setVoices] = useState<{ id: string; name: string; gender: string; region: string }[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState("Thùy Dung");
+  const [generatingTts, setGeneratingTts] = useState(false);
+
+  const activeScene = scenes[selectedSceneIndex] || null;
 
   const refreshEnv = async () => {
     try {
       setEnv(await api.checkWhiteboardEnv());
+      const vList = await api.listTtsVoices();
+      if (vList && vList.length > 0) {
+        setVoices(vList);
+      }
     } catch (e: any) {
       setEnv({ ok: false, missing: [], error: errText(e) });
     }
   };
 
-  // Kiểm tra môi trường Python khi mở màn hình, và nghe sự kiện tiến độ/log từ backend.
   useEffect(() => {
     refreshEnv();
     const unlisten: Array<() => void> = [];
@@ -59,10 +78,12 @@ export function WhiteboardEditor() {
         if (disposed) un();
         else unlisten.push(un);
       } catch {
-        /* chạy ngoài Tauri (trình duyệt dev): bỏ qua */
+        /* dev ngoài Tauri */
       }
     };
-    on("whiteboard-progress", (p) => setProgress({ percent: Number(p?.percent) || 0, message: p?.message || "" }));
+    on("whiteboard-progress", (p) =>
+      setProgress({ percent: Number(p?.percent) || 0, message: p?.message || "" })
+    );
     on("whiteboard-install-log", (line) => setInstallLog(String(line)));
     return () => {
       disposed = true;
@@ -78,7 +99,10 @@ export function WhiteboardEditor() {
       await api.installWhiteboardEnv();
       setStatusMsg({ text: "Đã cài xong môi trường Python cho Whiteboard.", ok: true });
     } catch (e: any) {
-      setStatusMsg({ text: isCancelled(e) ? "Đã hủy cài đặt." : `Lỗi cài môi trường: ${errText(e)}`, ok: false });
+      setStatusMsg({
+        text: isCancelled(e) ? "Đã hủy cài đặt." : `Lỗi cài môi trường: ${errText(e)}`,
+        ok: false,
+      });
     } finally {
       setInstalling(false);
       await refreshEnv();
@@ -89,57 +113,37 @@ export function WhiteboardEditor() {
     try {
       await api.cancelWhiteboard();
     } catch {
-      /* không có gì để hủy */
+      /* ignore */
     }
   };
 
   const handlePickSrt = async () => {
     try {
-      const path = await api.pickFile([
-        { name: "SRT Subtitle", extensions: ["srt"] },
-      ]);
+      const path = await api.pickFile([{ name: "SRT Subtitle", extensions: ["srt"] }]);
       if (path) {
         setSrtPath(path);
+        // Tự động tìm kiểm file .wav hoặc .mp3 cùng tên hoặc trong thư mục
+        const defaultWav = path.replace(/\.[^/.]+$/, "") + ".wav";
+        // Nếu trước đó chưa chọn masterAudioPath thì gán gợi ý
+        if (!masterAudioPath) {
+          setMasterAudioPath(defaultWav);
+        }
         setStatusMsg({ text: `Đã chọn tệp SRT: ${path}`, ok: true });
       }
     } catch (e: any) {
-      setStatusMsg({ text: `Lỗi chọn file: ${e.message || e}`, ok: false });
+      setStatusMsg({ text: `Lỗi chọn file: ${errText(e)}`, ok: false });
     }
   };
 
-  const handlePickImage = async () => {
+  const handlePickMasterAudio = async () => {
     try {
-      const path = await api.pickFile([
-        { name: "Image", extensions: ["png", "jpg", "jpeg"] },
-      ]);
+      const path = await api.pickFile([{ name: "Audio Files", extensions: ["wav", "mp3", "aac", "m4a"] }]);
       if (path) {
-        setImagePath(path);
-        if (!annotationPath) {
-          const autoAnno = path.replace(/\.[^/.]+$/, "") + ".annotation.json";
-          setAnnotationPath(autoAnno);
-        }
-        if (!outputPath) {
-          const autoOut = path.replace(/\.[^/.]+$/, "") + "-whiteboard.mp4";
-          setOutputPath(autoOut);
-        }
-        setStatusMsg({ text: `Đã chọn ảnh minh họa: ${path}`, ok: true });
+        setMasterAudioPath(path);
+        setStatusMsg({ text: `Đã chọn file âm thanh master: ${path}`, ok: true });
       }
     } catch (e: any) {
-      setStatusMsg({ text: `Lỗi chọn file: ${e.message || e}`, ok: false });
-    }
-  };
-
-  const handlePickAnnotation = async () => {
-    try {
-      const path = await api.pickFile([
-        { name: "Annotation JSON", extensions: ["json"] },
-      ]);
-      if (path) {
-        setAnnotationPath(path);
-        setStatusMsg({ text: `Đã chọn annotation: ${path}`, ok: true });
-      }
-    } catch (e: any) {
-      setStatusMsg({ text: `Lỗi chọn file: ${e.message || e}`, ok: false });
+      setStatusMsg({ text: `Lỗi chọn file âm thanh: ${errText(e)}`, ok: false });
     }
   };
 
@@ -152,108 +156,347 @@ export function WhiteboardEditor() {
     setStatusMsg(null);
     try {
       const res = await api.parseWhiteboardSrt(srtPath);
-      setSrtData(res);
-      setSelectedScene(0);
+
+      // Tự động khởi tạo danh sách cảnh từ SRT nếu dự án đang rỗng
+      const initialScenes: WhiteboardSceneItem[] = res.scenes.map((s, idx) => ({
+        id: `scene-${String(s.sceneIndex).padStart(2, "0")}`,
+        order: idx + 1,
+        revision: 1,
+        imagePath: "",
+        annotationPath: "",
+        timelineStartMs: s.timelineStartMs,
+        timelineEndMs: s.timelineEndMs,
+        durationMs: s.sceneDurationMs,
+        cues: res.cues.filter(
+          (c) => c.index >= s.cueRange[0] && c.index <= s.cueRange[1]
+        ),
+        status: "idle",
+      }));
+      setScenes(initialScenes);
+      setSelectedSceneIndex(0);
+
       setStatusMsg({
-        text: `Đã phân tích thành công ${res.cues.length} câu thoại, gợi ý ${res.scenes.length} phân cảnh!`,
+        text: `Đã phân tích ${res.cues.length} câu thoại, khởi tạo ${initialScenes.length} phân cảnh!`,
         ok: true,
       });
     } catch (e: any) {
-      setStatusMsg({ text: `Lỗi phân tích SRT: ${e.message || e}`, ok: false });
+      setStatusMsg({ text: `Lỗi phân tích SRT: ${errText(e)}`, ok: false });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAutoAnnotation = async () => {
-    if (!imagePath) {
-      setStatusMsg({ text: "Vui lòng chọn ảnh minh họa trước.", ok: false });
+  const handleGenerateSrtTts = async () => {
+    if (!srtPath) {
+      setStatusMsg({ text: "Vui lòng chọn tệp SRT trước khi tạo giọng đọc.", ok: false });
       return;
     }
-    // Ghi ra ô "annotation" đang nhập; nếu trống thì suy ra từ tên ảnh (giống handlePickImage).
-    const targetPath = annotationPath || imagePath.replace(/\.[^/.]+$/, "") + ".annotation.json";
+    setGeneratingTts(true);
+    setStatusMsg(null);
+    try {
+      const res = await api.generateWhiteboardSrtTts(srtPath, selectedVoice);
+      setMasterAudioPath(res.audio_path);
+      setStatusMsg({
+        text: `Đã tạo giọng đọc VieNeu Master Audio (${res.duration_sec}s): ${res.audio_path}`,
+        ok: true,
+      });
+    } catch (e: any) {
+      setStatusMsg({ text: `Lỗi tạo giọng đọc từ SRT: ${errText(e)}`, ok: false });
+    } finally {
+      setGeneratingTts(false);
+    }
+  };
 
-    // Cảnh đang chọn (mặc định cảnh đầu): dùng đúng thời lượng timeline và các câu phụ đề của cảnh đó,
-    // với mốc thời gian tính từ đầu cảnh (0 = đầu cảnh).
-    const scene = srtData?.scenes[selectedScene];
-    const sceneId = `scene-${String((scene?.sceneIndex ?? 1)).padStart(2, "0")}`;
-    const durationMs = scene?.sceneDurationMs ?? 8000;
-    const base = scene?.timelineStartMs ?? 0;
-    const sceneCues = scene
-      ? srtData!.cues
-          .filter((c: any) => c.index >= scene.cueRange[0] && c.index <= scene.cueRange[1])
-          .map((c: any) => ({
-            ...c,
-            startMs: Math.max(0, c.startMs - base),
-            endMs: Math.max(0, c.endMs - base),
-          }))
-      : [];
-    const storyBasis = scene ? String(scene.text).slice(0, 300) : "Hoạt hình bảng trắng";
+  // Thao tác với danh sách cảnh
+  const handleAddScene = () => {
+    const nextNum = scenes.length + 1;
+    const newScene: WhiteboardSceneItem = {
+      id: `scene-${String(nextNum).padStart(2, "0")}`,
+      order: nextNum,
+      revision: 1,
+      imagePath: "",
+      annotationPath: "",
+      timelineStartMs: 0,
+      timelineEndMs: 10000,
+      durationMs: 10000,
+      cues: [],
+      status: "idle",
+    };
+    setScenes([...scenes, newScene]);
+    setSelectedSceneIndex(scenes.length);
+  };
+
+  const handleDeleteScene = (idx: number) => {
+    if (scenes.length <= 1) {
+      setStatusMsg({ text: "Dự án cần ít nhất 1 phân cảnh.", ok: false });
+      return;
+    }
+    const next = scenes.filter((_, i) => i !== idx).map((s, i) => ({ ...s, order: i + 1 }));
+    setScenes(next);
+    if (selectedSceneIndex >= next.length) {
+      setSelectedSceneIndex(next.length - 1);
+    }
+  };
+
+  const handleMoveScene = (idx: number, dir: -1 | 1) => {
+    const targetIdx = idx + dir;
+    if (targetIdx < 0 || targetIdx >= scenes.length) return;
+    const copy = [...scenes];
+    const temp = copy[idx];
+    copy[idx] = copy[targetIdx];
+    copy[targetIdx] = temp;
+    const reordered = copy.map((s, i) => ({ ...s, order: i + 1 }));
+    setScenes(reordered);
+    setSelectedSceneIndex(targetIdx);
+  };
+
+  const updateActiveScene = (patch: Partial<WhiteboardSceneItem>) => {
+    if (!activeScene) return;
+    const next = [...scenes];
+    next[selectedSceneIndex] = {
+      ...activeScene,
+      ...patch,
+      revision: activeScene.revision + 1,
+    };
+    setScenes(next);
+  };
+
+  const handlePickSceneImage = async () => {
+    if (!activeScene) return;
+    try {
+      const path = await api.pickFile([{ name: "Image", extensions: ["png", "jpg", "jpeg"] }]);
+      if (path) {
+        const autoAnno = path.replace(/\.[^/.]+$/, "") + `.${activeScene.id}.annotation.json`;
+        let patch: Partial<WhiteboardSceneItem> = { imagePath: path, annotationPath: autoAnno };
+
+        // W3: Tự động phân tích style ảnh
+        try {
+          const analysis = await api.analyzeWhiteboardImage(path);
+          if (analysis) {
+            patch = {
+              ...patch,
+              imageType: analysis.imageType,
+              inkPath: analysis.recommended.inkPath,
+              colorFill: analysis.recommended.colorFill,
+              inkWeight: analysis.recommended.inkWeight,
+              colorWeight: analysis.recommended.colorWeight,
+              analysisConfidence: analysis.confidence,
+            };
+          }
+        } catch (e) {
+          console.warn("Lỗi phân tích style ảnh:", e);
+        }
+
+        updateActiveScene(patch);
+      }
+    } catch (e: any) {
+      setStatusMsg({ text: `Lỗi chọn ảnh: ${errText(e)}`, ok: false });
+    }
+  };
+
+  const handlePickSceneAnnotation = async () => {
+    if (!activeScene) return;
+    try {
+      const path = await api.pickFile([{ name: "Annotation JSON", extensions: ["json"] }]);
+      if (path) {
+        updateActiveScene({ annotationPath: path });
+      }
+    } catch (e: any) {
+      setStatusMsg({ text: `Lỗi chọn annotation: ${errText(e)}`, ok: false });
+    }
+  };
+
+  const handleAutoAnnotationCurrent = async () => {
+    if (!activeScene || !activeScene.imagePath) {
+      setStatusMsg({ text: "Vui lòng chọn ảnh minh họa cho cảnh này trước.", ok: false });
+      return;
+    }
+    const targetPath =
+      activeScene.annotationPath ||
+      activeScene.imagePath.replace(/\.[^/.]+$/, "") + `.${activeScene.id}.annotation.json`;
 
     setLoading(true);
     setStatusMsg(null);
     try {
-      const generate = (overwrite: boolean) =>
-        api.generateWhiteboardAnnotation(
-          imagePath,
-          sceneId,
-          storyBasis,
-          durationMs,
-          sceneCues,
-          targetPath,
-          overwrite
-        );
-      let res;
-      try {
-        res = await generate(false);
-      } catch (e: any) {
-        // Runner từ chối ghi đè âm thầm annotation người dùng có thể đã chỉnh tay.
-        if (!String(e?.message || e).includes("ANNOTATION_EXISTS")) throw e;
-        if (!confirm(`Tệp annotation đã tồn tại:\n${targetPath}\n\nGhi đè bằng khung mẫu mới? Nội dung bạn đã chỉnh sẽ mất.`)) {
-          setStatusMsg({ text: "Đã hủy: giữ nguyên annotation hiện có.", ok: false });
-          return;
-        }
-        res = await generate(true);
-      }
-      const saved = res.savedTo || targetPath;
-      setAnnotationPath(saved);
+      const res = await api.generateWhiteboardAnnotation(
+        activeScene.imagePath,
+        activeScene.id,
+        "Hoạt hình phân cảnh",
+        activeScene.durationMs,
+        activeScene.cues,
+        targetPath,
+        true
+      );
+      updateActiveScene({
+        annotationPath: res.savedTo || targetPath,
+        elements: (res.elements as any) || undefined,
+      });
       setStatusMsg({
-        text: `Đã sinh và lưu annotation cho ${sceneId} (${(durationMs / 1000).toFixed(1)}s, ${res.elements?.length || 0} vùng): ${saved}`,
+        text: `Đã sinh annotation cho ${activeScene.id} (${(activeScene.durationMs / 1000).toFixed(1)}s, ${res.elements?.length || 0} vùng vẽ): ${res.savedTo || targetPath}`,
         ok: true,
       });
     } catch (e: any) {
-      setStatusMsg({ text: `Lỗi sinh annotation: ${e.message || e}`, ok: false });
+      setStatusMsg({ text: `Lỗi tạo mẫu annotation: ${errText(e)}`, ok: false });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRenderVideo = async () => {
-    if (!imagePath || !outputPath) {
+  // Render một cảnh hiện tại
+  const handleRenderSingleScene = async () => {
+    if (!activeScene || !activeScene.imagePath) {
+      setStatusMsg({ text: "Cảnh hiện tại chưa chọn ảnh minh họa.", ok: false });
+      return;
+    }
+
+    const out =
+      activeScene.outputPath ||
+      activeScene.imagePath.replace(/\.[^/.]+$/, "") + `.${activeScene.id}.mp4`;
+
+    setLoading(true);
+    setStatusMsg(null);
+
+    try {
+      let annoPath = activeScene.annotationPath;
+      // Nếu chưa có annotation file hoặc file chưa tồn tại trên đĩa, tự động sinh trước khi render
+      if (!annoPath) {
+        annoPath = activeScene.imagePath.replace(/\.[^/.]+$/, "") + `.${activeScene.id}.annotation.json`;
+      }
+
+      setProgress({ percent: 10, message: `Kiểm tra/tạo nét vẽ cho ${activeScene.id}...` });
+      try {
+        const genRes = await api.generateWhiteboardAnnotation(
+          activeScene.imagePath,
+          activeScene.id,
+          "Hoạt hình phân cảnh",
+          activeScene.durationMs,
+          activeScene.cues,
+          annoPath,
+          false // không ghi đè nếu file đã có
+        );
+        if (genRes?.savedTo) {
+          annoPath = genRes.savedTo;
+          updateActiveScene({ annotationPath: annoPath });
+        }
+      } catch (e) {
+        console.warn("Lỗi auto sinh annotation trước render:", e);
+      }
+
+      setProgress({ percent: 20, message: `Bắt đầu render ${activeScene.id}...` });
+      const res = await api.renderWhiteboardScene(
+        activeScene.imagePath,
+        annoPath,
+        out,
+        fps,
+        paperColor,
+        undefined,
+        activeScene.audioPath,
+        activeScene.inkPath,
+        activeScene.colorFill,
+        activeScene.inkWeight,
+        activeScene.colorWeight
+      );
+      updateActiveScene({ annotationPath: annoPath, outputPath: res.output_path, status: "done" });
       setStatusMsg({
-        text: "Vui lòng chỉ định ảnh đầu vào và đường dẫn xuất video.",
+        text: `Render thành công ${activeScene.id}: ${res.output_path}`,
+        ok: true,
+      });
+    } catch (e: any) {
+      setStatusMsg({
+        text: isCancelled(e) ? "Đã hủy render." : `Lỗi render cảnh: ${errText(e)}`,
         ok: false,
       });
+    } finally {
+      setLoading(false);
+      setProgress(null);
+    }
+  };
+
+  // Lưu dự án
+  const handleSaveProject = async () => {
+    let path = projectPath;
+    if (!path) {
+      const selected = await api.saveFileDialog([{ name: "Whiteboard Project", extensions: ["whiteboard.json", "json"] }]);
+      if (!selected) return;
+      path = selected;
+      setProjectPath(path);
+    }
+    const project: WhiteboardProject = {
+      id: "project-" + Date.now(),
+      schemaVersion: 1,
+      revision: 1,
+      title: "Whiteboard Explainer Project",
+      fps,
+      paperColor,
+      scenes,
+      masterAudioPath: masterAudioPath || undefined,
+      outputVideoPath,
+    };
+    try {
+      await api.saveWhiteboardProject(path, project);
+      setStatusMsg({ text: `Đã lưu dự án thành công: ${path}`, ok: true });
+    } catch (e: any) {
+      setStatusMsg({ text: `Lỗi lưu dự án: ${errText(e)}`, ok: false });
+    }
+  };
+
+  // Mở dự án
+  const handleOpenProject = async () => {
+    try {
+      const path = await api.pickFile([{ name: "Whiteboard Project", extensions: ["whiteboard.json", "json"] }]);
+      if (!path) return;
+      const proj = await api.loadWhiteboardProject(path);
+      setProjectPath(path);
+      setFps(proj.fps || 30);
+      setPaperColor(proj.paperColor || "#F5EBD7");
+      setScenes(proj.scenes || []);
+      if (proj.masterAudioPath) setMasterAudioPath(proj.masterAudioPath);
+      if (proj.outputVideoPath) setOutputVideoPath(proj.outputVideoPath);
+      setSelectedSceneIndex(0);
+      setStatusMsg({ text: `Đã mở dự án: ${path} (${proj.scenes?.length || 0} cảnh)`, ok: true });
+    } catch (e: any) {
+      setStatusMsg({ text: `Lỗi mở dự án: ${errText(e)}`, ok: false });
+    }
+  };
+
+  // Xuất toàn bộ dự án
+  const handleRenderFullProject = async () => {
+    if (scenes.length === 0) {
+      setStatusMsg({ text: "Dự án chưa có phân cảnh nào.", ok: false });
       return;
     }
+    let out = outputVideoPath;
+    if (!out) {
+      const selected = await api.saveFileDialog([{ name: "Video MP4", extensions: ["mp4"] }]);
+      if (!selected) return;
+      out = selected;
+      setOutputVideoPath(out);
+    }
+
+    const project: WhiteboardProject = {
+      id: "project-run",
+      schemaVersion: 1,
+      revision: 1,
+      title: "Whiteboard Project",
+      fps,
+      paperColor,
+      scenes,
+      masterAudioPath: masterAudioPath || undefined,
+      outputVideoPath: out,
+    };
+
     setLoading(true);
-    setProgress({ percent: 0, message: "Đang khởi động..." });
+    setProgress({ percent: 0, message: "Chuẩn bị xuất toàn bộ dự án..." });
     setStatusMsg(null);
     try {
-      const res = await api.renderWhiteboardScene(
-        imagePath,
-        annotationPath,
-        outputPath,
-        fps,
-        paperColor
-      );
+      const res = await api.renderWhiteboardProject(project, out);
       setStatusMsg({
-        text: `Render thành công video bảng trắng: ${res.output_path} (${(res.file_size / 1024 / 1024).toFixed(2)} MB)`,
+        text: `Xuất thành công toàn bộ dự án (${res.scenes_count || scenes.length} cảnh): ${res.output_path}`,
         ok: true,
       });
     } catch (e: any) {
       setStatusMsg({
-        text: isCancelled(e) ? "Đã hủy render." : `Lỗi render bảng trắng: ${errText(e)}`,
+        text: isCancelled(e) ? "Đã hủy xuất dự án." : `Lỗi xuất dự án: ${errText(e)}`,
         ok: false,
       });
     } finally {
@@ -263,80 +506,59 @@ export function WhiteboardEditor() {
   };
 
   return (
-    <div className="panel-card" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-      {/* Tiêu đề & Giới thiệu */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <div className="panel-card" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      {/* Header & Công cụ Dự án */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <PenTool size={28} color="#e06c75" />
+          <PenTool size={26} color="#e06c75" />
           <div>
-            <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Hoạt Hình Bảng Trắng Vẽ Tay (Whiteboard Explainer)</h3>
+            <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Hoạt Hình Bảng Trắng Nhiều Phân Cảnh (Multi-Scene)</h3>
             <p className="panel-desc" style={{ margin: 0 }}>
-              Biến phụ đề SRT thành video hoạt hình bảng trắng vẽ tay trên nền giấy be ấm (`#F5EBD7`), 100% Offline không tốn credit Cloud.
+              Quản lý độc lập từng phân cảnh, timeline SRT, nét vẽ bám mực và ghép toàn dự án không gián đoạn.
             </p>
           </div>
         </div>
+
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button className="secondary-btn" onClick={handleOpenProject} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <FolderOpen size={14} /> Mở Dự Án
+          </button>
+          <button className="secondary-btn" onClick={handleSaveProject} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <Save size={14} /> Lưu Dự Án
+          </button>
+          <button
+            className="primary-btn"
+            onClick={handleRenderFullProject}
+            disabled={loading || scenes.length === 0}
+            style={{ display: "flex", alignItems: "center", gap: "6px" }}
+          >
+            {loading ? <RefreshCw size={14} className="spin" /> : <Film size={14} />} Xuất Toàn Bộ Dự Án
+          </button>
+        </div>
       </div>
 
+      {/* Môi trường & Banner cảnh báo */}
       {env && !env.ok && (
-        <div
-          style={{
-            padding: "12px 16px",
-            borderRadius: "8px",
-            backgroundColor: "#fffbeb",
-            border: "1px solid #fde68a",
-            color: "#92400e",
-            fontSize: "13px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px",
-          }}
-        >
+        <div style={{ padding: "10px 14px", borderRadius: "8px", backgroundColor: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <AlertCircle size={16} />
             <span>
-              Môi trường Python cho Whiteboard chưa sẵn sàng
+              Môi trường Python Whiteboard chưa sẵn sàng
               {env.missing.length > 0 ? `: thiếu ${env.missing.join(", ")}` : ""}.
-              {env.error ? ` ${env.error}` : ""}
+              {installLog ? ` (${installLog})` : ""}
             </span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <button
-              className="primary-btn"
-              onClick={handleInstallEnv}
-              disabled={installing || loading}
-              style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px", fontSize: "12px" }}
-            >
-              {installing ? <RefreshCw size={14} className="spin" /> : <Download size={14} />} Cài môi trường tự động
-            </button>
-            {installing && (
-              <button className="secondary-btn" onClick={handleCancel} style={{ padding: "6px 12px", fontSize: "12px" }}>
-                Hủy
-              </button>
-            )}
-            <span style={{ fontSize: "12px", opacity: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {installLog}
-            </span>
-          </div>
+          <button className="primary-btn" onClick={handleInstallEnv} disabled={installing || loading} style={{ padding: "4px 10px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
+            {installing ? <RefreshCw size={12} className="spin" /> : <Download size={12} />} Cài tự động
+          </button>
         </div>
       )}
 
-      {env?.ok && !env.ffmpeg && (
-        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-          Lưu ý: không tìm thấy ffmpeg trong PATH; ghép nhiều cảnh (merge) có thể cần ffmpeg.
-        </div>
-      )}
-
+      {/* Thanh tiến độ */}
       {loading && (
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: "#e2e8f0", overflow: "hidden" }}>
-            <div
-              style={{
-                width: `${progress ? progress.percent : 0}%`,
-                height: "100%",
-                background: "var(--primary)",
-                transition: "width 0.2s",
-              }}
-            />
+            <div style={{ width: `${progress ? progress.percent : 0}%`, height: "100%", background: "var(--primary)", transition: "width 0.2s" }} />
           </div>
           <span style={{ fontSize: "12px", color: "var(--text-muted)", minWidth: "170px" }}>
             {progress ? `${progress.percent.toFixed(0)}% · ${progress.message}` : "Đang xử lý..."}
@@ -348,163 +570,332 @@ export function WhiteboardEditor() {
       )}
 
       {statusMsg && (
-        <div
-          style={{
-            padding: "10px 14px",
-            borderRadius: "8px",
-            backgroundColor: statusMsg.ok ? "#f0fdf4" : "#fef2f2",
-            border: `1px solid ${statusMsg.ok ? "#bbf7d0" : "#fecaca"}`,
-            color: statusMsg.ok ? "#166534" : "#991b1b",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            fontSize: "13px",
-          }}
-        >
+        <div style={{ padding: "8px 12px", borderRadius: "8px", backgroundColor: statusMsg.ok ? "#f0fdf4" : "#fef2f2", border: `1px solid ${statusMsg.ok ? "#bbf7d0" : "#fecaca"}`, color: statusMsg.ok ? "#166534" : "#991b1b", display: "flex", alignItems: "center", gap: "8px", fontSize: "13px" }}>
           {statusMsg.ok ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
           <span>{statusMsg.text}</span>
         </div>
       )}
 
-      {/* Grid điều khiển */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-        {/* Cột 1: Phụ đề & Phân cảnh SRT */}
-        <div style={{ backgroundColor: "#f8fafc", padding: "16px", borderRadius: "8px", border: "1px solid var(--border-color)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-            <FileText size={18} color="var(--primary)" />
-            <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600 }}>1. Phụ Đề & Phân Cảnh (SRT)</h4>
-          </div>
-
-          <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
-            <input
-              type="text"
-              readOnly
-              placeholder="Chọn tệp phụ đề .srt..."
-              value={srtPath}
-              style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
-            />
-            <button className="secondary-btn" onClick={handlePickSrt} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <FolderOpen size={14} /> Chọn SRT
-            </button>
-          </div>
-
-          <button
-            className="primary-btn"
-            onClick={handleParseSrt}
-            disabled={!srtPath || loading}
-            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
-          >
-            {loading ? <RefreshCw size={14} className="spin" /> : <Sparkles size={14} />} Phân Tích Cảnh Theo SRT (25-35s)
-          </button>
-
-          {srtData && (
-            <div style={{ marginTop: "14px", maxHeight: "240px", overflowY: "auto", fontSize: "13px", background: "#ffffff", padding: "10px", borderRadius: "8px", border: "1px solid var(--border-color)" }}>
-              <div style={{ fontWeight: "600", marginBottom: "8px", color: "var(--text-main)" }}>
-                Gợi ý {srtData.scenes.length} phân cảnh (bấm để chọn cảnh dùng cho "Tạo mẫu"):
-              </div>
-              {srtData.scenes.map((s: any, i: number) => (
-                <div
-                  key={s.sceneIndex}
-                  onClick={() => setSelectedScene(i)}
-                  style={{
-                    padding: "6px 8px",
-                    borderBottom: "1px solid #f1f5f9",
-                    cursor: "pointer",
-                    borderRadius: "6px",
-                    background: i === selectedScene ? "#eff6ff" : "transparent",
-                    transition: "background 0.15s ease",
-                  }}
-                >
-                  <span style={{ fontWeight: 600, color: "var(--primary)" }}>Cảnh {s.sceneIndex}</span>{" "}
-                  <span style={{ color: "var(--text-muted)" }}>
-                    ({(s.timelineStartMs / 1000).toFixed(1)}–{(s.timelineEndMs / 1000).toFixed(1)}s, {(s.sceneDurationMs / 1000).toFixed(1)}s)
-                  </span>
-                  {s.belowMin && <span style={{ color: "#d97706", fontWeight: 500 }}> ⚠ ngắn</span>}
-                  {s.aboveMax && <span style={{ color: "#d97706", fontWeight: 500 }}> ⚠ dài</span>}:{" "}
-                  <span style={{ color: "var(--text-main)" }}>{s.text.slice(0, 45)}...</span>
-                </div>
-              ))}
+      {/* Bố cục 2 Cột: Quản lý Phân Cảnh & Chi Tiết Cảnh */}
+      <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: "16px" }}>
+        {/* Cột 1: Danh sách Phân Cảnh */}
+        <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <Layers size={16} color="var(--primary)" />
+              <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600 }}>Phân Cảnh ({scenes.length})</h4>
             </div>
-          )}
-        </div>
-
-        {/* Cột 2: Cấu hình Render & Xuất Video */}
-        <div style={{ backgroundColor: "#f8fafc", padding: "16px", borderRadius: "8px", border: "1px solid var(--border-color)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-            <Layers size={18} color="#16a34a" />
-            <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600 }}>2. Ảnh Line-Art & Cấu Hình Render</h4>
-          </div>
-
-          <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
-            <input
-              type="text"
-              readOnly
-              placeholder="Chọn ảnh minh họa 2D line-art (.png)..."
-              value={imagePath}
-              style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
-            />
-            <button className="secondary-btn" onClick={handlePickImage} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <FolderOpen size={14} /> Chọn Ảnh
+            <button className="secondary-btn" onClick={handleAddScene} style={{ padding: "4px 8px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
+              <Plus size={12} /> Thêm Cảnh
             </button>
           </div>
 
-          <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
-            <input
-              type="text"
-              placeholder="Đường dẫn annotation.json..."
-              value={annotationPath}
-              onChange={(e) => setAnnotationPath(e.target.value)}
-              style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
-            />
-            <button className="secondary-btn" onClick={handlePickAnnotation}>
-              Chọn
-            </button>
-            <button className="secondary-btn" onClick={handleAutoAnnotation} title="Tự động tạo khung annotation.json">
-              Tạo mẫu
-            </button>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Màu nền giấy</label>
+          {/* Phân tích SRT & Tạo TTS */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ display: "flex", gap: "6px" }}>
               <input
                 type="text"
-                value={paperColor}
-                onChange={(e) => setPaperColor(e.target.value)}
-                style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
+                readOnly
+                placeholder="Chọn .srt..."
+                value={srtPath ? srtPath.split("/").pop() : ""}
+                style={{ flex: 1, padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
               />
+              <button className="secondary-btn" onClick={handlePickSrt} style={{ padding: "4px 8px", fontSize: "12px" }}>
+                Chọn
+              </button>
+              <button className="secondary-btn" onClick={handleParseSrt} disabled={!srtPath || loading} style={{ padding: "4px 8px", fontSize: "12px" }}>
+                Chia Cảnh
+              </button>
             </div>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>FPS</label>
+
+            {/* Tạo giọng đọc VieNeu-TTS 1 chạm từ file SRT */}
+            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+              <select
+                value={selectedVoice}
+                onChange={(e) => setSelectedVoice(e.target.value)}
+                style={{ flex: 1, padding: "5px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+              >
+                {voices.length > 0 ? (
+                  voices.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="Thùy Dung">Thùy Dung (Nữ · Nam)</option>
+                    <option value="Thái Sơn">Thái Sơn (Nam · Nam)</option>
+                    <option value="Hải Đăng">Hải Đăng (Nam · Bắc)</option>
+                    <option value="Trúc Ly">Trúc Ly (Nữ · Bắc)</option>
+                    <option value="Quang Sơn">Quang Sơn (Nam · Trung)</option>
+                  </>
+                )}
+              </select>
+              <button
+                className="secondary-btn"
+                onClick={handleGenerateSrtTts}
+                disabled={!srtPath || generatingTts || loading}
+                title="Tạo giọng đọc thuyết minh master từ toàn bộ nội dung SRT"
+                style={{ padding: "5px 10px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px", color: "var(--primary)", whiteSpace: "nowrap" }}
+              >
+                {generatingTts ? <RefreshCw size={12} className="spin" /> : <Mic size={12} />}
+                Tạo TTS
+              </button>
+            </div>
+
+            {/* File âm thanh Master Audio (nếu đã có sẵn hoặc vừa tạo) */}
+            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
               <input
-                type="number"
-                value={fps}
-                onChange={(e) => setFps(parseInt(e.target.value) || 30)}
-                style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
+                type="text"
+                placeholder="Chọn file âm thanh (.wav/.mp3) đã có..."
+                value={masterAudioPath ? masterAudioPath.split("/").pop() : ""}
+                readOnly
+                title={masterAudioPath}
+                style={{ flex: 1, padding: "5px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: masterAudioPath ? "#f0fdf4" : "#ffffff" }}
               />
+              <button
+                className="secondary-btn"
+                onClick={handlePickMasterAudio}
+                title="Chọn file âm thanh Master nếu bạn đã có sẵn file thu âm/TTS"
+                style={{ padding: "5px 8px", fontSize: "12px", whiteSpace: "nowrap" }}
+              >
+                Chọn Audio
+              </button>
+              {masterAudioPath && (
+                <button
+                  className="icon-btn"
+                  onClick={() => setMasterAudioPath("")}
+                  title="Bỏ chọn file audio"
+                  style={{ padding: "4px" }}
+                >
+                  <Trash2 size={12} color="#94a3b8" />
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="form-group" style={{ marginBottom: "14px" }}>
-            <label>File xuất MP4</label>
-            <input
-              type="text"
-              value={outputPath}
-              onChange={(e) => setOutputPath(e.target.value)}
-              placeholder="Đường dẫn file video đầu ra..."
-              style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "var(--text-main)" }}
-            />
-          </div>
+          {/* Danh sách cuộn các Scene */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "420px", overflowY: "auto", paddingRight: "4px" }}>
+            {scenes.map((s, idx) => (
+              <div
+                key={s.id}
+                onClick={() => setSelectedSceneIndex(idx)}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: idx === selectedSceneIndex ? "1px solid var(--primary)" : "1px solid #e2e8f0",
+                  background: idx === selectedSceneIndex ? "#eff6ff" : "#ffffff",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  transition: "background 0.15s ease",
+                }}
+              >
+                <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span style={{ fontWeight: 600, fontSize: "13px", color: idx === selectedSceneIndex ? "var(--primary)" : "#1e293b" }}>
+                    #{s.order} {s.id}
+                  </span>
+                  <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                    {(s.durationMs / 1000).toFixed(1)}s · {s.imagePath ? "Đã có ảnh" : "Chưa có ảnh"}
+                  </div>
+                </div>
 
-          <button
-            className="primary-btn"
-            onClick={handleRenderVideo}
-            disabled={!imagePath || !outputPath || loading}
-            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
-          >
-            {loading ? <RefreshCw size={14} className="spin" /> : <Film size={14} />} Render Video Bảng Trắng (Ink → Color)
-          </button>
+                <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+                  <button className="icon-btn" onClick={(e) => { e.stopPropagation(); handleMoveScene(idx, -1); }} disabled={idx === 0} title="Lên">
+                    <ArrowUp size={12} />
+                  </button>
+                  <button className="icon-btn" onClick={(e) => { e.stopPropagation(); handleMoveScene(idx, 1); }} disabled={idx === scenes.length - 1} title="Xuống">
+                    <ArrowDown size={12} />
+                  </button>
+                  <button className="icon-btn" onClick={(e) => { e.stopPropagation(); handleDeleteScene(idx); }} title="Xóa">
+                    <Trash2 size={12} color="#ef4444" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
+
+        {/* Cột 2: Thiết lập Chi Tiết Cho Cảnh Đang Chọn */}
+        {activeScene ? (
+          <div style={{ background: "#f8fafc", padding: "16px", borderRadius: "8px", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column", gap: "14px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h4 style={{ margin: 0, fontSize: "15px", fontWeight: 600 }}>
+                Chi Tiết #{activeScene.order}: {activeScene.id}
+              </h4>
+              <button
+                className="secondary-btn"
+                onClick={handleRenderSingleScene}
+                disabled={loading || !activeScene.imagePath}
+                style={{ display: "flex", alignItems: "center", gap: "4px", padding: "6px 12px", fontSize: "12px" }}
+              >
+                <Play size={14} /> Render Thử Cảnh Này
+              </button>
+            </div>
+
+            {/* Ảnh minh họa */}
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>Ảnh minh họa (Line-Art / 2D)</label>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <input
+                  type="text"
+                  readOnly
+                  placeholder="Chọn ảnh cho cảnh này..."
+                  value={activeScene.imagePath}
+                  style={{ flex: 1, padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                />
+                <button className="secondary-btn" onClick={handlePickSceneImage} style={{ padding: "6px 10px", fontSize: "12px" }}>
+                  Chọn Ảnh
+                </button>
+              </div>
+            </div>
+
+            {/* Annotation */}
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>Annotation (JSON)</label>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <input
+                  type="text"
+                  placeholder="Đường dẫn annotation.json..."
+                  value={activeScene.annotationPath}
+                  onChange={(e) => updateActiveScene({ annotationPath: e.target.value })}
+                  style={{ flex: 1, padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                />
+                <button className="secondary-btn" onClick={handlePickSceneAnnotation} style={{ padding: "6px 10px", fontSize: "12px" }}>
+                  Chọn
+                </button>
+                <button className="secondary-btn" onClick={handleAutoAnnotationCurrent} style={{ padding: "6px 10px", fontSize: "12px" }}>
+                  Tạo Mẫu
+                </button>
+              </div>
+            </div>
+
+            {/* W3: Phong cách vẽ & Phân loại ảnh */}
+            <div style={{ background: "#ffffff", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", gap: "8px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-main)" }}>
+                  Phong cách vẽ & Nhận diện ảnh
+                </span>
+                {activeScene.imageType && (
+                  <span style={{ fontSize: "11px", padding: "2px 6px", borderRadius: "4px", background: activeScene.imageType === "line_art_mono" ? "#f0fdf4" : (activeScene.imageType === "colored" ? "#eff6ff" : "#fefce8"), color: activeScene.imageType === "line_art_mono" ? "#166534" : (activeScene.imageType === "colored" ? "#1d4ed8" : "#854d0e"), fontWeight: 600 }}>
+                    {activeScene.imageType === "line_art_mono" && "Nét đơn sắc (Line-Art)"}
+                    {activeScene.imageType === "filled_mono" && "Có mảng đen (Filled Mono)"}
+                    {activeScene.imageType === "colored" && "Ảnh màu (Colored)"}
+                    {activeScene.imageType === "blank" && "Ảnh rỗng (Blank)"}
+                    {activeScene.imageType === "uncertain" && "Chưa xác định"}
+                    {activeScene.analysisConfidence ? ` (${Math.round(activeScene.analysisConfidence * 100)}%)` : ""}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                <div>
+                  <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>Nét vẽ (Ink Path):</label>
+                  <select
+                    value={activeScene.inkPath || "grid"}
+                    onChange={(e) => updateActiveScene({ inkPath: e.target.value as any })}
+                    style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                  >
+                    <option value="grid">Lưới ô vuông (Grid - Mặc định)</option>
+                    <option value="skeleton">Khung xương bám nét (Skeleton)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>Tô màu (Color Fill):</label>
+                  <select
+                    value={activeScene.colorFill || "contour-wipe"}
+                    onChange={(e) => updateActiveScene({ colorFill: e.target.value as any })}
+                    style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                  >
+                    <option value="none">Không tô (Chỉ vẽ nét - Tối ưu Line-Art)</option>
+                    <option value="contour-wipe">Quét viền xuống (Contour-Wipe)</option>
+                    <option value="brush">Quét cọ theo quỹ đạo (Brush)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* W4: Danh sách các vùng vẽ (Elements / Regions) trực quan */}
+            {activeScene.elements && activeScene.elements.length > 0 && (
+              <div style={{ background: "#ffffff", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "6px" }}>
+                  Thứ tự & Vùng vẽ nhận diện ({activeScene.elements.length} vùng)
+                </label>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "160px", overflowY: "auto" }}>
+                  {activeScene.elements.map((el) => (
+                    <div
+                      key={el.id}
+                      style={{
+                        padding: "6px 8px",
+                        borderRadius: "4px",
+                        background: "#f8fafc",
+                        border: "1px solid #e2e8f0",
+                        fontSize: "12px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ fontWeight: 700, color: "var(--primary)" }}>#{el.sequence}</span>
+                        <span>{el.label || el.id}</span>
+                        <span style={{ fontSize: "10px", color: "#64748b", background: "#e2e8f0", padding: "1px 4px", borderRadius: "3px" }}>
+                          [{el.region.x}, {el.region.y}, {el.region.width}x{el.region.height}]
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#059669", fontWeight: 500 }}>
+                        {((el.reveal.durationMs || 0) / 1000).toFixed(1)}s ({el.reveal.direction})
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Thời lượng & Cấu hình */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>Thời lượng (ms)</label>
+                <input
+                  type="number"
+                  value={activeScene.durationMs}
+                  onChange={(e) => updateActiveScene({ durationMs: parseInt(e.target.value) || 1000 })}
+                  style={{ width: "100%", padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>Màu nền giấy</label>
+                <input
+                  type="text"
+                  value={paperColor}
+                  onChange={(e) => setPaperColor(e.target.value)}
+                  style={{ width: "100%", padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                />
+              </div>
+            </div>
+
+            {/* Phụ đề của cảnh nếu có */}
+            {activeScene.cues.length > 0 && (
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>
+                  Phụ đề trong cảnh ({activeScene.cues.length} câu)
+                </label>
+                <div style={{ maxHeight: "120px", overflowY: "auto", fontSize: "12px", background: "#ffffff", padding: "8px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                  {activeScene.cues.map((c: any) => (
+                    <div key={c.index} style={{ marginBottom: "4px" }}>
+                      <span style={{ color: "var(--primary)", fontWeight: 600 }}>#{c.index}</span> {c.text}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+            Chọn hoặc thêm một phân cảnh để bắt đầu cấu hình.
+          </div>
+        )}
       </div>
     </div>
   );

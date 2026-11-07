@@ -21,6 +21,11 @@ from pathlib import Path
 def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
+        for candidate in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
+            if Path(candidate).exists():
+                ffmpeg = candidate
+                break
+    if ffmpeg is None:
         return False
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
         for p in inputs:

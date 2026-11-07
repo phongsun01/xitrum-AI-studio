@@ -24,6 +24,12 @@ pub enum TtsRequest {
         output_path: String,
         speed: f32,
     },
+    GenerateSrtTts {
+        task_id: String,
+        srt_path: String,
+        voice_id: String,
+        output_path: String,
+    },
     Exit,
 }
 
@@ -93,6 +99,9 @@ impl TtsPipeline {
             }
             candidates.push("python".to_string());
         } else {
+            candidates.push("/opt/homebrew/bin/python3.11".to_string());
+            candidates.push("python3.11".to_string());
+            candidates.push("/usr/local/bin/python3.11".to_string());
             candidates.push("python3".to_string());
             candidates.push("python".to_string());
         }
@@ -220,6 +229,43 @@ impl TtsPipeline {
             TtsResponse::Done { output_path, duration_sec, .. } => Ok((output_path, duration_sec)),
             TtsResponse::Error { message, .. } => Err(anyhow!("Lỗi tạo giọng đọc: {}", message)),
             _ => Err(anyhow!("Phản hồi không mong muốn khi sinh giọng đọc")),
+        }
+    }
+
+    /// Tạo file Master Audio từ file SRT đồng bộ timestamp
+    pub async fn synthesize_srt(
+        &self,
+        task_id: &str,
+        srt_path: &Path,
+        voice_id: &str,
+        output_path: &Path,
+    ) -> Result<(String, f32)> {
+        let (mut child, mut stdin, mut reader) = self.spawn_runner().await?;
+
+        let req = TtsRequest::GenerateSrtTts {
+            task_id: task_id.to_string(),
+            srt_path: srt_path.to_string_lossy().to_string(),
+            voice_id: voice_id.to_string(),
+            output_path: output_path.to_string_lossy().to_string(),
+        };
+
+        let line = serde_json::to_string(&req)? + "\n";
+        stdin.write_all(line.as_bytes()).await?;
+        stdin.flush().await?;
+
+        let mut resp_line = String::new();
+        reader.read_line(&mut resp_line).await?;
+
+        let resp: TtsResponse = serde_json::from_str(&resp_line)
+            .map_err(|e| anyhow!("Lỗi phân tích phản hồi SRT TTS: {} (raw: {})", e, resp_line))?;
+
+        let _ = stdin.write_all(b"{\"action\":\"exit\"}\n").await;
+        let _ = child.kill().await;
+
+        match resp {
+            TtsResponse::Done { output_path, duration_sec, .. } => Ok((output_path, duration_sec)),
+            TtsResponse::Error { message, .. } => Err(anyhow!("Lỗi tạo SRT TTS: {}", message)),
+            _ => Err(anyhow!("Phản hồi không mong muốn khi sinh giọng đọc từ SRT")),
         }
     }
 }

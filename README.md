@@ -5,7 +5,26 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.7.2 (G1 Durable Queue & G2 Timeline Media Planner & Media Normalization)
+## 📦 Phiên Bản Hiện Tại: v0.7.3 (Whiteboard Studio Multi-Scene, AI Stroke Planner & Enhanced Rendering)
+
+Nâng cấp quan trọng phân hệ **Whiteboard Explainer Animation** lên chuẩn kiến trúc W0-W5 chuyên nghiệp:
+
+### 🎨 1. Whiteboard Studio Đa Phân Cảnh (Multi-Scene Project W1)
+- **Quản Lý Dự Án Theo Phân Cảnh**: Hỗ trợ tạo, sắp xếp thứ tự, chỉnh sửa từng cảnh (Scene) độc lập hoặc xuất video toàn dự án.
+- **Tự Động Phân Đoạn & Nhận Diện Vùng Vẽ (W4)**: Trích xuất thứ tự vẽ thông minh theo layout, phát hiện vùng viền nét (Ink) và tô màu (Color fill).
+- **Lập Kế Hoạch Nét Vẽ Tự Nhiên (W5 Stroke Planner)**: Áp dụng thuật toán bám khung xương (skeleton tracking), endpoint-first, lướt qua ngã ba đường thẳng giúp tay vẽ tự nhiên như họa sĩ thực thụ.
+
+### 🎙️ 2. Tích Hợp VieNeu-TTS Trực Tiếp Cho Whiteboard (W2)
+- **Sinh Giọng Đọc Trực Tiếp Trong Editor**: Chọn giọng đọc tiếng Việt offline (Thùy Dung, Quỳnh Nhi...) và tạo audio kèm thời lượng chính xác cho từng cảnh whiteboard.
+- **Hòa Âm & Ghép Nối Nâng Cao**: Ghép các video whiteboard từng cảnh kèm audio đồng bộ hoàn hảo không trễ lệch.
+
+### 🛡️ 3. Tối Ưu Hóa & Bảo Vệ Dữ Liệu
+- **Kích Thước Tay Vẽ Tối Ưu**: Điều chỉnh tỷ lệ bàn tay vẽ ~75% tránh che khuất chi tiết quan trọng trên bảng.
+- **Bảo Vệ Dữ Liệu Local**: Tự động loại trừ toàn bộ thư mục `input_images/` và `outputs/` trong `.gitignore` khi đóng gói và commit.
+
+---
+
+## 📦 Lịch Sử Phiên Bản: v0.7.2 (G1 Durable Queue & G2 Timeline Media Planner & Media Normalization)
 
 Nâng cấp quan trọng theo kế hoạch kiến trúc G1 & G2 sau phân tích hệ thống Sesame Studio, hoàn thiện tính chịu lỗi hàng đợi và xử lý timeline video/audio trung thực:
 

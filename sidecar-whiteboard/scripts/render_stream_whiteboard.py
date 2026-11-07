@@ -34,6 +34,7 @@ import numpy as np
 _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPT_DIR))
 import stream_render as sr  # noqa: E402
+import whiteboard_stroke_planner as wsp  # noqa: E402
 
 DEFAULT_HAND = _SCRIPT_DIR.parent / "assets" / "drawing-hand.png"
 
@@ -164,14 +165,29 @@ class RegionStreamRenderer:
             self.tip.stamp(snap, px, py)
         return snap
 
-    # ── 单区域的允许掩码：矩形 - 后续区域 - protectedRegions ──
+    # ── Đơn vùng cho phép: Bbox vùng hiện tại, loại trừ các vùng sau (trừ khi là quan hệ container) ──
     def _allowed_mask(self, element: dict, later_elements: list[dict]) -> np.ndarray:
         mask = np.zeros((self.out_h, self.out_w), dtype=bool)
         x0, y0, x1, y1 = _scaled_rect(element["region"], self.sx, self.sy, self.out_w, self.out_h)
         mask[y0:y1, x0:x1] = True
+        cur_area = (x1 - x0) * (y1 - y0)
+
         for later in later_elements:
             lx0, ly0, lx1, ly1 = _scaled_rect(later["region"], self.sx, self.sy, self.out_w, self.out_h)
-            mask[ly0:ly1, lx0:lx1] = False
+            later_area = (lx1 - lx0) * (ly1 - ly0)
+
+            # W4 Cải tiến: Nếu vùng sau là vùng con nằm gọn trong vùng hiện tại (container),
+            # không trừ thô bạo làm đứt nét viền ngoài của container!
+            # Chỉ trừ phần ruột bên trong của vùng sau (thu nhỏ 2-4px biên)
+            inter_w = max(0, min(x1, lx1) - max(x0, lx0))
+            inter_h = max(0, min(y1, ly1) - max(y0, ly0))
+            if inter_w * inter_h > 0.8 * later_area and cur_area > later_area * 1.5:
+                # Vùng hiện tại bao trùm vùng sau: chừa lại biên viền cho vùng hiện tại
+                margin = max(2, min(inter_w, inter_h) // 20)
+                mask[ly0+margin:ly1-margin, lx0+margin:lx1-margin] = False
+            else:
+                mask[ly0:ly1, lx0:lx1] = False
+
         for prot in element.get("reveal", {}).get("protectedRegions", []):
             px0, py0, px1, py1 = _scaled_rect(prot, self.sx, self.sy, self.out_w, self.out_h)
             mask[py0:py1, px0:px1] = False
@@ -189,25 +205,18 @@ class RegionStreamRenderer:
         return sr.flatten_streams(streams)
 
     def _region_skeleton_strokes(self, allowed: np.ndarray) -> list[list[tuple[int, int]]]:
-        """骨架模式：区域内墨迹细化 + 8 邻接追踪 + 重采样平滑。"""
+        """Cải tiến W5: Trích xuất nét vẽ khung xương tự nhiên (endpoint-first, ngã ba đi thẳng, vòng kín)."""
         cfg = self.cfg
         region_ink = self.ink_pixels & allowed
         if not region_ink.any():
             return []
         skel = sr._zhang_suen_skeleton(region_ink, max_iterations=160)
-        raw = sr.trace_8connected(skel, min_points=cfg.skeleton_min_points)
-        if not raw:
-            return []
-        spacing = cfg.skeleton_resample_spacing
-        out: list[list[tuple[int, int]]] = []
-        for stroke in raw:
-            pts = [(float(x), float(y)) for x, y in stroke]
-            pts = sr._resample_stroke_points(pts, spacing)
-            pts = sr._chaikin_smooth(pts, iterations=1)
-            pts = sr._resample_stroke_points(pts, spacing)
-            if len(pts) >= 2 and sr._stroke_cumulative_length(pts)[-1] > 2.0:
-                out.append([(int(round(x)), int(round(y))) for x, y in pts])
-        return sr._order_skeleton_strokes(out)
+        strokes = wsp.extract_smooth_skeleton_strokes(
+            skel,
+            min_points=cfg.skeleton_min_points,
+            spacing=cfg.skeleton_resample_spacing,
+        )
+        return strokes
 
     # ── 落墨（限制在 allowed 内）──
     def _reveal_ink_segment(self, a: tuple[int, int], b: tuple[int, int], allowed: np.ndarray) -> None:
@@ -379,72 +388,103 @@ class RegionStreamRenderer:
         writer = cv2.VideoWriter(str(raw_path), fourcc, cfg.fps, (self.out_w, self.out_h))
         if not writer.isOpened():
             raise RuntimeError("Không mở được bộ ghi video")
-        writer = _CountingWriter(writer, total_ms * cfg.fps / 1000.0)
+        # Khung hình dự tính: round(total_ms * cfg.fps / 1000)
+        target_total_frames = max(1, int(round(total_ms * cfg.fps / 1000.0)))
+        writer = _CountingWriter(writer, target_total_frames)
 
         weight_sum = cfg.ink_weight + cfg.color_weight
-        cur_ms = 0.0
-        ms_per_frame = 1000.0 / cfg.fps
+        written_frames = 0
 
-        def fill_static(until_ms: float) -> None:
-            nonlocal cur_ms
-            n = int(round((until_ms - cur_ms) / ms_per_frame))
-            if n <= 0:
+        def write_frame(frame: np.ndarray) -> None:
+            nonlocal written_frames
+            if written_frames < target_total_frames:
+                writer.write(frame)
+                written_frames += 1
+
+        def fill_static_frames(target_frames: int) -> None:
+            needed = target_frames - written_frames
+            if needed <= 0:
                 return
             snap = self.drawn.astype(np.uint8)
-            for _ in range(n):
-                writer.write(snap)
-            cur_ms += n * ms_per_frame
+            for _ in range(needed):
+                write_frame(snap)
 
         try:
             for idx, element in enumerate(elements):
                 reveal = element["reveal"]
                 start_ms = reveal["startMs"]
                 dur_ms = reveal["durationMs"]
-                fill_static(start_ms)
+
+                # 1. Giữ khoảng lặng đầu / giữa các vùng (không vẽ nét trước startMs)
+                target_start_frame = min(target_total_frames, int(round(start_ms * cfg.fps / 1000.0)))
+                fill_static_frames(target_start_frame)
 
                 allowed = self._allowed_mask(element, elements[idx + 1:])
-                ink_frames = max(1, round(dur_ms * cfg.ink_weight / weight_sum * cfg.fps / 1000))
-                color_frames = max(1, round(dur_ms * cfg.color_weight / weight_sum * cfg.fps / 1000))
+                target_end_frame = min(target_total_frames, int(round((start_ms + dur_ms) * cfg.fps / 1000.0)))
+                region_total_frames = max(1, target_end_frame - target_start_frame)
+
+                # Cải tiến W5: Trích xuất strokes nét vẽ trước để tính độ dài thực tế
+                strokes = None
+                samples: list[tuple[int, int]] = []
+                pen_lifts: set[int] = set()
+                centers: list[tuple[int, int]] = []
+                path = None
+                sample_cell = []
 
                 if cfg.ink_path_mode == "skeleton":
                     strokes = self._region_skeleton_strokes(allowed)
                     if strokes:
-                        samples, pen_lifts = [], set()
-                        for si, stroke in enumerate(strokes):
-                            if si > 0:
-                                pen_lifts.add(len(samples))
-                            samples.extend(stroke)
-                        self._lay_ink(writer, ink_frames, samples, pen_lifts, allowed)
+                        samples, pen_lifts = wsp.build_stroke_plan_with_pen_lifts(strokes)
                         centers = samples
                     else:
                         path = self._region_grid_path(allowed)
                         samples, pen_lifts, _ = self._grid_plan(path) if path else ([], set(), [])
-                        self._lay_ink(writer, ink_frames, samples, pen_lifts, allowed)
                         centers = [self._cell_center(c) for c in path]
                 else:
                     path = self._region_grid_path(allowed)
                     if path:
                         samples, pen_lifts, sample_cell = self._grid_plan(path)
-                        # 块填充：随笔尖推进逐格铺满（保证文字/大块实心）
-                        self._lay_ink_grid(writer, ink_frames, samples, pen_lifts, sample_cell, path, allowed)
                         centers = [self._cell_center(c) for c in path]
-                    else:
-                        self._lay_ink(writer, ink_frames, [], set(), allowed)
-                        centers = []
 
-                cur_ms += ink_frames * ms_per_frame
+                # Tính độ dài nét vẽ thực và diện tích màu cần tô
+                ink_len = float(len(samples))
+                color_pixels = int(np.count_nonzero(allowed & ~self.ink_pixels))
 
-                if cfg.color_fill == "contour-wipe":
-                    self._wash_contour(writer, color_frames, allowed)
+                # Phân bổ khung hình thích ứng (W5)
+                ink_frames, color_frames = wsp.calculate_adaptive_budget(
+                    ink_stroke_length=ink_len,
+                    color_pixel_count=color_pixels,
+                    total_frames=region_total_frames,
+                    ink_weight=cfg.ink_weight,
+                    color_weight=cfg.color_weight,
+                )
+
+                class _FrameWriterWrapper:
+                    def __init__(self, write_fn):
+                        self._fn = write_fn
+                    def write(self, f):
+                        self._fn(f)
+
+                f_writer = _FrameWriterWrapper(write_frame)
+
+                if cfg.ink_path_mode == "skeleton":
+                    self._lay_ink(f_writer, ink_frames, samples, pen_lifts, allowed)
                 else:
-                    self._wash_brush(writer, color_frames, centers, allowed)
-                cur_ms += color_frames * ms_per_frame
+                    if path:
+                        # 块填充：随笔尖推进逐格铺满（保证文字/大块实心）
+                        self._lay_ink_grid(f_writer, ink_frames, samples, pen_lifts, sample_cell, path, allowed)
+                    else:
+                        self._lay_ink(f_writer, ink_frames, [], set(), allowed)
 
-            # 凝视：补到 total_ms，并确保结尾至少停留 0.5s 完整原图
-            gaze_until = max(total_ms, cur_ms + 500)
-            # 最终帧显示完整原图（凝视）
-            self.drawn[...] = self.color_img.astype(np.float32)
-            fill_static(gaze_until)
+                if color_frames > 0:
+                    if cfg.color_fill == "contour-wipe":
+                        self._wash_contour(f_writer, color_frames, allowed)
+                    else:
+                        self._wash_brush(f_writer, color_frames, centers, allowed)
+
+            # Lấp đầy các khung hình còn lại cho đến đúng target_total_frames
+            # Không tự ý đè self.drawn[...] = self.color_img để che pixel chưa vẽ.
+            fill_static_frames(target_total_frames)
         finally:
             writer.release()
         return raw_path
@@ -501,8 +541,10 @@ def _parse_args(argv=None):
     p.add_argument("--bare-tip", action="store_true", help="Không chồng đầu bút/bàn tay")
     p.add_argument("--ink-path", default="grid", choices=["grid", "skeleton"],
                    help="Đường đi nét bút: grid lưới (mặc định); skeleton bám khung xương")
-    p.add_argument("--color-fill", default="contour-wipe", choices=["contour-wipe", "brush"],
-                   help="Tô màu: contour-wipe quét theo đường viền (mặc định); brush quét cọ theo quỹ đạo")
+    p.add_argument("--color-fill", default="contour-wipe", choices=["contour-wipe", "brush", "none"],
+                   help="Tô màu: contour-wipe quét theo đường viền (mặc định); brush quét cọ theo quỹ đạo; none bỏ qua tô màu")
+    p.add_argument("--ink-weight", type=float, default=None, help="Trọng số phân bổ thời gian vẽ nét")
+    p.add_argument("--color-weight", type=float, default=None, help="Trọng số phân bổ thời gian tô màu")
     p.add_argument("--pause", default="heavy", choices=["heavy", "auto", "light", "off"],
                    help="Nhịp dừng ở đoạn khởi bút (dự phòng, ảnh hưởng yếu khi vẽ theo từng vùng)")
     p.add_argument("--fps", type=int, default=None)
@@ -527,6 +569,13 @@ def _build_cfg(args) -> sr.Config:
         kw["brush_radius"] = args.brush_radius
     if args.cap_long_edge is not None:
         kw["cap_long_edge"] = args.cap_long_edge
+    if args.ink_weight is not None:
+        kw["ink_weight"] = args.ink_weight
+    if args.color_weight is not None:
+        kw["color_weight"] = args.color_weight
+    if args.color_fill == "none":
+        kw["color_weight"] = 0.0
+        kw["ink_weight"] = 1.0
     kw["ink_path_mode"] = args.ink_path
     kw["color_fill"] = args.color_fill
     kw["pause_mode"] = args.pause
@@ -546,12 +595,13 @@ def main(argv=None) -> int:
         print(f"[err] Không đọc được ảnh: {args.image}")
         return 1
     try:
-        annotation = json.loads(Path(args.annotation).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        print(f"[err] Không đọc được annotation: {e}")
-        return 1
-    if not annotation.get("elements"):
-        print("[err] Annotation không có elements")
+        raw_annotation = json.loads(Path(args.annotation).read_text(encoding="utf-8"))
+        import whiteboard_schema
+        annotation, schema_warnings = whiteboard_schema.adapt_and_validate_annotation(raw_annotation)
+        for w in schema_warnings:
+            print(f"[warn] {w}")
+    except Exception as e:
+        print(f"[err] Không đọc hoặc kiểm thực được annotation: {e}")
         return 1
 
     total_ms = args.total_ms if args.total_ms is not None else annotation.get("sceneDurationMs")

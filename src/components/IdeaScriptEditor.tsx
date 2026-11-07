@@ -155,6 +155,13 @@ export const IdeaScriptEditor: React.FC<Props> = ({ onAddToast, onRefreshTasks, 
     return base;
   };
 
+  // Tạo prompt ảnh chuyên dụng cho Whiteboard (Line-art, sạch, nền trắng tinh, nét vẽ mực rõ ràng)
+  const getWhiteboardPrompt = (scene: ScriptSceneItem): string => {
+    const desc = scene.visual_prompt || scene.narration || "";
+    const cleanDesc = desc.replace(/^(Cảnh \d+:|Scene \d+:)\s*/i, "").trim();
+    return `Minimalist clean whiteboard line art sketch of ${cleanDesc}, black ink on pure solid white background, high contrast vector style, continuous outline contour, 2D minimalist explainer illustration, no shading, no gradients, no photorealism, isolated on white`;
+  };
+
   // Load danh sách kịch bản & danh sách giọng đọc
   const loadScripts = async () => {
     try {
@@ -1405,25 +1412,64 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
                   </div>
 
                   {/* Prompt cuối sẽ gửi (Read-only preview) */}
-                  <div style={{ background: "#f1f5f9", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>
-                        👁️ Prompt cuối sẽ gửi sang Muse (Đã ráp Camera, Style & Lock):
-                      </span>
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        style={{ padding: "2px 6px", fontSize: "10px" }}
-                        onClick={() => {
-                          navigator.clipboard.writeText(getFinalPreviewPrompt(scene));
-                          onAddToast("info", "Đã copy prompt cuối!");
-                        }}
-                      >
-                        Copy
-                      </button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div style={{ background: "#f1f5f9", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                        <span style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>
+                          👁️ Prompt cuối gửi sang Muse (Video):
+                        </span>
+                        <button
+                          type="button"
+                          className="secondary-btn"
+                          style={{ padding: "2px 6px", fontSize: "10px" }}
+                          onClick={() => {
+                            navigator.clipboard.writeText(getFinalPreviewPrompt(scene));
+                            onAddToast("info", "Đã copy prompt Muse!");
+                          }}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#1e293b", whiteSpace: "pre-wrap", lineHeight: 1.4, maxHeight: "80px", overflowY: "auto" }}>
+                        {getFinalPreviewPrompt(scene)}
+                      </div>
                     </div>
-                    <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#1e293b", whiteSpace: "pre-wrap", lineHeight: 1.4, maxHeight: "100px", overflowY: "auto" }}>
-                      {getFinalPreviewPrompt(scene)}
+
+                    {/* Prompt tạo ảnh cho Whiteboard */}
+                    <div style={{ background: "#fefce8", padding: "8px 10px", borderRadius: "6px", border: "1px solid #fef08a" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                        <span style={{ fontSize: "11px", fontWeight: 600, color: "#854d0e", display: "flex", alignItems: "center", gap: "4px" }}>
+                          🖍️ Prompt tạo ảnh nét vẽ Whiteboard (Line-Art Sketch):
+                        </span>
+                        <div style={{ display: "flex", gap: "4px" }}>
+                          <button
+                            type="button"
+                            className="secondary-btn"
+                            style={{ padding: "2px 6px", fontSize: "10px", color: "#854d0e" }}
+                            onClick={() => {
+                              handleUpdateSceneField(scene.id, "visual_prompt", getWhiteboardPrompt(scene));
+                              onAddToast("success", "Đã áp dụng vào Visual Prompt!");
+                            }}
+                            title="Áp dụng prompt này vào ô Visual Prompt của cảnh"
+                          >
+                            Áp Dụng
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-btn"
+                            style={{ padding: "2px 6px", fontSize: "10px", color: "#854d0e" }}
+                            onClick={() => {
+                              navigator.clipboard.writeText(getWhiteboardPrompt(scene));
+                              onAddToast("info", "Đã copy prompt Whiteboard!");
+                            }}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#713f12", whiteSpace: "pre-wrap", lineHeight: 1.4, maxHeight: "80px", overflowY: "auto" }}>
+                        {getWhiteboardPrompt(scene)}
+                      </div>
                     </div>
                   </div>
                 </div>

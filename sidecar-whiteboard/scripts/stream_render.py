@@ -34,6 +34,11 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _ASSETS_DIR = _SCRIPT_DIR.parent / "assets"
 DEFAULT_HAND_PNG = _ASSETS_DIR / "drawing-hand.png"
 
+try:
+    import whiteboard_stroke_planner as wsp
+except ImportError:
+    wsp = None
+
 
 def _imread_any(path: str | Path, flags: int = cv2.IMREAD_COLOR) -> np.ndarray | None:
     """
@@ -62,7 +67,7 @@ class Config:
     gaze_seconds: float = 3.0      # 凝视段基准秒数
     ink_threshold: int = 10        # 像素灰度低于此值视为“墨迹”
     ink_reveal_radius: int = 4     # 笔尖每段轨迹可揭示线稿的半径
-    target_hand_height: int = 493  # 手部素材缩放后的目标高度（按 1080p 调校）
+    target_hand_height: int = 370  # 手部素材缩放后的目标高度（原 493，缩小至 ~75% 避免遮挡画面）
     # 笔尖在素材中的归一化坐标（0..1），决定落墨点对齐到素材的哪个像素。
     # 内置 drawing-hand.png 裁剪后，笔尖落在图像左上角，故锚点取 (0, 0)。
     # 这里描述的是真实落墨接触点，而非手部图像的外框。
@@ -1097,12 +1102,23 @@ class StreamBoardRenderer:
     # ── 骨架级笔迹路径（Zhang-Suen 细化 + 8邻接最直边追踪）──
     def _build_skeleton_path(self) -> list[list[tuple[int, int]]]:
         """
-        用骨架追踪生成像素级有序笔画序列，替代网格格中心插值。
-        笔尖走真实骨架，比网格中心更贴合原图线条；
-        交叉点处沿最直边继续走，避免三角碎笔画。
+        Cải tiến W5: Trích xuất đường nét theo khung xương tự nhiên (endpoint-first, qua ngã ba đi thẳng).
         """
         cfg = self.cfg
         skel = _zhang_suen_skeleton(self.ink_pixels, max_iterations=160)
+        if wsp is not None:
+            processed = wsp.extract_smooth_skeleton_strokes(
+                skel,
+                min_points=cfg.skeleton_min_points,
+                spacing=cfg.skeleton_resample_spacing,
+            )
+            if not processed:
+                print("  [warn] Bám khung xương không có nét, quay về đường đi theo tâm ô")
+                return []
+            total_pts = sum(len(s) for s in processed)
+            print(f"  Bám khung xương (W5): {len(processed)} nét, {total_pts} điểm lấy mẫu")
+            return processed
+
         raw_strokes = trace_8connected(skel, min_points=cfg.skeleton_min_points)
         if not raw_strokes:
             print("  [warn] Bám khung xương không có nét, quay về đường đi theo tâm ô")

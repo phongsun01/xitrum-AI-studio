@@ -1,4 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
+import {
+  WhiteboardParseSrtResponse,
+  WhiteboardGenerateAnnotationResponse,
+  WhiteboardRenderResponse,
+  WhiteboardMergeResponse,
+  WhiteboardEnvCheck,
+  WhiteboardSrtCue,
+  WhiteboardProject,
+  WhiteboardImageAnalysis,
+} from "./types/whiteboard";
 import { open } from "@tauri-apps/plugin-dialog";
 
 export interface TaskItem {
@@ -279,6 +289,11 @@ export const api = {
       voiceId,
       speed: speed ?? 1.0,
     }),
+  generateWhiteboardSrtTts: (srtPath: string, voiceId: string) =>
+    invoke<{ audio_path: string; duration_sec: number }>("generate_whiteboard_srt_tts", {
+      srtPath,
+      voiceId,
+    }),
   previewTtsVoice: (voiceId: string, text?: string) =>
     invoke<string>("preview_tts_voice", { voiceId, text: text ?? null }),
 
@@ -335,35 +350,29 @@ export const api = {
     return selected as string | null;
   },
 
+  // Mở hộp thoại lưu file
+  saveFileDialog: async (filters?: { name: string; extensions: string[] }[]) => {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const selected = await save({
+      filters,
+    });
+    return selected as string | null;
+  },
+
   // Whiteboard Animation API (F16)
   parseWhiteboardSrt: (srtPath: string) =>
-    invoke<{
-      cues: { index: number; startMs: number; endMs: number; durMs: number; text: string }[];
-      scenes: {
-        sceneIndex: number;
-        startMs: number;
-        endMs: number;
-        /** Ranh giới thật trên timeline SRT; các cảnh lát kín 0 → hết phụ đề. */
-        timelineStartMs: number;
-        timelineEndMs: number;
-        sceneDurationMs: number;
-        belowMin: boolean;
-        aboveMax: boolean;
-        cueRange: [number, number];
-        text: string;
-      }[];
-    }>("parse_whiteboard_srt", { srtPath }),
+    invoke<WhiteboardParseSrtResponse>("parse_whiteboard_srt", { srtPath }),
 
   generateWhiteboardAnnotation: (
     imagePath: string,
     sceneId?: string,
     storyBasis?: string,
     durationMs?: number,
-    cues?: any[],
+    cues?: WhiteboardSrtCue[] | Record<string, unknown>[],
     outputPath?: string,
     overwrite?: boolean
   ) =>
-    invoke<{ elements?: any[]; savedTo?: string; [key: string]: any }>(
+    invoke<WhiteboardGenerateAnnotationResponse>(
       "generate_whiteboard_annotation",
       {
         imagePath,
@@ -376,41 +385,72 @@ export const api = {
       }
     ),
 
+  analyzeWhiteboardImage: (imagePath: string) =>
+    invoke<WhiteboardImageAnalysis>("analyze_whiteboard_image", { imagePath }),
+
   renderWhiteboardScene: (
     imagePath: string,
     annotationPath: string,
     outputPath: string,
     fps?: number,
     paperColor?: string,
-    handPath?: string
+    handPath?: string,
+    audioPath?: string,
+    inkPath?: string,
+    colorFill?: string,
+    inkWeight?: number,
+    colorWeight?: number
   ) =>
-    invoke<{ output_path: string; file_size: number }>("render_whiteboard_scene", {
+    invoke<WhiteboardRenderResponse>("render_whiteboard_scene", {
       imagePath,
       annotationPath,
       outputPath,
       fps,
       paperColor,
       handPath,
+      audioPath,
+      inkPath,
+      colorFill,
+      inkWeight,
+      colorWeight,
     }),
 
-  mergeWhiteboardScenes: (videoPaths: string[], outputPath: string) =>
-    invoke<{ output_path: string; file_size: number }>("merge_whiteboard_scenes", {
+  mergeWhiteboardScenes: (
+    videoPaths: string[],
+    outputPath: string,
+    masterAudioPath?: string
+  ) =>
+    invoke<WhiteboardMergeResponse>("merge_whiteboard_scenes", {
       videoPaths,
       outputPath,
+      masterAudioPath,
+    }),
+
+  saveWhiteboardProject: (filePath: string, project: WhiteboardProject) =>
+    invoke<{ success: boolean; filePath: string }>("save_whiteboard_project", {
+      filePath,
+      project,
+    }),
+
+  loadWhiteboardProject: (filePath: string) =>
+    invoke<WhiteboardProject>("load_whiteboard_project", {
+      filePath,
+    }),
+
+  renderWhiteboardProject: (
+    project: WhiteboardProject,
+    outputVideoPath: string
+  ) =>
+    invoke<WhiteboardRenderResponse>("render_whiteboard_project", {
+      project,
+      outputVideoPath,
     }),
 
   /** Dừng thao tác Whiteboard đang chạy (render, ghép, cài môi trường). */
   cancelWhiteboard: () => invoke<void>("cancel_whiteboard"),
 
   checkWhiteboardEnv: () =>
-    invoke<{
-      ok: boolean;
-      python?: string;
-      pythonVersion?: string;
-      missing: string[];
-      ffmpeg?: string | null;
-      error?: string;
-    }>("check_whiteboard_env"),
+    invoke<WhiteboardEnvCheck>("check_whiteboard_env"),
 
   installWhiteboardEnv: () =>
     invoke<{ python: string; venvDir: string }>("install_whiteboard_env"),

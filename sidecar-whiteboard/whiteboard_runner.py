@@ -75,6 +75,17 @@ def send_json(data):
 
 
 # ──────────────────────────────────────────────────────────────
+# analyze_image_style (W3)
+# ──────────────────────────────────────────────────────────────
+def handle_analyze_image_style(req):
+    import whiteboard_analyzer
+    image_path = req.get("image_path")
+    if not image_path or not os.path.exists(image_path):
+        raise ValueError(f"Không tìm thấy ảnh: {image_path}")
+    return whiteboard_analyzer.analyze_image_style(image_path)
+
+
+# ──────────────────────────────────────────────────────────────
 # parse_srt
 # ──────────────────────────────────────────────────────────────
 def handle_parse_srt(req):
@@ -311,28 +322,23 @@ def handle_generate_annotation(req):
 
     cues = [c if isinstance(c, dict) else {"text": str(c)} for c in raw_cues]
 
-    boxes = _merge_overlapping(_detect_ink_boxes(img))
+    # W4: Tách vùng thông minh (Component Ordering & Smart Segmentation)
+    import whiteboard_segmenter
     limit = min(len(cues), MAX_AUTO_REGIONS) if cues else MAX_AUTO_REGIONS
-    while len(boxes) > max(limit, 1):
-        boxes = _merge_overlapping(_merge_closest(boxes))
-
-    if boxes:
-        pad = max(6, int(round(0.012 * max(width, height))))
-        boxes = [[max(0, b[0] - pad), max(0, b[1] - pad),
-                  min(width, b[2] + pad), min(height, b[3] + pad)] for b in boxes]
-        boxes = _reading_order(boxes, height)
-    else:
-        # Ảnh trống hoặc không tách được nét mực: dùng một vùng toàn khung.
-        boxes = [[0, 0, width, height]]
+    segmented = whiteboard_segmenter.segment_and_order_regions(img, max_regions=limit, cues_count=len(cues))
+    boxes = [s["box"] for s in segmented]
 
     cue_chunks = _chunk(cues, len(boxes)) if cues else []
-    annotation = {
+    import whiteboard_schema
+    raw_annotation = {
+        "schemaVersion": whiteboard_schema.CURRENT_SCHEMA_VERSION,
         "sceneId": scene_id,
         "canvas": {"width": width, "height": height},
         "storyBasis": story_basis,
         "sceneDurationMs": duration_ms,
         "elements": _build_elements(boxes, width, height, cue_chunks, duration_ms),
     }
+    annotation, _ = whiteboard_schema.adapt_and_validate_annotation(raw_annotation)
 
     result = dict(annotation)
     if output_path:
@@ -359,6 +365,7 @@ def _normalize_paper_color(value):
 
 def handle_render_scene(req):
     import render_stream_whiteboard
+    import whiteboard_audio
 
     image_path = req.get("image_path")
     annotation_path = req.get("annotation_path")
@@ -366,6 +373,26 @@ def handle_render_scene(req):
     fps = int(req.get("fps", 30))
     paper_color = _normalize_paper_color(req.get("paper_color"))
     hand_path = req.get("hand_path")
+    audio_path = req.get("audio_path")  # Tuỳ chọn: audio riêng cho cảnh này
+    ink_path = req.get("ink_path")
+    color_fill = req.get("color_fill")
+    ink_weight = req.get("ink_weight")
+    color_weight = req.get("color_weight")
+
+    # W3: Nếu chưa chỉ định rõ ink_path hoặc color_fill, tự động phân tích ảnh
+    if not ink_path or not color_fill:
+        try:
+            import whiteboard_analyzer
+            style_info = whiteboard_analyzer.resolve_scene_style(
+                image_path,
+                user_override={"inkPath": ink_path, "colorFill": color_fill, "inkWeight": ink_weight, "colorWeight": color_weight}
+            )["resolved"]
+            ink_path = style_info["inkPath"]
+            color_fill = style_info["colorFill"]
+            ink_weight = style_info["inkWeight"]
+            color_weight = style_info["colorWeight"]
+        except Exception:
+            pass
 
     if not 1 <= fps <= 120:
         raise ValueError(f"FPS không hợp lệ: {fps} (cần từ 1 đến 120)")
@@ -384,12 +411,25 @@ def handle_render_scene(req):
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-    # Khớp với CLI của render_stream_whiteboard.py: image annotation output [hand] [tuỳ chọn].
-    # Tham số vị trí "hand" phải đứng ngay sau output, trước các tuỳ chọn --xxx.
-    cmd_args = [image_path, annotation_path, output_path]
+    # Nếu có audio_path, render video vào file tạm video-only trước rồi mux audio
+    actual_render_out = output_path
+    temp_video_only = None
+    if audio_path and os.path.exists(audio_path):
+        temp_video_only = output_path + ".v_only.mp4"
+        actual_render_out = temp_video_only
+
+    cmd_args = [image_path, annotation_path, actual_render_out]
     if hand_path and os.path.exists(hand_path):
         cmd_args.append(hand_path)
     cmd_args += ["--fps", str(fps), "--paper-color", paper_color]
+    if ink_path:
+        cmd_args += ["--ink-path", str(ink_path)]
+    if color_fill:
+        cmd_args += ["--color-fill", str(color_fill)]
+    if ink_weight is not None:
+        cmd_args += ["--ink-weight", str(ink_weight)]
+    if color_weight is not None:
+        cmd_args += ["--color-weight", str(color_weight)]
 
     task_id = req.get("task_id", "")
     last = [-1.0, 0.0]  # phần trăm, thời điểm gửi gần nhất
@@ -411,6 +451,18 @@ def handle_render_scene(req):
         render_stream_whiteboard.PROGRESS_CALLBACK = None
     if ret_code != 0:
         raise RuntimeError(f"Render bảng trắng thất bại, exit code: {ret_code}")
+
+    # Nếu có audio, mux vào video đầu ra chính
+    if temp_video_only and os.path.exists(temp_video_only):
+        send_progress(task_id, 98, "Đang gắn âm thanh phân cảnh")
+        ok = whiteboard_audio.mux_video_and_audio(temp_video_only, audio_path, output_path)
+        try:
+            os.remove(temp_video_only)
+        except Exception:
+            pass
+        if not ok:
+            raise RuntimeError(f"Gắn âm thanh thất bại cho {output_path}")
+
     send_progress(task_id, 100, "Hoàn tất")
 
     return {
@@ -421,8 +473,10 @@ def handle_render_scene(req):
 
 def handle_merge_scenes(req):
     import merge_scenes
+    import whiteboard_audio
     video_paths = req.get("video_paths", [])
     output_path = req.get("output_path")
+    master_audio_path = req.get("master_audio_path")  # Tuỳ chọn: master audio cho cả bài
 
     if not video_paths or len(video_paths) == 0:
         raise ValueError("Danh sách video phân cảnh rỗng.")
@@ -434,11 +488,26 @@ def handle_merge_scenes(req):
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
+    target_video_out = output_path
+    temp_concat_video = None
+    if master_audio_path and os.path.exists(master_audio_path):
+        temp_concat_video = output_path + ".v_concat.mp4"
+        target_video_out = temp_concat_video
+
     # Khớp với CLI của merge_scenes.py: --inputs ... --output ...
-    cmd_args = ["--inputs", *video_paths, "--output", output_path]
+    cmd_args = ["--inputs", *video_paths, "--output", target_video_out]
     ret_code = merge_scenes.main(cmd_args)
     if ret_code != 0:
         raise RuntimeError(f"Ghép các phân cảnh thất bại, exit code: {ret_code}")
+
+    if temp_concat_video and os.path.exists(temp_concat_video):
+        ok = whiteboard_audio.mux_video_and_audio(temp_concat_video, master_audio_path, output_path)
+        try:
+            os.remove(temp_concat_video)
+        except Exception:
+            pass
+        if not ok:
+            raise RuntimeError(f"Gắn master audio thất bại cho video hoàn chỉnh: {output_path}")
 
     return {
         "output_path": output_path,
@@ -467,6 +536,7 @@ def handle_check_env(req):
 
 HANDLERS = {
     "check_env": handle_check_env,
+    "analyze_image_style": handle_analyze_image_style,
     "parse_srt": handle_parse_srt,
     "generate_annotation": handle_generate_annotation,
     "render_scene": handle_render_scene,

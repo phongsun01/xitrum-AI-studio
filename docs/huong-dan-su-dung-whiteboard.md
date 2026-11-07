@@ -1,0 +1,139 @@
+# Hướng Dẫn Sử Dụng Tính Năng Whiteboard (Vẽ Tay Bảng Trắng) Trên Xitrum AI Studio
+
+Tài liệu này hướng dẫn chi tiết quy trình tạo video hoạt hình bảng trắng vẽ tay (Whiteboard Explainer Video) nhiều phân cảnh với âm thanh thuyết minh đồng bộ trên ứng dụng **Xitrum AI Studio**.
+
+---
+
+## 1. Chuẩn Bị Tài Nguyên Dự Án
+
+Trước khi bắt đầu trên giao diện ứng dụng, bạn nên chuẩn bị thư mục chứa các tài nguyên sau:
+
+1. **File Phụ Đề (`.srt`)**: 
+   - Chứa mốc thời gian và lời thoại dẫn dắt.
+   - Trình phân tích của app sẽ dựa vào các mốc nghỉ trong SRT để đề xuất chia video thành các cảnh (mỗi cảnh thường kéo dài từ 25s – 35s).
+2. **File Thuyết Minh Master (`.wav` hoặc `.mp3`)**:
+   - Âm thanh thu sẵn hoặc xuất từ module TTS của Xitrum AI Studio.
+   - Thời lượng audio thường khớp hoặc dài hơn tổng thời lượng phụ đề SRT.
+3. **Ảnh Minh Họa Cho Từng Cảnh (`.png` hoặc `.jpg`)**:
+   - Tỷ lệ khung hình khuyến nghị: 16:9 (ví dụ `1920x1080` hoặc `1280x720`).
+   - Phong cách tối ưu: Tranh phác thảo (Line-art), nét vẽ đen/màu trên nền trắng/sáng rõ ràng.
+4. *(Tùy chọn) Bút vẽ / Bàn tay tùy biến*:
+   - Đặt tại `sidecar-whiteboard/assets/drawing-hand.png`.
+   - Ảnh PNG nền trong suốt (RGBA), đầu ngòi bút hướng chính xác về góc trên bên trái của ảnh.
+
+---
+
+## 2. Giao Diện & Môi Trường Hoạt Động
+
+Vào tab **Whiteboard** trên thanh điều hướng ứng dụng:
+
+```
++---------------------------------------------------------------------------------+
+|  Thanh công cụ: [Mở Dự Án] [Lưu Dự Án] [Xuất Toàn Bộ Dự Án]                     |
+|  Nguồn phụ đề:  [ Chọn file .srt ... ]            [ Chia Cảnh Tự Động ]         |
++------------------------------------+--------------------------------------------+
+|  DANH SÁCH PHÂN CẢNH (Trái)        |  CHI TIẾT PHÂN CẢNH ĐANG CHỌN (Phải)       |
+|                                    |                                            |
+|  [+] Thêm Cảnh Mới                 |  - Tên cảnh, ID, Thời lượng (ms)           |
+|                                    |  - Ảnh đầu vào (Chọn file)                 |
+|  * Cảnh 1: Khởi đầu (00:00-00:30)  |  - File kịch bản nét vẽ (Annotation JSON)  |
+|    [^] [v] [Xóa]                   |    -> [ Tạo Mẫu Tự Động ]                  |
+|                                    |  - Thời gian vẽ (ms), Giữ hình (ms)        |
+|  * Cảnh 2: Thề nguyện (00:30-01:05)|                                            |
+|    [^] [v] [Xóa]                   |  [ Render Thử Cảnh Này ]                   |
+|                                    |  [ Xem Video Cảnh ]                        |
++------------------------------------+--------------------------------------------+
+|  Trạng thái & Tiến trình: [████████████████......] 65% - Đang vẽ nét cụm 14/20 |
++---------------------------------------------------------------------------------+
+```
+
+### Bước 0: Kiểm tra môi trường (Python & FFmpeg)
+- Nhìn vào góc trên bên phải màn hình:
+  - Nếu hiện biểu tượng xanh lá **"Môi trường sẵn sàng"**: Bạn có thể làm việc ngay.
+  - Nếu báo thiếu thư viện hoặc thiếu `ffmpeg`: Bấm nút **"Cài tự động"** để app tải các gói phụ thuộc Python vào virtual environment của sidecar.
+
+---
+
+## 3. Quy Trình Thao Tác Từng Bước
+
+### Bước 1: Nhập phụ đề, âm thanh và chia cảnh
+1. **File phụ đề (.srt)**: Bấm nút duyệt file và chọn file `.srt`. Khi chọn xong, app sẽ tự động tìm kiếm file âm thanh `.wav` cùng tên trong thư mục để gán làm âm thanh Master.
+2. **Âm thanh thuyết minh (Master Audio)**:
+   - *Nếu đã có sẵn file thu âm/TTS*: Bấm nút **"Chọn Audio"** ngay bên dưới để chọn file `.wav` hoặc `.mp3`.
+   - *Nếu chưa có và muốn tự động tạo*: Chọn 1 trong 25 giọng đọc VieNeu (ví dụ: *Thùy Dung - Nữ miền Nam, Thái Sơn - Nam miền Nam, Hải Đăng - Nam miền Bắc*, v.v.) và bấm nút **"Tạo TTS"** (biểu tượng micro). Hệ thống sẽ đọc toàn bộ kịch bản SRT và tạo ra file âm thanh hoàn chỉnh đồng bộ theo mốc thời gian.
+3. Bấm nút **"Chia Cảnh"**: Hệ thống sẽ tự động quét các khoảng lặng và mốc thời gian trong SRT để sinh danh sách các cảnh tối ưu.
+
+### Bước 2: Tinh chỉnh danh sách phân cảnh (Cột bên trái)
+- **Chọn cảnh**: Bấm chuột vào thẻ cảnh để xem và chỉnh sửa thông tin chi tiết ở cột bên phải.
+- **Sắp xếp thứ tự**: Bấm biểu tượng **Mũi tên lên (▲)** hoặc **Mũi tên xuống (▼)** để đổi thứ tự xuất hiện của các cảnh.
+- **Xóa bớt cảnh**: Bấm biểu tượng **Thùng rác** đối với cảnh không cần thiết.
+
+### Bước 3: Cấu hình ảnh và sinh nét vẽ cho từng cảnh (Cột bên phải)
+Đối với mỗi cảnh được chọn:
+1. **Ảnh phân cảnh**: Bấm **"Chọn ảnh..."** và trỏ đến file ảnh minh họa cho cảnh đó.
+2. **Kịch bản nét vẽ (Annotation JSON)**:
+   - Bấm nút **"Tạo Mẫu"**: Sidecar Python sẽ tự động phân tích ảnh, trích xuất các đường biên và cụm nét (contour/edge clusters), rồi sinh file `_annotation.json` tương ứng cùng thư mục với ảnh.
+   - Giao diện sẽ hiển thị số nét vẽ tự động nhận diện được và gán sẵn tổng thời gian vẽ phù hợp với thời lượng cảnh.
+3. **Tách vùng thông minh & Thứ tự vẽ (Component Ordering - Giai đoạn W4)**:
+   - Khi bấm **"Tạo Mẫu"** (sinh Annotation JSON), thuật toán W4 sẽ tự động phân tích cấu trúc bố cục bức ảnh:
+     - **Khung bao ngoài (Container)**: Các đường viền khung tranh hoặc hộp bao sẽ được ưu tiên vẽ trước.
+     - **Hình minh họa chính (Illustration)**: Các chi tiết nhân vật/bối cảnh bên trong vẽ tiếp theo.
+     - **Nhãn chữ chú thích (Text)**: Các dòng chữ được vẽ sau cùng theo thứ tự đọc tự nhiên (từ trên xuống, từ trái sang phải).
+     - **Bảo toàn dấu tiếng Việt**: Dấu mũ, dấu sắc, hỏi, ngã, nặng được tự động gom nhóm chính xác với chữ cái tương ứng, không bị vẽ rời rạc hay bỏ sót.
+     - **Không đứt nét viền**: Tránh hiện tượng trừ đè làm rỗng hoặc đứt nét viền ngoài của khung hình khi có chi tiết con nằm bên trong.
+   - Giao diện hiển thị trực quan danh sách từng vùng vẽ nhận diện được (`sequence`, tọa độ `region`, thời gian `reveal`).
+4. **Phong cách vẽ và Tô màu (Tự động nhận diện - Giai đoạn W3)**:
+   - Khi bạn chọn ảnh cho phân cảnh, hệ thống sẽ **tự động phân tích đặc tính ảnh**:
+     - *Nét đơn sắc (Line-Art)*: Hệ thống tự động chọn phong cách nét vẽ bám khung xương (`skeleton`), chuyển tô màu sang `Không tô (none)` và dồn 100% thời gian cho nét vẽ mượt mà, không lãng phí thời gian quét cọ thừa.
+     - *Có mảng đen (Filled Mono)*: Tự động phối hợp vẽ viền (`grid`) + quét cọ mảng (`brush`).
+     - *Ảnh màu (Colored)*: Tự động vẽ nét trước (`grid`) và quét màu theo đường viền (`contour-wipe`).
+   - Bạn có thể chủ động thay đổi (ghi đè) phong cách nét vẽ hoặc kiểu tô màu ở khung **"Phong cách vẽ & Nhận diện ảnh"** theo ý thích.
+4. **Thời lượng (Thời lượng cảnh, Thời gian vẽ, Giữ hình cuối cảnh)**:
+   - Có thể điều chỉnh số mili-giây (ms) sao cho: `drawDurationMs + holdDurationMs <= durationMs`.
+
+### Bước 4: Render kiểm tra từng phân cảnh lẻ
+- Để kiểm tra xem cảnh vẽ có mượt mà, bàn tay di chuyển đúng ngòi bút hay không:
+  - Bấm nút **"Render Thử Cảnh Này"**.
+  - Theo dõi thanh tiến trình ở góc dưới.
+  - Khi hoàn thành, bấm **"Xem Video Cảnh"** để mở file MP4 vừa render kiểm tra trước.
+
+### Bước 5: Lưu dự án Whiteboard
+- Bấm nút **"Lưu Dự Án"** trên thanh công cụ trên cùng.
+- Chọn vị trí lưu file cấu hình (ví dụ: `du-an-vuon-dao.whiteboard.json`). File này lưu lại toàn bộ danh sách cảnh, đường dẫn ảnh, thời lượng và thông số để bạn có thể mở lại bất cứ lúc nào qua nút **"Mở Dự Án"**.
+
+### Bước 6: Xuất toàn bộ video hoàn chỉnh (Ghép cảnh & Master Audio)
+1. Bấm nút **"Xuất Toàn Bộ Dự Án"**.
+2. Hộp thoại sẽ hỏi chọn:
+   - **Nơi lưu file video xuất xưởng** (ví dụ `Video_Hoan_Chinh.mp4`).
+   - **File âm thanh thuyết minh tổng thể (Master Audio)**: Chọn file `.wav` hoặc `.mp3` master audio (nếu có).
+3. Ứng dụng sẽ tự động chạy:
+   - Render tuần tự tất cả các phân cảnh theo cấu hình đã lưu.
+   - Ghép nối liền mạch các video phân cảnh lại với nhau bằng FFmpeg mà không làm suy hao chất lượng.
+   - Cắt/đồng bộ âm thanh thuyết minh master vào video tổng.
+4. Khi hoàn tất, một thông báo xanh sẽ hiện ra cùng đường dẫn file video thành phẩm.
+
+---
+
+## 4. Các Tùy Chọn Nâng Cao
+
+### Tùy chỉnh màu nền bảng vẽ (Paper Color)
+- Mặc định là `#F5EBD7` (màu giấy ngà cổ điển, dịu mắt và tạo cảm giác vẽ tay ấm áp).
+- Bạn có thể chỉnh sang `#FFFFFF` (trắng tinh khiết hiện đại) hoặc màu phấn bảng xanh `#1E3A2F` tùy theo chủ đề video.
+
+### Tùy chỉnh bàn tay / bút vẽ
+- File bút vẽ mặc định nằm tại: `sidecar-whiteboard/assets/drawing-hand.png`.
+- Nếu bạn thay thế bằng ảnh của riêng mình:
+  - Định dạng: **PNG 32-bit (với kênh Alpha trong suốt hoàn toàn)**.
+  - Hướng ngòi bút: Đầu bút phải chấm đúng vào pixel mép trên-trái của bức ảnh hoặc bạn có thể chỉnh tọa độ offset trong `sidecar-whiteboard/scripts/render_stream_whiteboard.py`.
+
+---
+
+## 5. Xử Lý Các Vấn Đề Thường Gặp (Troubleshooting)
+
+| Tình huống / Lỗi | Nguyên nhân | Cách khắc phục |
+|---|---|---|
+| Báo lỗi `ffmpeg: command not found` khi xuất toàn bộ | Máy tính chưa cài đặt FFmpeg hoặc FFmpeg không nằm trong PATH tiêu chuẩn | Cài đặt FFmpeg qua Homebrew (`brew install ffmpeg`). App đã hỗ trợ tự tìm tại `/opt/homebrew/bin/ffmpeg` và `/usr/local/bin/ffmpeg`. |
+| Thời gian vẽ quá nhanh hoặc bị giật | `drawDurationMs` quá ngắn so với số lượng nét vẽ | Tăng thời lượng cảnh (`durationMs`) hoặc tăng `drawDurationMs` lên (khuyến nghị 15.000ms – 25.000ms mỗi cảnh). |
+| Bàn tay vẽ bị khung màu đen quanh bút | File `drawing-hand.png` không phải nền trong suốt thật (vẫn còn ô ca-rô checkerboard hoặc nền đen) | Dùng phần mềm đồ họa (Photoshop, Figma, GIMP) xuất file PNG với suốt trong hoàn toàn (Transparency enabled). |
+| Video xuất ra bị lệch giọng thuyết minh | File master audio có độ dài không khớp với tổng thời lượng các phân cảnh | Điều chỉnh lại thời lượng từng cảnh trong danh sách sao cho tổng các `durationMs` khớp với độ dài file audio. |
+

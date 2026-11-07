@@ -57,6 +57,10 @@ Tại dòng tiêu đề phiên bản hiện tại:
 
 Sau khi đổi version ở 5 file trên, chạy các lệnh sau để cập nhật lockfiles, kiểm tra, tạo Git Tag và đẩy lên GitHub:
 
+> ⚠️ **LƯU Ý QUAN TRỌNG VỀ DỮ LIỆU CÁ NHÂN & MEDIA NẶNG**:
+> - Tuyệt đối **không đẩy** bất kỳ file/ảnh/video nào trong 2 thư mục `input_images/` và `outputs/` lên git (hai thư mục này đã được cấu hình trong `.gitignore`).
+> - Khi commit release, chỉ stage các file mã nguồn/tài liệu cấu hình hoặc dùng `git add <files>`, tránh commit nhầm dữ liệu media test của máy cá nhân.
+
 ```bash
 # 1. Cập nhật Cargo.lock cho Rust
 cd src-tauri && cargo check && cd ..

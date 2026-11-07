@@ -1,5 +1,6 @@
 use crate::db::chrono_now;
 use crate::errors::AppError;
+use serde::{Deserialize, Serialize};
 use crate::models::{
     AppConfig, AudioJobItem, AudioSegmentItem, ProxyItem, ScriptProjectItem, ScriptSceneItem,
     TaskItem, TaskKind, TemplateItem,
@@ -720,6 +721,34 @@ pub async fn preview_tts_voice(
         .map_err(|e| AppError::Other(e.to_string()))?;
 
     Ok(path)
+}
+
+#[tauri::command]
+pub async fn generate_whiteboard_srt_tts(
+    srt_path: String,
+    voice_id: String,
+    _state: State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let srt_p = std::path::Path::new(&srt_path);
+    if !srt_p.exists() {
+        return Err(AppError::Other(format!("File SRT không tồn tại: {}", srt_path)));
+    }
+
+    // Đặt file audio cùng thư mục với SRT hoặc trong output_dir
+    let parent = srt_p.parent().unwrap_or(std::path::Path::new("."));
+    let stem = srt_p.file_stem().and_then(|s| s.to_str()).unwrap_or("whiteboard_master");
+    let output_file = parent.join(format!("{}_{}.wav", stem, voice_id.replace(' ', "_")));
+
+    let pipeline = crate::executors::tts::TtsPipeline::new();
+    let (audio_path, duration_sec) = pipeline
+        .synthesize_srt("whiteboard_srt_tts", srt_p, &voice_id, &output_file)
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?;
+
+    Ok(serde_json::json!({
+        "audio_path": audio_path,
+        "duration_sec": duration_sec
+    }))
 }
 
 // ==========================================
@@ -1622,6 +1651,16 @@ pub async fn generate_whiteboard_annotation(
     .await
 }
 
+/// Phân tích phong cách ảnh (W3)
+#[tauri::command]
+pub async fn analyze_whiteboard_image(
+    image_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || wb.analyze_image_style(image_path)).await
+}
+
 /// Sự kiện `whiteboard-progress`: `{ type:"progress", task_id, percent (0-100), message }`.
 #[tauri::command]
 pub async fn render_whiteboard_scene(
@@ -1631,6 +1670,11 @@ pub async fn render_whiteboard_scene(
     fps: Option<i32>,
     paper_color: Option<String>,
     hand_path: Option<String>,
+    audio_path: Option<String>,
+    ink_path: Option<String>,
+    color_fill: Option<String>,
+    ink_weight: Option<f64>,
+    color_weight: Option<f64>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
@@ -1643,6 +1687,11 @@ pub async fn render_whiteboard_scene(
             fps.unwrap_or(30),
             paper_color.unwrap_or_else(|| "#F5EBD7".to_string()),
             hand_path,
+            audio_path,
+            ink_path,
+            color_fill,
+            ink_weight,
+            color_weight,
             &|p| {
                 let _ = app.emit("whiteboard-progress", p.clone());
             },
@@ -1655,12 +1704,13 @@ pub async fn render_whiteboard_scene(
 pub async fn merge_whiteboard_scenes(
     video_paths: Vec<String>,
     output_path: String,
+    master_audio_path: Option<String>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
     let wb = Arc::clone(&state.whiteboard);
     whiteboard_blocking(move || {
-        wb.merge_scenes(video_paths, output_path, &|p| {
+        wb.merge_scenes(video_paths, output_path, master_audio_path, &|p| {
             let _ = app.emit("whiteboard-progress", p.clone());
         })
     })
@@ -1672,6 +1722,221 @@ pub async fn merge_whiteboard_scenes(
 pub async fn cancel_whiteboard(state: tauri::State<'_, AppState>) -> Result<(), AppError> {
     state.whiteboard.cancel();
     Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WhiteboardSceneItem {
+    pub id: String,
+    pub order: i32,
+    pub revision: i32,
+    #[serde(rename = "imagePath")]
+    pub image_path: String,
+    #[serde(rename = "annotationPath")]
+    pub annotation_path: String,
+    #[serde(rename = "timelineStartMs")]
+    pub timeline_start_ms: i64,
+    #[serde(rename = "timelineEndMs")]
+    pub timeline_end_ms: i64,
+    #[serde(rename = "durationMs")]
+    pub duration_ms: i64,
+    #[serde(default)]
+    pub cues: Vec<serde_json::Value>,
+    pub status: String,
+    #[serde(rename = "audioPath", skip_serializing_if = "Option::is_none")]
+    pub audio_path: Option<String>,
+    #[serde(rename = "outputPath", skip_serializing_if = "Option::is_none")]
+    pub output_path: Option<String>,
+    #[serde(rename = "imageType", skip_serializing_if = "Option::is_none")]
+    pub image_type: Option<String>,
+    #[serde(rename = "inkPath", skip_serializing_if = "Option::is_none")]
+    pub ink_path: Option<String>,
+    #[serde(rename = "colorFill", skip_serializing_if = "Option::is_none")]
+    pub color_fill: Option<String>,
+    #[serde(rename = "inkWeight", skip_serializing_if = "Option::is_none")]
+    pub ink_weight: Option<f64>,
+    #[serde(rename = "colorWeight", skip_serializing_if = "Option::is_none")]
+    pub color_weight: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WhiteboardProject {
+    pub id: String,
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: i32,
+    pub revision: i32,
+    pub title: String,
+    pub fps: i32,
+    #[serde(rename = "paperColor")]
+    pub paper_color: String,
+    #[serde(rename = "handPath", skip_serializing_if = "Option::is_none")]
+    pub hand_path: Option<String>,
+    pub scenes: Vec<WhiteboardSceneItem>,
+    #[serde(rename = "masterAudioPath", skip_serializing_if = "Option::is_none")]
+    pub master_audio_path: Option<String>,
+    #[serde(rename = "outputVideoPath", skip_serializing_if = "Option::is_none")]
+    pub output_video_path: Option<String>,
+}
+
+#[tauri::command]
+pub async fn save_whiteboard_project(
+    file_path: String,
+    project: WhiteboardProject,
+) -> Result<serde_json::Value, AppError> {
+    let path = std::path::Path::new(&file_path);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let tmp_path = format!("{}.tmp", file_path);
+    let json_str = serde_json::to_string_pretty(&project)
+        .map_err(|e| AppError::Other(format!("Lỗi serialize project: {}", e)))?;
+
+    std::fs::write(&tmp_path, json_str)
+        .map_err(|e| AppError::Other(format!("Lỗi ghi tệp tạm: {}", e)))?;
+    std::fs::rename(&tmp_path, &file_path)
+        .map_err(|e| AppError::Other(format!("Lỗi lưu tệp dự án nguyên tử: {}", e)))?;
+
+    Ok(serde_json::json!({ "success": true, "filePath": file_path }))
+}
+
+#[tauri::command]
+pub async fn load_whiteboard_project(
+    file_path: String,
+) -> Result<WhiteboardProject, AppError> {
+    let content = std::fs::read_to_string(&file_path)
+        .map_err(|e| AppError::Other(format!("Lỗi đọc tệp dự án {}: {}", file_path, e)))?;
+    let project: WhiteboardProject = serde_json::from_str(&content)
+        .map_err(|e| AppError::Other(format!("Lỗi phân tích cú pháp dự án {}: {}", file_path, e)))?;
+    Ok(project)
+}
+
+#[tauri::command]
+pub async fn render_whiteboard_project(
+    project: WhiteboardProject,
+    output_video_path: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    if project.scenes.is_empty() {
+        return Err(AppError::Other("Dự án chưa có phân cảnh nào để xuất".to_string()));
+    }
+
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || {
+        let out_dir = std::path::Path::new(&output_video_path)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let _ = std::fs::create_dir_all(out_dir);
+
+        let mut rendered_videos: Vec<String> = Vec::new();
+        let total_scenes = project.scenes.len();
+
+        for (idx, scene) in project.scenes.iter().enumerate() {
+            let scene_num = idx + 1;
+            if scene.image_path.is_empty() || !std::path::Path::new(&scene.image_path).exists() {
+                return Err(anyhow::anyhow!(
+                    "Cảnh #{} ('{}') thiếu ảnh minh họa hoặc ảnh không tồn tại: {}",
+                    scene_num, scene.id, scene.image_path
+                ));
+            }
+            if scene.annotation_path.is_empty() || !std::path::Path::new(&scene.annotation_path).exists() {
+                return Err(anyhow::anyhow!(
+                    "Cảnh #{} ('{}') thiếu annotation.json hoặc không tồn tại: {}",
+                    scene_num, scene.id, scene.annotation_path
+                ));
+            }
+
+            let scene_out = scene.output_path.clone().unwrap_or_else(|| {
+                out_dir.join(format!("scene_{:02}_{}.mp4", scene_num, scene.id)).to_string_lossy().to_string()
+            });
+
+            // Ghi vào file tạm trước, thành công mới chuyển thành file chính
+            let scene_tmp_out = format!("{}.part.mp4", scene_out);
+
+            let emit_scene_progress = |p: &serde_json::Value| {
+                let inner_pct = p.get("percent").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let overall_pct = ((idx as f64) * 100.0 + inner_pct * 0.9) / (total_scenes as f64);
+                let msg = format!(
+                    "Cảnh {}/{}: {}",
+                    scene_num,
+                    total_scenes,
+                    p.get("message").and_then(|v| v.as_str()).unwrap_or("")
+                );
+                let _ = app.emit(
+                    "whiteboard-progress",
+                    serde_json::json!({
+                        "percent": overall_pct,
+                        "message": msg,
+                        "sceneId": scene.id,
+                        "sceneIndex": scene_num,
+                    }),
+                );
+            };
+
+            wb.render_scene(
+                scene.image_path.clone(),
+                scene.annotation_path.clone(),
+                scene_tmp_out.clone(),
+                project.fps,
+                project.paper_color.clone(),
+                project.hand_path.clone(),
+                scene.audio_path.clone(),
+                scene.ink_path.clone(),
+                scene.color_fill.clone(),
+                scene.ink_weight,
+                scene.color_weight,
+                &emit_scene_progress,
+            )?;
+
+            // Đổi tên nguyên tử file part -> scene_out
+            std::fs::rename(&scene_tmp_out, &scene_out)
+                .map_err(|e| anyhow::anyhow!("Lỗi lưu video cảnh: {}", e))?;
+
+            rendered_videos.push(scene_out);
+        }
+
+        let _ = app.emit(
+            "whiteboard-progress",
+            serde_json::json!({
+                "percent": 95.0,
+                "message": format!("Đang ghép {} phân cảnh vào video hoàn chỉnh...", total_scenes)
+            }),
+        );
+
+        let final_tmp_out = format!("{}.part.mp4", output_video_path);
+        let res = wb.merge_scenes(
+            rendered_videos,
+            final_tmp_out.clone(),
+            project.master_audio_path.clone(),
+            &|p| {
+                let _ = app.emit("whiteboard-progress", p.clone());
+            },
+        )?;
+
+        std::fs::rename(&final_tmp_out, &output_video_path)
+            .map_err(|e| anyhow::anyhow!("Lỗi lưu video hoàn chỉnh: {}", e))?;
+
+        let _ = app.emit(
+            "whiteboard-progress",
+            serde_json::json!({
+                "percent": 100.0,
+                "message": "Hoàn tất xuất video dự án Whiteboard!"
+            }),
+        );
+
+        let file_size = std::fs::metadata(&output_video_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        Ok(serde_json::json!({
+            "output_path": output_video_path,
+            "file_size": file_size,
+            "scenes_count": total_scenes,
+            "merge_result": res,
+        }))
+    })
+    .await
 }
 
 /// `{ ok, python, pythonVersion?, missing[], ffmpeg?, error? }`; không bao giờ trả lỗi.

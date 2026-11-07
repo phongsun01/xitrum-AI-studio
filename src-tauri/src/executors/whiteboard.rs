@@ -49,6 +49,12 @@ pub enum WhiteboardRequest {
         #[serde(default)]
         overwrite: bool,
     },
+    #[serde(rename = "analyze_image_style")]
+    AnalyzeImageStyle {
+        #[serde(default)]
+        task_id: String,
+        image_path: String,
+    },
     #[serde(rename = "render_scene")]
     RenderScene {
         #[serde(default)]
@@ -62,6 +68,16 @@ pub enum WhiteboardRequest {
         paper_color: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         hand_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        audio_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ink_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        color_fill: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ink_weight: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        color_weight: Option<f64>,
     },
     #[serde(rename = "merge_scenes")]
     MergeScenes {
@@ -69,6 +85,8 @@ pub enum WhiteboardRequest {
         task_id: String,
         video_paths: Vec<String>,
         output_path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        master_audio_path: Option<String>,
     },
     #[serde(rename = "check_env")]
     CheckEnv {
@@ -536,6 +554,14 @@ impl WhiteboardPipeline {
         self.call(req, self.timeouts.generate, "sinh annotation", &|_| {})
     }
 
+    pub fn analyze_image_style(&self, image_path: String) -> Result<serde_json::Value> {
+        let req = WhiteboardRequest::AnalyzeImageStyle {
+            task_id: uuid::Uuid::new_v4().to_string(),
+            image_path,
+        };
+        self.call(req, self.timeouts.quick, "phân tích style ảnh", &|_| {})
+    }
+
     pub fn render_scene(
         &self,
         image_path: String,
@@ -544,6 +570,11 @@ impl WhiteboardPipeline {
         fps: i32,
         paper_color: String,
         hand_path: Option<String>,
+        audio_path: Option<String>,
+        ink_path: Option<String>,
+        color_fill: Option<String>,
+        ink_weight: Option<f64>,
+        color_weight: Option<f64>,
         on_progress: &dyn Fn(&serde_json::Value),
     ) -> Result<serde_json::Value> {
         let req = WhiteboardRequest::RenderScene {
@@ -554,6 +585,11 @@ impl WhiteboardPipeline {
             fps,
             paper_color,
             hand_path,
+            audio_path,
+            ink_path,
+            color_fill,
+            ink_weight,
+            color_weight,
         };
         self.call(req, self.timeouts.render, "render bảng trắng", on_progress)
     }
@@ -562,12 +598,14 @@ impl WhiteboardPipeline {
         &self,
         video_paths: Vec<String>,
         output_path: String,
+        master_audio_path: Option<String>,
         on_progress: &dyn Fn(&serde_json::Value),
     ) -> Result<serde_json::Value> {
         let req = WhiteboardRequest::MergeScenes {
             task_id: uuid::Uuid::new_v4().to_string(),
             video_paths,
             output_path,
+            master_audio_path,
         };
         self.call(req, self.timeouts.merge, "ghép cảnh", on_progress)
     }
@@ -773,6 +811,11 @@ for line in sys.stdin:
                 fps: 30,
                 paper_color: "#FFFFFF".into(),
                 hand_path: None,
+                audio_path: None,
+                ink_path: None,
+                color_fill: None,
+                ink_weight: None,
+                color_weight: None,
             },
             timeout,
             cb,
