@@ -169,11 +169,22 @@ pub struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        // Tự động tìm đường dẫn thư mục chuẩn
-        let local_data = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
-        let default_profile = format!("{}\\XitrumAI\\chrome-profile", local_data);
-        let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
-        let default_output = format!("{}\\Videos\\XitrumAI_Outputs", user_profile);
+        // Tự động tìm đường dẫn thư mục chuẩn đa nền tảng (macOS / Windows / Linux)
+        let default_profile = if let Some(data_dir) = dirs::data_local_dir() {
+            data_dir.join("XitrumAI").join("chrome-profile").to_string_lossy().to_string()
+        } else {
+            let local_data = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
+            format!("{}\\XitrumAI\\chrome-profile", local_data)
+        };
+
+        let default_output = if let Some(video_dir) = dirs::video_dir() {
+            video_dir.join("XitrumAI_Outputs").to_string_lossy().to_string()
+        } else if let Some(home) = dirs::home_dir() {
+            home.join("Videos").join("XitrumAI_Outputs").to_string_lossy().to_string()
+        } else {
+            let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+            format!("{}\\Videos\\XitrumAI_Outputs", user_profile)
+        };
 
         Self {
             output_dir: default_output,

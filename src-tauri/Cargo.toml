@@ -1,6 +1,6 @@
 [package]
 name = "xitrum-ai-studio"
-version = "0.6.4"
+version = "0.7.0"
 description = "Xitrum AI Studio desktop app on Tauri v2"
 authors = ["you"]
 edition = "2021"
@@ -30,6 +30,7 @@ tokio-util = "0.7"
 
 # Persistence
 rusqlite = { version = "0.32", features = ["bundled"] }
+dirs = "6"
 
 # Logging
 tracing = "0.1"

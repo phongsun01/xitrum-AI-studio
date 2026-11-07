@@ -5,7 +5,7 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.6.4 (Whiteboard Explainer Animation & 100% Offline Engine) (Kỷ Nguyên "Ý Tưởng → Video" & Hậu Kỳ Tự Động)
+## 📦 Phiên Bản Hiện Tại: v0.7.0 (macOS Native Support, Whiteboard Explainer Animation & 100% Offline Engine) (Kỷ Nguyên "Ý Tưởng → Video" & Hậu Kỳ Tự Động)
 
 Nâng cấp mang tính đột phá dựa trên nghiên cứu kiến trúc Muse AI Studio và tích hợp công nghệ AI giọng nói tiếng Việt VieNeu-TTS:
 

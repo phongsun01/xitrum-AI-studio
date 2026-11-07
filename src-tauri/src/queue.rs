@@ -47,7 +47,7 @@ impl QueueManager {
         let candidate_rembg_1 = std::path::PathBuf::from("resources/u2netp.onnx");
         let candidate_rembg_2 = std::path::PathBuf::from("src-tauri/resources/u2netp.onnx");
         let candidate_rembg_3 = std::path::PathBuf::from("../src-tauri/resources/u2netp.onnx");
-        let candidate_rembg_4 = std::path::PathBuf::from("D:\\Antigravity\\REA\\project-docs\\poc-phase0\\poc_rembg\\u2netp.onnx");
+        let candidate_rembg_4 = dirs::data_local_dir().map(|d| d.join("XitrumAI").join("models").join("u2netp.onnx"));
 
         let resolved_rembg_path = if candidate_rembg_1.exists() {
             Some(candidate_rembg_1)
@@ -55,8 +55,8 @@ impl QueueManager {
             Some(candidate_rembg_2)
         } else if candidate_rembg_3.exists() {
             Some(candidate_rembg_3)
-        } else if candidate_rembg_4.exists() {
-            Some(candidate_rembg_4)
+        } else if candidate_rembg_4.as_ref().map(|p| p.exists()).unwrap_or(false) {
+            candidate_rembg_4
         } else {
             None
         };
