@@ -5,7 +5,17 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.7.5 (Whiteboard Review Hardening, Hand Rig Kinematics & Pen Asset Library)
+## 📦 Phiên Bản Hiện Tại: v0.7.6 (Whiteboard Pen Preset Selector & Project Metadata Roundtrip)
+
+Cập nhật giao diện và cơ chế quản lý preset bút vẽ cho phân hệ **Whiteboard Explainer Animation**:
+
+### 🖋️ 1. Bộ Chọn Preset Bút Vẽ Đa Phong Cách (Pen Preset Selector)
+- **Tích Hợp Toàn Bộ 10 Mẫu Bút**: Cho phép người dùng trực tiếp lựa chọn giữa các phong cách bút vẽ trong Whiteboard Editor (Bàn tay vẽ dạ mặc định, Bút lông thư pháp, Bút cán tre, Bút máy vintage, Bút vẽ kỹ thuật, Bút lông vũ, Bút cảm ứng digital, Bút cyberpunk dạ quang, Bút pha lê thủy tinh, Đũa phép thuật).
+- **Đồng Bộ Hai Chiều Với Dự Án (Metadata Roundtrip)**: Tự động lưu và nạp lại chính xác loại bút đã chọn (`handPath`) khi lưu hoặc mở file dự án Whiteboard `.json`.
+
+---
+
+## 📦 Lịch Sử Phiên Bản: v0.7.5 (Whiteboard Review Hardening, Hand Rig Kinematics & Pen Asset Library)
 
 Đợt nâng cấp toàn diện phân hệ **Whiteboard Explainer Animation** sau đợt kiểm thử và rà soát R1-R7:
 

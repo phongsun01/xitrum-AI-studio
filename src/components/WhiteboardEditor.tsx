@@ -5,6 +5,8 @@ import {
   WhiteboardProject,
   WhiteboardSceneItem,
   WhiteboardEnvCheck,
+  WhiteboardPenType,
+  WHITEBOARD_PEN_OPTIONS,
 } from "../types/whiteboard";
 import {
   PenTool,
@@ -46,7 +48,20 @@ export function WhiteboardEditor() {
 
   const [fps, setFps] = useState(30);
   const [paperColor, setPaperColor] = useState("#F5EBD7");
-  const [penType, setPenType] = useState<"pen" | "calligraphy">("pen");
+  const [penType, setPenType] = useState<WhiteboardPenType>("pen");
+
+  const resolveHandFilename = (type: WhiteboardPenType): string => {
+    const found = WHITEBOARD_PEN_OPTIONS.find((opt) => opt.id === type);
+    return found ? found.filename : "drawing-hand.png";
+  };
+
+  const resolvePenTypeFromPath = (handPath?: string): WhiteboardPenType => {
+    if (!handPath) return "pen";
+    const found = WHITEBOARD_PEN_OPTIONS.find(
+      (opt) => opt.filename === handPath || handPath.includes(opt.id) || handPath.includes(opt.filename.replace(".png", ""))
+    );
+    return found ? found.id : "pen";
+  };
 
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -576,7 +591,7 @@ export function WhiteboardEditor() {
       }
 
       setProgress({ percent: 20, message: `Bắt đầu render ${activeScene.id}...` });
-      const handParam = penType === "calligraphy" ? "calligraphy-brush.png" : "drawing-hand.png";
+      const handParam = resolveHandFilename(penType);
       const res = await api.renderWhiteboardScene(
         activeScene.imagePath,
         annoPath,
@@ -657,7 +672,7 @@ export function WhiteboardEditor() {
       title: projectTitle,
       fps,
       paperColor,
-      handPath: penType === "calligraphy" ? "calligraphy-brush.png" : "drawing-hand.png",
+      handPath: resolveHandFilename(penType),
       scenes,
       masterAudioPath: masterAudioPath || undefined,
       outputVideoPath,
@@ -682,11 +697,7 @@ export function WhiteboardEditor() {
       if (proj.revision) setProjectRevision(proj.revision);
       setFps(proj.fps || 30);
       setPaperColor(proj.paperColor || "#F5EBD7");
-      if (proj.handPath && proj.handPath.includes("calligraphy")) {
-        setPenType("calligraphy");
-      } else {
-        setPenType("pen");
-      }
+      setPenType(resolvePenTypeFromPath(proj.handPath));
       setScenes(proj.scenes || []);
       setMasterAudioPath(proj.masterAudioPath || "");
       setOutputVideoPath(proj.outputVideoPath || "");
@@ -708,7 +719,7 @@ export function WhiteboardEditor() {
       title: "Whiteboard Project",
       fps,
       paperColor,
-      handPath: penType === "calligraphy" ? "calligraphy-brush.png" : "drawing-hand.png",
+      handPath: resolveHandFilename(penType),
       scenes: exportWithoutAudio.current ? scenes.map((scene) => ({ ...scene, audioPath: undefined })) : scenes,
       masterAudioPath: exportWithoutAudio.current ? undefined : masterAudioPath || undefined,
       outputVideoPath: targetOut,
@@ -1380,11 +1391,14 @@ export function WhiteboardEditor() {
                 <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>Loại bút vẽ</label>
                 <select
                   value={penType}
-                  onChange={(e) => setPenType(e.target.value as "pen" | "calligraphy")}
+                  onChange={(e) => setPenType(e.target.value as WhiteboardPenType)}
                   style={{ width: "100%", padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
                 >
-                  <option value="pen">Tay vẽ / Bút dạ thường</option>
-                  <option value="calligraphy">Bút lông thư pháp (Calligraphy)</option>
+                  {WHITEBOARD_PEN_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.name} ({opt.desc})
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>

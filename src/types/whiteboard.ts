@@ -147,6 +147,38 @@ export interface WhiteboardSceneItem {
   error?: string;
 }
 
+export type WhiteboardPenType =
+  | "pen"
+  | "calligraphy"
+  | "bamboo"
+  | "vintage"
+  | "technical"
+  | "quill"
+  | "digital"
+  | "cyberpunk"
+  | "crystal"
+  | "wand";
+
+export interface WhiteboardPenOption {
+  id: WhiteboardPenType;
+  name: string;
+  filename: string;
+  desc: string;
+}
+
+export const WHITEBOARD_PEN_OPTIONS: WhiteboardPenOption[] = [
+  { id: "pen", name: "Bàn tay vẽ (Mặc định)", filename: "drawing-hand.png", desc: "Tay cầm bút dạ đen vẽ phác họa" },
+  { id: "calligraphy", name: "Bút lông thư pháp", filename: "calligraphy-brush.png", desc: "Bút lông cán tre truyền thống" },
+  { id: "bamboo", name: "Bút cán tre", filename: "bamboo-pen.png", desc: "Bút mực cán tre mộc mạc" },
+  { id: "vintage", name: "Bút máy cổ điển", filename: "vintage-pen.png", desc: "Bút máy ngòi vàng sang trọng" },
+  { id: "technical", name: "Bút vẽ kỹ thuật", filename: "technical-drawing-pen.png", desc: "Bút kim / Rapidograph vẽ kiến trúc" },
+  { id: "quill", name: "Bút lông vũ", filename: "quill-pen.png", desc: "Bút lông ngỗng châu Âu cổ điển" },
+  { id: "digital", name: "Bút cảm ứng kỹ thuật số", filename: "digital-pen.png", desc: "Stylus bảng vẽ đồ họa Wacom/iPad" },
+  { id: "cyberpunk", name: "Bút Cyberpunk dạ quang", filename: "cyberpunk-pen.png", desc: "Bút công nghệ tương lai viền LED" },
+  { id: "crystal", name: "Bút pha lê thủy tinh", filename: "crystal-pen.png", desc: "Bút thủy tinh chấm mực trong suốt" },
+  { id: "wand", name: "Bút đũa phép thuật", filename: "wand-pen.png", desc: "Đũa thần kỳ ảo đính ngọc phép" },
+];
+
 export interface WhiteboardProject {
   id: string;
   schemaVersion: number;
