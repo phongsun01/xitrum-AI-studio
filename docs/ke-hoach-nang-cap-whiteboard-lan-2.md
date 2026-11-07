@@ -203,8 +203,8 @@ Ngoài phạm vi lần 2: viết lại TTS, sinh ảnh, forced alignment từng 
 |---|---|---|
 | **R0** | **ĐÃ HOÀN THÀNH** | Đã sửa composite alpha/grayscale chuẩn hóa (`whiteboard_image.py`), truyền duration xuyên suốt UI/Rust/Python, tự động co giãn nếu annotation vượt duration, stream mapping tường minh & tpad giữ đuôi hình khi audio dài hơn, escape đường dẫn concat, cancellation token giữa các cảnh. Unit test `test_r0_r1.py` pass. |
 | **R1** | **ĐÃ HOÀN THÀNH** | Đã triển khai `whiteboard_cache.py`: tạo fingerprint SHA-256 từ nội dung ảnh, annotation, cấu hình render và audio; ghi và xác thực manifest complete; probe video streams trước khi chấp nhận resume cache, vô hiệu hóa file hỏng/file dở dang. |
-| R2 | Có stroke planner nền tảng | Plan diagnostics, coverage, pen-up và cue tests |
-| R3 | Chưa triển khai | Clip palette brush so với engine cũ, deterministic plan |
+| **R2** | **ĐÃ HOÀN THÀNH** | Đã triển khai `whiteboard_render_plan.py`: `PixelOwnershipManager` quản lý quyền sở hữu pixel chuẩn xác (giải quyết triệt để vùng lồng nhau, bảo vệ viền container và protectedRegions); `ElementRenderPlan` xây dựng timeline contact points float liên tục `[0.0, 1.0]`, tách biệt quãng đường nhấc bút (pen-up không sinh mực, loại bỏ nét nối giả). |
+| **R3** | **ĐÃ HOÀN THÀNH** | Đã triển khai `whiteboard_palette.py` và chế độ tô màu mới `palette-brush`: gom cụm màu sắc trong không gian CIELAB (DeltaE) bám theo ranh giới nét vẽ, hoàn thành một nhóm màu rồi mới đổi sang nhóm tiếp theo, tích hợp mượt mà vào UI và renderer. Suite unit test `test_r2_r3.py` pass. |
 | R4 | Có sprite nền tảng | Clip rig/anchor, model optional và nguồn asset |
 | R5 | Có encoder/merge cũ | Encode thật, kill-tree, probe và benchmark |
 | R6 | Có UI nhiều cảnh nền tảng | Phiên thao tác chỉnh vùng, lưu/mở, preview/xuất |

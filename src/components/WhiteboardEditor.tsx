@@ -1056,6 +1056,7 @@ export function WhiteboardEditor() {
                     <option value="none">Không tô (Chỉ vẽ nét - Tối ưu Line-Art)</option>
                     <option value="contour-wipe">Quét viền xuống (Contour-Wipe)</option>
                     <option value="brush">Quét cọ theo quỹ đạo (Brush)</option>
+                    <option value="palette-brush">Tô theo nhóm màu Lab (Palette-Brush - R3)</option>
                   </select>
                 </div>
               </div>

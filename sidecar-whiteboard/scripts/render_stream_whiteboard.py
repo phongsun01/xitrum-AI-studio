@@ -298,6 +298,36 @@ class RegionStreamRenderer:
             writer.write(self._snapshot_with_tip(cx, cy))
             last = ci
 
+    def _wash_palette_brush(self, writer, frames: int, allowed: np.ndarray) -> None:
+        """Tô màu theo từng nhóm màu Lab (R3: palette-brush) bám ranh giới mực."""
+        if frames <= 0:
+            return
+        import whiteboard_palette
+        clusters = whiteboard_palette.segment_color_palette_lab(
+            self.color_img,
+            allowed_mask=allowed,
+            ink_mask=self.ink_pixels,
+            max_colors=6,
+        )
+        if not clusters:
+            self._wash_contour(writer, frames, allowed)
+            return
+
+        total_pts: list[tuple[int, int]] = []
+        for cluster in clusters:
+            pts = whiteboard_palette.build_palette_brush_path(
+                cluster.mask,
+                brush_radius=self.cfg.brush_radius,
+                sample_step=6,
+            )
+            total_pts.extend(pts)
+
+        if not total_pts:
+            self._wash_contour(writer, frames, allowed)
+            return
+
+        self._wash_brush(writer, frames, total_pts, allowed)
+
     def _wash_contour(self, writer, frames: int, allowed: np.ndarray) -> None:
         if frames <= 0:
             return
@@ -409,6 +439,11 @@ class RegionStreamRenderer:
             for _ in range(needed):
                 write_frame(snap)
 
+        import whiteboard_render_plan
+        # R2: Quản lý pixel ownership bằng PixelOwnershipManager
+        ownership_mgr = whiteboard_render_plan.PixelOwnershipManager(self.out_w, self.out_h)
+        owned_masks = ownership_mgr.build_ownership_masks(elements, self.sx, self.sy)
+
         try:
             for idx, element in enumerate(elements):
                 reveal = element["reveal"]
@@ -419,7 +454,8 @@ class RegionStreamRenderer:
                 target_start_frame = min(target_total_frames, int(round(start_ms * cfg.fps / 1000.0)))
                 fill_static_frames(target_start_frame)
 
-                allowed = self._allowed_mask(element, elements[idx + 1:])
+                el_id = element.get("id", f"elem_{idx+1}")
+                allowed = owned_masks.get(el_id, self._allowed_mask(element, elements[idx + 1:]))
                 target_end_frame = min(target_total_frames, int(round((start_ms + dur_ms) * cfg.fps / 1000.0)))
                 region_total_frames = max(1, target_end_frame - target_start_frame)
 
@@ -479,6 +515,8 @@ class RegionStreamRenderer:
                 if color_frames > 0:
                     if cfg.color_fill == "contour-wipe":
                         self._wash_contour(f_writer, color_frames, allowed)
+                    elif cfg.color_fill == "palette-brush":
+                        self._wash_palette_brush(f_writer, color_frames, allowed)
                     else:
                         self._wash_brush(f_writer, color_frames, centers, allowed)
 
@@ -541,8 +579,8 @@ def _parse_args(argv=None):
     p.add_argument("--bare-tip", action="store_true", help="Không chồng đầu bút/bàn tay")
     p.add_argument("--ink-path", default="grid", choices=["grid", "skeleton"],
                    help="Đường đi nét bút: grid lưới (mặc định); skeleton bám khung xương")
-    p.add_argument("--color-fill", default="contour-wipe", choices=["contour-wipe", "brush", "none"],
-                   help="Tô màu: contour-wipe quét theo đường viền (mặc định); brush quét cọ theo quỹ đạo; none bỏ qua tô màu")
+    p.add_argument("--color-fill", default="contour-wipe", choices=["contour-wipe", "brush", "palette-brush", "none"],
+                   help="Tô màu: contour-wipe quét theo viền; brush quét cọ; palette-brush tô theo nhóm màu Lab; none bỏ qua tô màu")
     p.add_argument("--ink-weight", type=float, default=None, help="Trọng số phân bổ thời gian vẽ nét")
     p.add_argument("--color-weight", type=float, default=None, help="Trọng số phân bổ thời gian tô màu")
     p.add_argument("--pause", default="heavy", choices=["heavy", "auto", "light", "off"],

@@ -102,7 +102,7 @@ export interface WhiteboardEnvCheck {
 
 export type WhiteboardImageType = "line_art_mono" | "filled_mono" | "colored" | "blank" | "uncertain";
 export type WhiteboardInkPath = "grid" | "skeleton";
-export type WhiteboardColorFill = "contour-wipe" | "brush" | "none";
+export type WhiteboardColorFill = "contour-wipe" | "brush" | "palette-brush" | "none";
 
 export interface WhiteboardImageAnalysis {
   imageType: WhiteboardImageType;

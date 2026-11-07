@@ -113,3 +113,4 @@ def load_normalized_image(
         )
 
     return composite_on_background(raw, paper_color_hex)
+

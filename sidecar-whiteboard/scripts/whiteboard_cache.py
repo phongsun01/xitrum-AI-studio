@@ -183,3 +183,4 @@ def write_scene_manifest(video_path: str, fingerprint: str, extra: Optional[Dict
 
     tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     tmp_path.replace(manifest_path)
+
