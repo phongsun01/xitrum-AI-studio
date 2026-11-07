@@ -402,7 +402,7 @@ class RegionStreamRenderer:
                         self._lay_ink_grid(writer, ink_frames, samples, pen_lifts, sample_cell, path, allowed)
                         centers = [self._cell_center(c) for c in path]
                     else:
-                        self._lay_ink(writer, ink_frames, [], set(), None, allowed)
+                        self._lay_ink(writer, ink_frames, [], set(), allowed)
                         centers = []
 
                 cur_ms += ink_frames * ms_per_frame
@@ -454,6 +454,16 @@ class RegionStreamRenderer:
             cells_done += 1
 
 
+def _paper_color(value: str) -> str:
+    """Kiểm tra màu #RRGGBB (có hoặc không có dấu #) và chuẩn hóa về dạng '#RRGGBB'."""
+    v = value.strip()
+    if len(v) == 6:
+        v = "#" + v
+    if len(v) != 7 or v[0] != "#" or any(c not in "0123456789abcdefABCDEF" for c in v[1:]):
+        raise argparse.ArgumentTypeError(f"màu không hợp lệ: {value!r} (cần dạng #RRGGBB)")
+    return v.upper()
+
+
 def _parse_args(argv=None):
     p = argparse.ArgumentParser(description="Bộ render tích hợp hoạt hình bảng trắng SRT (dàn dựng bằng mặt nạ + vẽ kiểu stream)")
     p.add_argument("image", help="Đường dẫn ảnh line art")
@@ -469,6 +479,8 @@ def _parse_args(argv=None):
     p.add_argument("--pause", default="heavy", choices=["heavy", "auto", "light", "off"],
                    help="Nhịp dừng ở đoạn khởi bút (dự phòng, ảnh hưởng yếu khi vẽ theo từng vùng)")
     p.add_argument("--fps", type=int, default=None)
+    p.add_argument("--paper-color", type=_paper_color, default=None,
+                   help="Màu nền giấy dạng #RRGGBB (mặc định #F6F1E3)")
     p.add_argument("--grid-edge", type=int, default=None)
     p.add_argument("--brush-radius", type=int, default=None)
     p.add_argument("--cap-long-edge", type=int, default=None,
@@ -480,6 +492,8 @@ def _build_cfg(args) -> sr.Config:
     kw: dict = {}
     if args.fps is not None:
         kw["fps"] = args.fps
+    if args.paper_color is not None:
+        kw["canvas_hex"] = args.paper_color
     if args.grid_edge is not None:
         kw["grid_edge"] = args.grid_edge
     if args.brush_radius is not None:

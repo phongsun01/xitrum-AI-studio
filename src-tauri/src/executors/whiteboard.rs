@@ -39,6 +39,12 @@ pub enum WhiteboardRequest {
         duration_ms: i64,
         #[serde(default)]
         cues: Vec<serde_json::Value>,
+        /// Nếu có, runner ghi annotation ra tệp này (ghi nguyên tử) và trả về `savedTo`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_path: Option<String>,
+        /// Cho phép ghi đè tệp đã tồn tại; mặc định runner từ chối với lỗi ANNOTATION_EXISTS.
+        #[serde(default)]
+        overwrite: bool,
     },
     #[serde(rename = "render_scene")]
     RenderScene {
@@ -225,6 +231,8 @@ impl WhiteboardPipeline {
         story_basis: String,
         duration_ms: i64,
         cues: Vec<serde_json::Value>,
+        output_path: Option<String>,
+        overwrite: bool,
     ) -> Result<serde_json::Value> {
         let req = WhiteboardRequest::GenerateAnnotation {
             task_id: uuid::Uuid::new_v4().to_string(),
@@ -233,6 +241,8 @@ impl WhiteboardPipeline {
             story_basis,
             duration_ms,
             cues,
+            output_path,
+            overwrite,
         };
         match self.send_request(req)? {
             WhiteboardResponse::Done { data, .. } => Ok(data.unwrap_or_default()),

@@ -336,15 +336,22 @@ export const api = {
     sceneId?: string,
     storyBasis?: string,
     durationMs?: number,
-    cues?: any[]
+    cues?: any[],
+    outputPath?: string,
+    overwrite?: boolean
   ) =>
-    invoke<any>("generate_whiteboard_annotation", {
-      imagePath,
-      sceneId,
-      storyBasis,
-      durationMs,
-      cues,
-    }),
+    invoke<{ elements?: any[]; savedTo?: string; [key: string]: any }>(
+      "generate_whiteboard_annotation",
+      {
+        imagePath,
+        sceneId,
+        storyBasis,
+        durationMs,
+        cues,
+        outputPath,
+        overwrite,
+      }
+    ),
 
   renderWhiteboardScene: (
     imagePath: string,

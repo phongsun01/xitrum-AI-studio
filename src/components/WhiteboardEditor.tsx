@@ -104,18 +104,37 @@ export function WhiteboardEditor() {
       setStatusMsg({ text: "Vui lòng chọn ảnh minh họa trước.", ok: false });
       return;
     }
+    // Ghi ra ô "annotation" đang nhập; nếu trống thì suy ra từ tên ảnh (giống handlePickImage).
+    const targetPath = annotationPath || imagePath.replace(/\.[^/.]+$/, "") + ".annotation.json";
     setLoading(true);
     setStatusMsg(null);
     try {
-      const res = await api.generateWhiteboardAnnotation(
-        imagePath,
-        "scene-01",
-        "Hoạt hình bảng trắng",
-        srtData ? 15000 : 8000,
-        srtData ? srtData.cues.slice(0, 5) : []
-      );
+      const generate = (overwrite: boolean) =>
+        api.generateWhiteboardAnnotation(
+          imagePath,
+          "scene-01",
+          "Hoạt hình bảng trắng",
+          srtData ? 15000 : 8000,
+          srtData ? srtData.cues.slice(0, 5) : [],
+          targetPath,
+          overwrite
+        );
+      let res;
+      try {
+        res = await generate(false);
+      } catch (e: any) {
+        // Runner từ chối ghi đè âm thầm annotation người dùng có thể đã chỉnh tay.
+        if (!String(e?.message || e).includes("ANNOTATION_EXISTS")) throw e;
+        if (!confirm(`Tệp annotation đã tồn tại:\n${targetPath}\n\nGhi đè bằng khung mẫu mới? Nội dung bạn đã chỉnh sẽ mất.`)) {
+          setStatusMsg({ text: "Đã hủy: giữ nguyên annotation hiện có.", ok: false });
+          return;
+        }
+        res = await generate(true);
+      }
+      const saved = res.savedTo || targetPath;
+      setAnnotationPath(saved);
       setStatusMsg({
-        text: `Đã sinh khung cấu hình annotation mẫu (${res.elements?.length || 0} phân vùng)!`,
+        text: `Đã sinh và lưu annotation (${res.elements?.length || 0} vùng): ${saved}`,
         ok: true,
       });
     } catch (e: any) {

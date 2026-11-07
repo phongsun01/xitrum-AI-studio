@@ -1524,6 +1524,8 @@ pub async fn generate_whiteboard_annotation(
     story_basis: Option<String>,
     duration_ms: Option<i64>,
     cues: Option<Vec<serde_json::Value>>,
+    output_path: Option<String>,
+    overwrite: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
     state.whiteboard.generate_annotation(
@@ -1532,6 +1534,8 @@ pub async fn generate_whiteboard_annotation(
         story_basis.unwrap_or_default(),
         duration_ms.unwrap_or(10000),
         cues.unwrap_or_default(),
+        output_path,
+        overwrite.unwrap_or(false),
     ).map_err(|e| AppError::Other(e.to_string()))
 }
 

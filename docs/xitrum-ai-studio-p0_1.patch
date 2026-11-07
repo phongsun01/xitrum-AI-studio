@@ -1,0 +1,881 @@
+diff -ruN -x node_modules -x __pycache__ a/sidecar-whiteboard/scripts/render_stream_whiteboard.py b/sidecar-whiteboard/scripts/render_stream_whiteboard.py
+--- a/sidecar-whiteboard/scripts/render_stream_whiteboard.py	2026-11-06 09:12:15.000000000 +0000
++++ b/sidecar-whiteboard/scripts/render_stream_whiteboard.py	2026-11-06 11:13:41.000000000 +0000
+@@ -402,7 +402,7 @@
+                         self._lay_ink_grid(writer, ink_frames, samples, pen_lifts, sample_cell, path, allowed)
+                         centers = [self._cell_center(c) for c in path]
+                     else:
+-                        self._lay_ink(writer, ink_frames, [], set(), None, allowed)
++                        self._lay_ink(writer, ink_frames, [], set(), allowed)
+                         centers = []
+ 
+                 cur_ms += ink_frames * ms_per_frame
+@@ -454,6 +454,16 @@
+             cells_done += 1
+ 
+ 
++def _paper_color(value: str) -> str:
++    """Kiểm tra màu #RRGGBB (có hoặc không có dấu #) và chuẩn hóa về dạng '#RRGGBB'."""
++    v = value.strip()
++    if len(v) == 6:
++        v = "#" + v
++    if len(v) != 7 or v[0] != "#" or any(c not in "0123456789abcdefABCDEF" for c in v[1:]):
++        raise argparse.ArgumentTypeError(f"màu không hợp lệ: {value!r} (cần dạng #RRGGBB)")
++    return v.upper()
++
++
+ def _parse_args(argv=None):
+     p = argparse.ArgumentParser(description="Bộ render tích hợp hoạt hình bảng trắng SRT (dàn dựng bằng mặt nạ + vẽ kiểu stream)")
+     p.add_argument("image", help="Đường dẫn ảnh line art")
+@@ -469,6 +479,8 @@
+     p.add_argument("--pause", default="heavy", choices=["heavy", "auto", "light", "off"],
+                    help="Nhịp dừng ở đoạn khởi bút (dự phòng, ảnh hưởng yếu khi vẽ theo từng vùng)")
+     p.add_argument("--fps", type=int, default=None)
++    p.add_argument("--paper-color", type=_paper_color, default=None,
++                   help="Màu nền giấy dạng #RRGGBB (mặc định #F6F1E3)")
+     p.add_argument("--grid-edge", type=int, default=None)
+     p.add_argument("--brush-radius", type=int, default=None)
+     p.add_argument("--cap-long-edge", type=int, default=None,
+@@ -480,6 +492,8 @@
+     kw: dict = {}
+     if args.fps is not None:
+         kw["fps"] = args.fps
++    if args.paper_color is not None:
++        kw["canvas_hex"] = args.paper_color
+     if args.grid_edge is not None:
+         kw["grid_edge"] = args.grid_edge
+     if args.brush_radius is not None:
+diff -ruN -x node_modules -x __pycache__ a/sidecar-whiteboard/tests/test_runner_smoke.py b/sidecar-whiteboard/tests/test_runner_smoke.py
+--- a/sidecar-whiteboard/tests/test_runner_smoke.py	1970-01-01 00:00:00.000000000 +0000
++++ b/sidecar-whiteboard/tests/test_runner_smoke.py	2026-11-06 11:15:09.000000000 +0000
+@@ -0,0 +1,165 @@
++"""
++Smoke test cho whiteboard_runner.py, chạy runner như một tiến trình thật qua JSON-RPC (stdin/stdout).
++
++Chạy:  python -m unittest discover -s sidecar-whiteboard/tests -v
++Cần: opencv-python, numpy (xem requirements.txt) và ffmpeg trong PATH để kiểm tra ghép cảnh.
++
++Các lỗi mà bộ test này chặn hồi quy:
++- runner gọi sai CLI của render_stream_whiteboard.py / merge_scenes.py (SystemExit làm chết runner)
++- print() của script render lọt vào stdout làm hỏng giao thức (mỗi dòng stdout phải là JSON)
++- annotation tự sinh không được lưu, hoặc cho mọi phần tử cùng một vùng toàn khung (mask rỗng)
++- màu nền giấy không được truyền vào bộ render
++"""
++
++import json
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++try:
++    import cv2
++    import numpy as np
++except ImportError:  # pragma: no cover
++    cv2 = None
++
++RUNNER = Path(__file__).resolve().parents[1] / "whiteboard_runner.py"
++
++
++def _make_line_art(path: Path):
++    """Ảnh 480x270 nền be với ba hình tách biệt nhau: tròn, chữ nhật, đường chéo + tròn nhỏ."""
++    img = np.full((270, 480, 3), (215, 235, 245), np.uint8)
++    dark = (60, 60, 60)
++    cv2.circle(img, (80, 135), 52, dark, 3)
++    cv2.rectangle(img, (190, 70), (280, 200), dark, 3)
++    cv2.line(img, (350, 80), (440, 160), dark, 3)
++    cv2.circle(img, (395, 220), 22, (40, 40, 200), 3)
++    ok, buf = cv2.imencode(".png", img)
++    assert ok
++    path.write_bytes(buf.tobytes())
++
++
++@unittest.skipIf(cv2 is None, "cần opencv-python và numpy")
++class RunnerSmokeTest(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.tmp = Path(tempfile.mkdtemp(prefix="wb_smoke_"))
++        cls.stderr_path = cls.tmp / "runner.stderr.txt"
++        cls.stderr_file = open(cls.stderr_path, "wb")
++        cls.proc = subprocess.Popen(
++            [sys.executable, str(RUNNER)],
++            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=cls.stderr_file,
++            text=True, encoding="utf-8", bufsize=1,
++        )
++        ready = cls._read_json(cls)
++        assert ready["type"] == "ready", ready
++        cls.image = cls.tmp / "line.png"
++        _make_line_art(cls.image)
++
++    @classmethod
++    def tearDownClass(cls):
++        try:
++            cls.proc.stdin.write(json.dumps({"action": "exit"}) + "\n")
++            cls.proc.stdin.flush()
++            cls.proc.wait(timeout=10)
++        except Exception:
++            cls.proc.kill()
++        cls.stderr_file.close()
++        shutil.rmtree(cls.tmp, ignore_errors=True)
++
++    def _read_json(self):
++        line = self.proc.stdout.readline()
++        self.assertTrue(line, "runner đã thoát hoặc đóng stdout")
++        try:
++            return json.loads(line)
++        except json.JSONDecodeError:
++            self.fail(f"stdout chứa dòng không phải JSON (hỏng giao thức): {line!r}")
++
++    def rpc(self, **req):
++        self.proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
++        self.proc.stdin.flush()
++        return self._read_json()
++
++    def test_01_ping(self):
++        self.assertEqual(self.rpc(action="ping", task_id="p")["type"], "pong")
++
++    def test_02_generate_annotation_saves_distinct_regions(self):
++        out = self.tmp / "scene.annotation.json"
++        cues = [{"text": "một", "startMs": 1000, "endMs": 3000},
++                {"text": "hai", "startMs": 3200, "endMs": 5000},
++                {"text": "ba", "startMs": 5200, "endMs": 7000}]
++        resp = self.rpc(action="generate_annotation", task_id="g", image_path=str(self.image),
++                        duration_ms=6500, cues=cues, output_path=str(out))
++        self.assertEqual(resp["type"], "done", resp)
++        self.assertEqual(resp["data"]["savedTo"], str(out))
++        ann = json.loads(out.read_text(encoding="utf-8"))
++        els = ann["elements"]
++        self.assertEqual(len(els), 3)
++        self.assertEqual([e["sequence"] for e in els], [1, 2, 3])
++        regions = {tuple(e["region"].values()) for e in els}
++        self.assertEqual(len(regions), 3, "các vùng phải khác nhau")
++        for e in els:
++            r = e["region"]
++            self.assertLess(r["width"] * r["height"], 0.8 * 480 * 270, "vùng không được là toàn khung")
++        starts = [e["reveal"]["startMs"] for e in els]
++        self.assertEqual(starts, sorted(starts))
++        self.assertEqual([e["subtitle"] for e in els], ["một", "hai", "ba"])
++
++    def test_03_generate_annotation_refuses_silent_overwrite(self):
++        out = self.tmp / "keep.annotation.json"
++        out.write_text('{"mine": true}', encoding="utf-8")
++        resp = self.rpc(action="generate_annotation", image_path=str(self.image), output_path=str(out))
++        self.assertEqual(resp["type"], "error")
++        self.assertIn("ANNOTATION_EXISTS", resp["message"])
++        self.assertEqual(out.read_text(encoding="utf-8"), '{"mine": true}')
++        resp = self.rpc(action="generate_annotation", image_path=str(self.image),
++                        output_path=str(out), overwrite=True)
++        self.assertEqual(resp["type"], "done", resp)
++
++    def test_04_render_then_merge(self):
++        ann = self.tmp / "r.annotation.json"
++        cues = [{"text": "a"}, {"text": "b"}, {"text": "c"}]
++        self.assertEqual(self.rpc(action="generate_annotation", image_path=str(self.image), duration_ms=4000,
++                                  cues=cues, output_path=str(ann))["type"], "done")
++        video = self.tmp / "scene.mp4"
++        resp = self.rpc(action="render_scene", task_id="r", image_path=str(self.image),
++                        annotation_path=str(ann), output_path=str(video), fps=8, paper_color="#FFF2CC")
++        self.assertEqual(resp["type"], "done", resp)
++        self.assertGreater(video.stat().st_size, 0)
++
++        # Màu giấy phải được truyền tới bộ render: khung đầu là giấy trắng #FFF2CC (BGR 204,242,255).
++        cap = cv2.VideoCapture(str(video))
++        ok, frame = cap.read()
++        cap.release()
++        self.assertTrue(ok)
++        corner = frame[5, 5].astype(int)
++        self.assertLess(int(np.abs(corner - np.array([204, 242, 255])).max()), 16, f"màu giấy sai: {corner}")
++
++        # Tiến độ in ra của bộ render phải đi vào stderr, không phải stdout (đã được kiểm ở _read_json).
++        self.assertGreater(self.stderr_path.stat().st_size, 0)
++
++        if shutil.which("ffmpeg"):
++            merged = self.tmp / "merged.mp4"
++            copy2 = self.tmp / "scene2.mp4"
++            shutil.copy(video, copy2)
++            resp = self.rpc(action="merge_scenes", task_id="m", video_paths=[str(video), str(copy2)],
++                            output_path=str(merged))
++            self.assertEqual(resp["type"], "done", resp)
++            self.assertGreater(merged.stat().st_size, 0)
++
++    def test_05_bad_requests_do_not_kill_runner(self):
++        resp = self.rpc(action="render_scene", image_path=str(self.image), annotation_path="/khong/co.json",
++                        output_path=str(self.tmp / "x.mp4"))
++        self.assertEqual(resp["type"], "error")
++        resp = self.rpc(action="render_scene", image_path=str(self.image), annotation_path=str(self.image),
++                        output_path=str(self.tmp / "x.mp4"), paper_color="khong-phai-mau")
++        self.assertEqual(resp["type"], "error")
++        resp = self.rpc(action="merge_scenes", video_paths=["/khong/co.mp4"], output_path=str(self.tmp / "m.mp4"))
++        self.assertEqual(resp["type"], "error")
++        self.assertEqual(self.rpc(action="ping")["type"], "pong", "runner phải còn sống sau các lỗi")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN -x node_modules -x __pycache__ a/sidecar-whiteboard/whiteboard_runner.py b/sidecar-whiteboard/whiteboard_runner.py
+--- a/sidecar-whiteboard/whiteboard_runner.py	2026-11-06 09:12:15.000000000 +0000
++++ b/sidecar-whiteboard/whiteboard_runner.py	2026-11-06 11:14:43.000000000 +0000
+@@ -5,14 +5,21 @@
+ Hỗ trợ các action:
+ - ping: Kiểm tra sidecar sống
+ - parse_srt: Phân tích phụ đề SRT và gợi ý phân cảnh
+-- generate_annotation_template: Sinh khung annotation.json mẫu từ kích thước ảnh
++- generate_annotation: Tách vùng từ ảnh line-art và sinh annotation.json (có thể ghi ra tệp)
+ - render_scene: Render hoạt hình bảng trắng vẽ tay từ ảnh line-art + annotation
+ - merge_scenes: Nối các video phân cảnh thành video MP4 hoàn chỉnh
++
++Giao thức: mỗi yêu cầu là một dòng JSON trên stdin, mỗi phản hồi là đúng một dòng JSON trên
++kênh giao thức. Kênh này là bản sao của stdout gốc (xem _isolate_protocol_channel); mọi thứ
++khác ghi ra stdout (print, thư viện, tiến trình con như ffmpeg) bị chuyển sang stderr để không
++làm hỏng giao thức.
+ """
+ 
+ import sys
+ import os
+ import json
++import math
++import re
+ import traceback
+ from pathlib import Path
+ 
+@@ -31,12 +38,39 @@
+ if str(SCRIPTS_DIR) not in sys.path:
+     sys.path.insert(0, str(SCRIPTS_DIR))
+ 
++# Kênh giao thức JSON-RPC; None nghĩa là chưa cô lập (khi import làm thư viện/kiểm thử).
++_PROTO = None
++
++# Số vùng tối đa khi tự tách vùng mà không có phụ đề để giới hạn.
++MAX_AUTO_REGIONS = 12
++
++
++def _isolate_protocol_channel():
++    """
++    Giữ fd 1 gốc làm kênh JSON-RPC riêng rồi trỏ fd 1 sang stderr.
++    Nhờ đó print() của các script render, cảnh báo của thư viện và đầu ra của tiến trình con
++    (ffmpeg...) đều đi vào stderr, còn stdout gốc chỉ chứa các dòng JSON của giao thức.
++    """
++    global _PROTO
++    try:
++        sys.stdout.flush()
++    except Exception:
++        pass
++    proto_fd = os.dup(1)
++    os.dup2(2, 1)
++    _PROTO = os.fdopen(proto_fd, "w", encoding="utf-8", newline="\n", buffering=1)
++    sys.stdout = sys.stderr
++
+ 
+ def send_json(data):
+-    sys.stdout.write(json.dumps(data, ensure_ascii=False) + "\n")
+-    sys.stdout.flush()
++    out = _PROTO if _PROTO is not None else sys.stdout
++    out.write(json.dumps(data, ensure_ascii=False) + "\n")
++    out.flush()
+ 
+ 
++# ──────────────────────────────────────────────────────────────
++# parse_srt
++# ──────────────────────────────────────────────────────────────
+ def handle_parse_srt(req):
+     import parse_srt
+     srt_path = req.get("srt_path")
+@@ -56,90 +90,261 @@
+     return {"cues": cues, "scenes": scenes}
+ 
+ 
+-def handle_generate_annotation(req):
+-    from PIL import Image
+-    image_path = req.get("image_path")
+-    scene_id = req.get("scene_id", "scene-01")
+-    story_basis = req.get("story_basis", "")
+-    duration_ms = int(req.get("duration_ms", 10000))
+-    cues = req.get("cues", [])
+-
+-    if not image_path or not os.path.exists(image_path):
+-        raise ValueError(f"Ảnh không tồn tại: {image_path}")
++# ──────────────────────────────────────────────────────────────
++# generate_annotation: tách vùng thật từ ảnh line-art
++# ──────────────────────────────────────────────────────────────
++def _box_area(b):
++    return max(0, b[2] - b[0]) * max(0, b[3] - b[1])
++
++
++def _box_inter(a, b):
++    w = min(a[2], b[2]) - max(a[0], b[0])
++    h = min(a[3], b[3]) - max(a[1], b[1])
++    return w * h if w > 0 and h > 0 else 0
++
++
++def _box_union(a, b):
++    return [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
++
++
++def _box_gap(a, b):
++    dx = max(0, a[0] - b[2], b[0] - a[2])
++    dy = max(0, a[1] - b[3], b[1] - a[3])
++    return math.hypot(dx, dy)
++
++
++def _merge_overlapping(boxes, ratio=0.25):
++    """
++    Gộp các hộp chồng nhau đáng kể (phần giao >= ratio diện tích hộp nhỏ hơn). Bộ render trừ vùng
++    của các phần tử SAU khỏi vùng của phần tử TRƯỚC, nên một hộp nằm trọn trong hộp khác sẽ bị
++    mask rỗng; gộp trước để điều đó không xảy ra.
++    """
++    boxes = [list(b) for b in boxes]
++    merged = True
++    while merged:
++        merged = False
++        for i in range(len(boxes)):
++            for j in range(i + 1, len(boxes)):
++                small = min(_box_area(boxes[i]), _box_area(boxes[j]))
++                if small > 0 and _box_inter(boxes[i], boxes[j]) / small >= ratio:
++                    boxes[i] = _box_union(boxes[i], boxes[j])
++                    del boxes[j]
++                    merged = True
++                    break
++            if merged:
++                break
++    return boxes
+ 
+-    with Image.open(image_path) as im:
+-        width, height = im.size
+ 
+-    # Nếu có danh sách cues, tự động chia đều các phần tử
++def _merge_closest(boxes):
++    """Gộp cặp hộp gần nhau nhất (khoảng cách giữa hai hộp, hòa thì xét khoảng cách tâm)."""
++    best = None
++    for i in range(len(boxes)):
++        for j in range(i + 1, len(boxes)):
++            a, b = boxes[i], boxes[j]
++            center = math.hypot((a[0] + a[2] - b[0] - b[2]) / 2, (a[1] + a[3] - b[1] - b[3]) / 2)
++            key = (_box_gap(a, b), center)
++            if best is None or key < best[0]:
++                best = (key, i, j)
++    _, i, j = best
++    out = [b for k, b in enumerate(boxes) if k not in (i, j)]
++    out.append(_box_union(boxes[i], boxes[j]))
++    return out
++
++
++def _detect_ink_boxes(img_bgr):
++    """
++    Tìm các cụm nét mực riêng biệt: lấy màu nền từ bốn góc, đánh dấu pixel khác nền, giãn nở để
++    nối các nét gần nhau, rồi lấy hộp bao của từng thành phần liên thông.
++    """
++    import cv2
++    import numpy as np
++
++    h, w = img_bgr.shape[:2]
++    p = max(4, min(h, w) // 50)
++    corners = np.concatenate([
++        img_bgr[:p, :p].reshape(-1, 3),
++        img_bgr[:p, w - p:].reshape(-1, 3),
++        img_bgr[h - p:, :p].reshape(-1, 3),
++        img_bgr[h - p:, w - p:].reshape(-1, 3),
++    ])
++    bg = np.median(corners, axis=0).astype(np.int16)
++    diff = np.abs(img_bgr.astype(np.int16) - bg).sum(axis=2)
++    ink = (diff > 48).astype(np.uint8)
++
++    k = max(3, int(round(max(h, w) * 0.03)))
++    if k % 2 == 0:
++        k += 1
++    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
++    blobs = cv2.dilate(ink, kernel)
++
++    n, labels, stats, _ = cv2.connectedComponentsWithStats(blobs, connectivity=8)
++    ink_count = np.bincount(labels[ink > 0], minlength=n)
++    min_ink = max(20, int(0.0005 * h * w))
++    boxes = []
++    for i in range(1, n):
++        if ink_count[i] < min_ink:
++            continue
++        x, y, bw, bh = (int(stats[i, c]) for c in range(4))
++        boxes.append([x, y, x + bw, y + bh])
++    return boxes
++
++
++def _reading_order(boxes, height):
++    """Sắp theo thứ tự đọc: gom thành hàng theo tâm dọc, trong hàng đi từ trái sang phải."""
++    tol = 0.2 * height
++    rows = []
++    for b in sorted(boxes, key=lambda b: (b[1] + b[3]) / 2):
++        cy = (b[1] + b[3]) / 2
++        if rows and abs(cy - rows[-1]["cy"]) <= tol:
++            row = rows[-1]
++            row["items"].append(b)
++            row["cy"] = sum((x[1] + x[3]) / 2 for x in row["items"]) / len(row["items"])
++        else:
++            rows.append({"cy": cy, "items": [b]})
++    ordered = []
++    for row in rows:
++        ordered.extend(sorted(row["items"], key=lambda b: b[0]))
++    return ordered
++
++
++def _chunk(seq, k):
++    """Chia seq thành k đoạn liên tiếp, kích thước chênh nhau tối đa 1 (yêu cầu k <= len(seq))."""
++    base, extra = divmod(len(seq), k)
++    out, i = [], 0
++    for j in range(k):
++        size = base + (1 if j < extra else 0)
++        out.append(seq[i:i + size])
++        i += size
++    return out
++
++
++def _has_timing(c):
++    return (isinstance(c, dict)
++            and isinstance(c.get("startMs"), (int, float))
++            and isinstance(c.get("endMs"), (int, float)))
++
++
++def _plan_timing(k, cue_chunks, duration_ms):
++    """
++    Trả về [(startMs, durationMs)] cho k phần tử, vẽ lần lượt (stream chỉ có một đầu bút).
++    Dùng mốc thời gian của phụ đề khi hợp lệ và nằm trong thời lượng cảnh; nếu không thì chia đều.
++    """
++    if cue_chunks and all(_has_timing(c) for chunk in cue_chunks for c in chunk):
++        base = cue_chunks[0][0]["startMs"]
++        spans = [(int(ch[0]["startMs"] - base), int(ch[-1]["endMs"] - base)) for ch in cue_chunks]
++        in_order = all(spans[i][1] <= spans[i + 1][0] + 1 for i in range(k - 1))
++        if in_order and all(e > s for s, e in spans) and spans[-1][1] <= duration_ms:
++            return [(s, max(e - s - 100, 600)) for s, e in spans]
++
++    lead, tail = 200, 500
++    step = max(duration_ms - lead - tail, 1000) / k
++    return [(int(lead + i * step), max(int(step * 0.9), 500)) for i in range(k)]
++
++
++def _build_elements(boxes, width, height, cue_chunks, duration_ms):
++    k = len(boxes)
++    timing = _plan_timing(k, cue_chunks, duration_ms)
+     elements = []
+-    if cues and len(cues) > 0:
+-        step_ms = duration_ms // len(cues)
+-        for idx, cue in enumerate(cues):
+-            start_ms = idx * step_ms
+-            dur_ms = max(step_ms - 200, 1000)
+-            elements.append({
+-                "id": f"elem_{idx+1}",
+-                "label": f"Phần {idx+1}",
+-                "sequence": idx + 1,
+-                "narrativeRole": f"Phân cảnh minh họa {idx+1}",
+-                "subtitle": cue.get("text", "") if isinstance(cue, dict) else str(cue),
+-                "type": "character" if idx % 2 == 0 else "action",
+-                "region": {
+-                    "x": 40,
+-                    "y": 40,
+-                    "width": max(width - 80, 100),
+-                    "height": max(height - 80, 100),
+-                },
+-                "reveal": {
+-                    "direction": "left_to_right",
+-                    "startMs": start_ms,
+-                    "durationMs": dur_ms,
+-                    "maskPaddingPx": 16,
+-                    "protectedRegions": []
+-                },
+-                "handPath": {
+-                    "start": [50, 50],
+-                    "end": [width - 50, height - 50],
+-                    "easing": "easeInOut"
+-                }
+-            })
+-    else:
+-        # 1 element mặc định toàn khung hình
++    for i, box in enumerate(boxes):
++        x0, y0, x1, y1 = box
++        w, h = x1 - x0, y1 - y0
++        wide = w >= h
++        start_ms, dur_ms = timing[i]
++        subtitle = " ".join(str(c.get("text", "")) if isinstance(c, dict) else str(c)
++                            for c in (cue_chunks[i] if cue_chunks else [])).strip()
+         elements.append({
+-            "id": "elem_full",
+-            "label": "Toàn cảnh minh họa",
+-            "sequence": 1,
+-            "narrativeRole": "Minh họa trọng tâm",
+-            "subtitle": story_basis,
+-            "type": "structure",
+-            "region": {
+-                "x": 20,
+-                "y": 20,
+-                "width": max(width - 40, 100),
+-                "height": max(height - 40, 100),
+-            },
++            "id": f"elem_{i + 1}",
++            "label": f"Vùng {i + 1}",
++            "sequence": i + 1,
++            "narrativeRole": "Vùng tự động theo thứ tự đọc; hãy chỉnh lại theo cốt truyện",
++            "subtitle": subtitle,
++            "type": "object",
++            "region": {"x": x0, "y": y0, "width": w, "height": h},
+             "reveal": {
+-                "direction": "top_to_bottom",
+-                "startMs": 200,
+-                "durationMs": max(duration_ms - 600, 2000),
++                "direction": "left_to_right" if wide else "top_to_bottom",
++                "startMs": start_ms,
++                "durationMs": dur_ms,
+                 "maskPaddingPx": 16,
+-                "protectedRegions": []
++                "protectedRegions": [],
+             },
+             "handPath": {
+-                "start": [width // 2, 50],
+-                "end": [width // 2, height - 50],
+-                "easing": "easeInOut"
+-            }
++                "start": [x0, y0 + h // 2] if wide else [x0 + w // 2, y0],
++                "end": [x1, y0 + h // 2] if wide else [x0 + w // 2, y1],
++                "easing": "easeInOut",
++            },
+         })
++    return elements
++
+ 
++def handle_generate_annotation(req):
++    import stream_render as sr
++
++    image_path = req.get("image_path")
++    scene_id = req.get("scene_id") or "scene-01"
++    story_basis = req.get("story_basis", "")
++    duration_ms = int(req.get("duration_ms", 10000))
++    raw_cues = req.get("cues") or []
++    output_path = req.get("output_path")
++    overwrite = bool(req.get("overwrite", False))
++
++    if output_path and os.path.exists(output_path) and not overwrite:
++        # Không ghi đè âm thầm annotation người dùng có thể đã chỉnh tay.
++        raise ValueError(f"ANNOTATION_EXISTS: {output_path}")
++    if not image_path or not os.path.exists(image_path):
++        raise ValueError(f"Ảnh không tồn tại: {image_path}")
++
++    img = sr._imread_any(image_path)
++    if img is None:
++        raise ValueError(f"Không đọc được ảnh: {image_path}")
++    height, width = img.shape[:2]
++
++    cues = [c if isinstance(c, dict) else {"text": str(c)} for c in raw_cues]
++
++    boxes = _merge_overlapping(_detect_ink_boxes(img))
++    limit = min(len(cues), MAX_AUTO_REGIONS) if cues else MAX_AUTO_REGIONS
++    while len(boxes) > max(limit, 1):
++        boxes = _merge_overlapping(_merge_closest(boxes))
++
++    if boxes:
++        pad = max(6, int(round(0.012 * max(width, height))))
++        boxes = [[max(0, b[0] - pad), max(0, b[1] - pad),
++                  min(width, b[2] + pad), min(height, b[3] + pad)] for b in boxes]
++        boxes = _reading_order(boxes, height)
++    else:
++        # Ảnh trống hoặc không tách được nét mực: dùng một vùng toàn khung.
++        boxes = [[0, 0, width, height]]
++
++    cue_chunks = _chunk(cues, len(boxes)) if cues else []
+     annotation = {
+         "sceneId": scene_id,
+         "canvas": {"width": width, "height": height},
+         "storyBasis": story_basis,
+         "sceneDurationMs": duration_ms,
+-        "elements": elements
++        "elements": _build_elements(boxes, width, height, cue_chunks, duration_ms),
+     }
+-    return annotation
++
++    result = dict(annotation)
++    if output_path:
++        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
++        tmp_path = output_path + ".tmp"
++        with open(tmp_path, "w", encoding="utf-8") as f:
++            json.dump(annotation, f, ensure_ascii=False, indent=2)
++        os.replace(tmp_path, output_path)
++        result["savedTo"] = output_path
++    return result
++
++
++# ──────────────────────────────────────────────────────────────
++# render_scene / merge_scenes
++# ──────────────────────────────────────────────────────────────
++def _normalize_paper_color(value):
++    v = (value or "#F5EBD7").strip()
++    if re.fullmatch(r"[0-9A-Fa-f]{6}", v):
++        v = "#" + v
++    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", v):
++        raise ValueError(f"Màu nền giấy không hợp lệ: {value!r} (cần dạng #RRGGBB)")
++    return v.upper()
+ 
+ 
+ def handle_render_scene(req):
+@@ -149,9 +354,12 @@
+     annotation_path = req.get("annotation_path")
+     output_path = req.get("output_path")
+     fps = int(req.get("fps", 30))
+-    paper_color = req.get("paper_color", "#F5EBD7")
++    paper_color = _normalize_paper_color(req.get("paper_color"))
+     hand_path = req.get("hand_path")
+ 
++    if not 1 <= fps <= 120:
++        raise ValueError(f"FPS không hợp lệ: {fps} (cần từ 1 đến 120)")
++
+     if not hand_path:
+         default_hand = CURRENT_DIR / "assets" / "drawing-hand.png"
+         if default_hand.exists():
+@@ -166,17 +374,12 @@
+ 
+     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+ 
+-    # Gọi hàm render của render_stream_whiteboard
+-    # parse arguments giả lập cho main_render
+-    cmd_args = [
+-        image_path,
+-        "--annotation", annotation_path,
+-        "-o", output_path,
+-        "--fps", str(fps),
+-        "--paper-color", paper_color,
+-    ]
++    # Khớp với CLI của render_stream_whiteboard.py: image annotation output [hand] [tuỳ chọn].
++    # Tham số vị trí "hand" phải đứng ngay sau output, trước các tuỳ chọn --xxx.
++    cmd_args = [image_path, annotation_path, output_path]
+     if hand_path and os.path.exists(hand_path):
+-        cmd_args.extend(["--hand-image", hand_path])
++        cmd_args.append(hand_path)
++    cmd_args += ["--fps", str(fps), "--paper-color", paper_color]
+ 
+     ret_code = render_stream_whiteboard.main(cmd_args)
+     if ret_code != 0:
+@@ -197,10 +400,14 @@
+         raise ValueError("Danh sách video phân cảnh rỗng.")
+     if not output_path:
+         raise ValueError("Chưa chỉ định output_path cho video ghép.")
++    missing = [p for p in video_paths if not os.path.exists(p)]
++    if missing:
++        raise ValueError(f"Thiếu video phân cảnh: {', '.join(missing)}")
+ 
+     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+ 
+-    cmd_args = ["-o", output_path] + video_paths
++    # Khớp với CLI của merge_scenes.py: --inputs ... --output ...
++    cmd_args = ["--inputs", *video_paths, "--output", output_path]
+     ret_code = merge_scenes.main(cmd_args)
+     if ret_code != 0:
+         raise RuntimeError(f"Ghép các phân cảnh thất bại, exit code: {ret_code}")
+@@ -211,13 +418,23 @@
+     }
+ 
+ 
++HANDLERS = {
++    "parse_srt": handle_parse_srt,
++    "generate_annotation": handle_generate_annotation,
++    "render_scene": handle_render_scene,
++    "merge_scenes": handle_merge_scenes,
++}
++
++
+ def main():
++    _isolate_protocol_channel()
+     send_json({"type": "ready", "message": "Whiteboard-Animation Runner Ready (stdin/stdout JSON-RPC)"})
+ 
+     for line in sys.stdin:
+         line = line.strip()
+         if not line:
+             continue
++        req = {}
+         try:
+             req = json.loads(line)
+             action = req.get("action")
+@@ -225,39 +442,28 @@
+ 
+             if action == "ping":
+                 send_json({"type": "pong", "task_id": task_id, "status": "ok"})
+-
+-            elif action == "parse_srt":
+-                result = handle_parse_srt(req)
+-                send_json({"type": "done", "task_id": task_id, "action": action, "data": result})
+-
+-            elif action == "generate_annotation":
+-                result = handle_generate_annotation(req)
+-                send_json({"type": "done", "task_id": task_id, "action": action, "data": result})
+-
+-            elif action == "render_scene":
+-                result = handle_render_scene(req)
++            elif action in HANDLERS:
++                result = HANDLERS[action](req)
+                 send_json({"type": "done", "task_id": task_id, "action": action, "data": result})
+-
+-            elif action == "merge_scenes":
+-                result = handle_merge_scenes(req)
+-                send_json({"type": "done", "task_id": task_id, "action": action, "data": result})
+-
+             elif action == "exit":
+                 break
+-
+             else:
+                 send_json({"type": "error", "task_id": task_id, "message": f"Action không hợp lệ: {action}"})
+ 
+-        except Exception as e:
+-            tb = traceback.format_exc()
++        # SystemExit (ví dụ argparse báo sai tham số) không phải Exception: nếu không bắt, cả
++        # runner chết mà phía Rust không nhận được thông báo lỗi nào.
++        except (Exception, SystemExit) as e:
++            if isinstance(e, SystemExit):
++                message = f"Script con thoát với mã {e.code} (thường do tham số dòng lệnh không hợp lệ)"
++            else:
++                message = str(e)
+             send_json({
+                 "type": "error",
+-                "task_id": req.get("task_id", "") if 'req' in locals() and isinstance(req, dict) else "",
+-                "message": str(e),
+-                "traceback": tb
++                "task_id": req.get("task_id", "") if isinstance(req, dict) else "",
++                "message": message,
++                "traceback": traceback.format_exc(),
+             })
+ 
+ 
+ if __name__ == "__main__":
+     main()
+-
+diff -ruN -x node_modules -x __pycache__ a/src/api.ts b/src/api.ts
+--- a/src/api.ts	2026-11-06 09:12:15.000000000 +0000
++++ b/src/api.ts	2026-11-06 23:12:41.550426648 +0000
+@@ -336,15 +336,22 @@
+     sceneId?: string,
+     storyBasis?: string,
+     durationMs?: number,
+-    cues?: any[]
++    cues?: any[],
++    outputPath?: string,
++    overwrite?: boolean
+   ) =>
+-    invoke<any>("generate_whiteboard_annotation", {
+-      imagePath,
+-      sceneId,
+-      storyBasis,
+-      durationMs,
+-      cues,
+-    }),
++    invoke<{ elements?: any[]; savedTo?: string; [key: string]: any }>(
++      "generate_whiteboard_annotation",
++      {
++        imagePath,
++        sceneId,
++        storyBasis,
++        durationMs,
++        cues,
++        outputPath,
++        overwrite,
++      }
++    ),
+ 
+   renderWhiteboardScene: (
+     imagePath: string,
+diff -ruN -x node_modules -x __pycache__ a/src/components/WhiteboardEditor.tsx b/src/components/WhiteboardEditor.tsx
+--- a/src/components/WhiteboardEditor.tsx	2026-11-06 09:12:15.000000000 +0000
++++ b/src/components/WhiteboardEditor.tsx	2026-11-06 23:12:41.550528351 +0000
+@@ -104,18 +104,37 @@
+       setStatusMsg({ text: "Vui lòng chọn ảnh minh họa trước.", ok: false });
+       return;
+     }
++    // Ghi ra ô "annotation" đang nhập; nếu trống thì suy ra từ tên ảnh (giống handlePickImage).
++    const targetPath = annotationPath || imagePath.replace(/\.[^/.]+$/, "") + ".annotation.json";
+     setLoading(true);
+     setStatusMsg(null);
+     try {
+-      const res = await api.generateWhiteboardAnnotation(
+-        imagePath,
+-        "scene-01",
+-        "Hoạt hình bảng trắng",
+-        srtData ? 15000 : 8000,
+-        srtData ? srtData.cues.slice(0, 5) : []
+-      );
++      const generate = (overwrite: boolean) =>
++        api.generateWhiteboardAnnotation(
++          imagePath,
++          "scene-01",
++          "Hoạt hình bảng trắng",
++          srtData ? 15000 : 8000,
++          srtData ? srtData.cues.slice(0, 5) : [],
++          targetPath,
++          overwrite
++        );
++      let res;
++      try {
++        res = await generate(false);
++      } catch (e: any) {
++        // Runner từ chối ghi đè âm thầm annotation người dùng có thể đã chỉnh tay.
++        if (!String(e?.message || e).includes("ANNOTATION_EXISTS")) throw e;
++        if (!confirm(`Tệp annotation đã tồn tại:\n${targetPath}\n\nGhi đè bằng khung mẫu mới? Nội dung bạn đã chỉnh sẽ mất.`)) {
++          setStatusMsg({ text: "Đã hủy: giữ nguyên annotation hiện có.", ok: false });
++          return;
++        }
++        res = await generate(true);
++      }
++      const saved = res.savedTo || targetPath;
++      setAnnotationPath(saved);
+       setStatusMsg({
+-        text: `Đã sinh khung cấu hình annotation mẫu (${res.elements?.length || 0} phân vùng)!`,
++        text: `Đã sinh và lưu annotation (${res.elements?.length || 0} vùng): ${saved}`,
+         ok: true,
+       });
+     } catch (e: any) {
+diff -ruN -x node_modules -x __pycache__ a/src-tauri/src/commands.rs b/src-tauri/src/commands.rs
+--- a/src-tauri/src/commands.rs	2026-11-06 09:12:15.000000000 +0000
++++ b/src-tauri/src/commands.rs	2026-11-06 23:12:41.550301491 +0000
+@@ -1524,6 +1524,8 @@
+     story_basis: Option<String>,
+     duration_ms: Option<i64>,
+     cues: Option<Vec<serde_json::Value>>,
++    output_path: Option<String>,
++    overwrite: Option<bool>,
+     state: tauri::State<'_, AppState>,
+ ) -> Result<serde_json::Value, AppError> {
+     state.whiteboard.generate_annotation(
+@@ -1532,6 +1534,8 @@
+         story_basis.unwrap_or_default(),
+         duration_ms.unwrap_or(10000),
+         cues.unwrap_or_default(),
++        output_path,
++        overwrite.unwrap_or(false),
+     ).map_err(|e| AppError::Other(e.to_string()))
+ }
+ 
+diff -ruN -x node_modules -x __pycache__ a/src-tauri/src/executors/whiteboard.rs b/src-tauri/src/executors/whiteboard.rs
+--- a/src-tauri/src/executors/whiteboard.rs	2026-11-06 09:12:15.000000000 +0000
++++ b/src-tauri/src/executors/whiteboard.rs	2026-11-06 23:12:41.549719377 +0000
+@@ -39,6 +39,12 @@
+         duration_ms: i64,
+         #[serde(default)]
+         cues: Vec<serde_json::Value>,
++        /// Nếu có, runner ghi annotation ra tệp này (ghi nguyên tử) và trả về `savedTo`.
++        #[serde(default, skip_serializing_if = "Option::is_none")]
++        output_path: Option<String>,
++        /// Cho phép ghi đè tệp đã tồn tại; mặc định runner từ chối với lỗi ANNOTATION_EXISTS.
++        #[serde(default)]
++        overwrite: bool,
+     },
+     #[serde(rename = "render_scene")]
+     RenderScene {
+@@ -225,6 +231,8 @@
+         story_basis: String,
+         duration_ms: i64,
+         cues: Vec<serde_json::Value>,
++        output_path: Option<String>,
++        overwrite: bool,
+     ) -> Result<serde_json::Value> {
+         let req = WhiteboardRequest::GenerateAnnotation {
+             task_id: uuid::Uuid::new_v4().to_string(),
+@@ -233,6 +241,8 @@
+             story_basis,
+             duration_ms,
+             cues,
++            output_path,
++            overwrite,
+         };
+         match self.send_request(req)? {
+             WhiteboardResponse::Done { data, .. } => Ok(data.unwrap_or_default()),
