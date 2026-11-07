@@ -5,7 +5,29 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.7.0 (macOS Native Support, Whiteboard Explainer Animation & 100% Offline Engine) (Kỷ Nguyên "Ý Tưởng → Video" & Hậu Kỳ Tự Động)
+## 📦 Phiên Bản Hiện Tại: v0.7.1 (Baseline Hardening, Versioned DB Migration, OS Secret Store & Diagnostics)
+
+Nâng cấp quan trọng theo kế hoạch kiến trúc G0 sau phân tích hệ thống Sesame Studio, hoàn thiện tính ổn định, đóng gói và bảo mật:
+
+### 🛡️ 1. Quản Lý Bí Mật An Toàn Qua OS Secret Store (G0 Baseline)
+- **Tích Hợp OS Keychain & Windows DPAPI**: Chuyển đổi toàn bộ mật khẩu proxy và Gemini API Key sang kho bảo mật hệ điều hành (`security` trên macOS, DPAPI `ProtectedData` trên Windows).
+- **Loại Bỏ Plain Text & LocalStorage**: Backend đọc secret trực tiếp bằng Rust khi gọi dịch vụ cloud, không gửi secret về frontend, không lưu trong localStorage hay log nhạy cảm.
+
+### 🔄 2. Versioned Database Migration & Auto Snapshot
+- **Migration Có Phiên Bản (v1, v2...)**: Quản lý lịch sử nâng cấp schema qua bảng `schema_migrations`, đảm bảo tính idempotent và an toàn dữ liệu.
+- **Auto Backup Nhất Quán (WAL-Compatible)**: Tự động chụp snapshot file `.bak` bằng `VACUUM INTO` trước khi migrate, hỗ trợ rollback transaction ngay lập tức nếu phát sinh lỗi.
+
+### 📦 3. Độc Lập Thư Mục Chạy (Resource Path Resolution)
+- **Hỗ Trợ Mở Ngoài Repo**: `PathResolver` tự động tìm tài nguyên bundle `sidecar-muse`, `sidecar-tts`, `sidecar-whiteboard` và các model ONNX/Whisper bất kể app được mở từ thư mục nào.
+- **Tối Ưu Bundle**: Đóng gói chính xác các file runner cần thiết, loại trừ hoàn toàn `.venv`, cache hay `node_modules` thừa.
+
+### 🛠️ 4. Chẩn Đoán Hệ Thống & Kiểm Tra Dependencies
+- **Phân Cấp Trạng Thái Rõ Ràng**: Nhận diện chính xác giữa "tìm thấy file", "chạy được" và "đủ điều kiện dùng tính năng" (phát hiện file binary hỏng hoặc 0 byte).
+- **Giao Diện Kiểm Tra Trực Quan**: Tab Cài Đặt tích hợp chức năng kiểm tra Node, Python, FFmpeg, Whisper binary, ONNX model với thông báo chi tiết tính năng bị ảnh hưởng.
+
+---
+
+## 📦 Lịch Sử Phiên Bản: v0.7.0 (macOS Native Support, Whiteboard Explainer Animation & 100% Offline Engine)
 
 Nâng cấp mang tính đột phá dựa trên nghiên cứu kiến trúc Muse AI Studio và tích hợp công nghệ AI giọng nói tiếng Việt VieNeu-TTS:
 
