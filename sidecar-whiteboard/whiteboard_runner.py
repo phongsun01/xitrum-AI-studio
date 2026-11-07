@@ -62,6 +62,12 @@ def _isolate_protocol_channel():
     sys.stdout = sys.stderr
 
 
+def send_progress(task_id, percent, message=""):
+    """Gửi sự kiện tiến độ (không phải phản hồi cuối): Rust chuyển tiếp lên giao diện."""
+    send_json({"type": "progress", "task_id": task_id,
+               "percent": max(0.0, min(100.0, float(percent))), "message": message})
+
+
 def send_json(data):
     out = _PROTO if _PROTO is not None else sys.stdout
     out.write(json.dumps(data, ensure_ascii=False) + "\n")
@@ -229,9 +235,13 @@ def _plan_timing(k, cue_chunks, duration_ms):
     """
     Trả về [(startMs, durationMs)] cho k phần tử, vẽ lần lượt (stream chỉ có một đầu bút).
     Dùng mốc thời gian của phụ đề khi hợp lệ và nằm trong thời lượng cảnh; nếu không thì chia đều.
+    Mốc phụ đề được hiểu là tương đối theo cảnh (0 = đầu cảnh) khi chúng đã nằm trọn trong
+    [0, duration_ms]; ngược lại coi là mốc tuyệt đối trên timeline SRT và dịch về câu đầu tiên.
     """
     if cue_chunks and all(_has_timing(c) for chunk in cue_chunks for c in chunk):
-        base = cue_chunks[0][0]["startMs"]
+        first = cue_chunks[0][0]["startMs"]
+        last = max(c["endMs"] for chunk in cue_chunks for c in chunk)
+        base = 0 if (first >= 0 and last <= duration_ms) else first
         spans = [(int(ch[0]["startMs"] - base), int(ch[-1]["endMs"] - base)) for ch in cue_chunks]
         in_order = all(spans[i][1] <= spans[i + 1][0] + 1 for i in range(k - 1))
         if in_order and all(e > s for s, e in spans) and spans[-1][1] <= duration_ms:
@@ -381,9 +391,27 @@ def handle_render_scene(req):
         cmd_args.append(hand_path)
     cmd_args += ["--fps", str(fps), "--paper-color", paper_color]
 
-    ret_code = render_stream_whiteboard.main(cmd_args)
+    task_id = req.get("task_id", "")
+    last = [-1.0, 0.0]  # phần trăm, thời điểm gửi gần nhất
+
+    def on_progress(done, total):
+        import time
+        pct = 100.0 * done / total if total else 0.0
+        now = time.monotonic()
+        # Giới hạn tần suất: tối đa ~5 sự kiện/giây và chỉ khi phần trăm đổi đáng kể
+        if pct - last[0] >= 0.5 and now - last[1] >= 0.2 or done >= total:
+            last[0], last[1] = pct, now
+            send_progress(task_id, pct * 0.95, f"Đang vẽ khung hình {done}/{total}")
+
+    send_progress(task_id, 0, "Bắt đầu render")
+    render_stream_whiteboard.PROGRESS_CALLBACK = on_progress
+    try:
+        ret_code = render_stream_whiteboard.main(cmd_args)
+    finally:
+        render_stream_whiteboard.PROGRESS_CALLBACK = None
     if ret_code != 0:
         raise RuntimeError(f"Render bảng trắng thất bại, exit code: {ret_code}")
+    send_progress(task_id, 100, "Hoàn tất")
 
     return {
         "output_path": output_path,
@@ -418,7 +446,27 @@ def handle_merge_scenes(req):
     }
 
 
+# ──────────────────────────────────────────────────────────────
+# check_env: chỉ dùng thư viện chuẩn để vẫn chạy được khi thiếu phụ thuộc
+# ──────────────────────────────────────────────────────────────
+ENV_DEPS = {"cv2": "opencv-python", "numpy": "numpy", "av": "av", "PIL": "Pillow"}
+
+
+def handle_check_env(req):
+    import importlib.util
+    import shutil
+    missing = [pip for mod, pip in ENV_DEPS.items() if importlib.util.find_spec(mod) is None]
+    return {
+        "ok": not missing,
+        "python": sys.executable,
+        "pythonVersion": sys.version.split()[0],
+        "missing": missing,
+        "ffmpeg": shutil.which("ffmpeg"),
+    }
+
+
 HANDLERS = {
+    "check_env": handle_check_env,
     "parse_srt": handle_parse_srt,
     "generate_annotation": handle_generate_annotation,
     "render_scene": handle_render_scene,

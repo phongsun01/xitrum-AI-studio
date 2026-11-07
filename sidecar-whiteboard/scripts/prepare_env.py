@@ -11,6 +11,7 @@
 用法：
   python prepare_env.py          # 建环境 + 补依赖，输出 ENV_PY
   python prepare_env.py --check  # 仅探测，缺东西就以非零码退出
+  python prepare_env.py --venv-dir <thư mục>  # đặt venv ở nơi khác (mặc định: <skill>/.venv)
 """
 from __future__ import annotations
 
@@ -23,6 +24,17 @@ from pathlib import Path
 # skill 根目录 = 本脚本向上两级
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 VENV_ROOT = SKILL_ROOT / ".venv"
+
+
+def _apply_venv_dir_arg(argv: list[str]) -> None:
+    """--venv-dir <thư mục>: đặt môi trường ảo ngoài thư mục skill (ví dụ thư mục dữ liệu của app)."""
+    global VENV_ROOT
+    if "--venv-dir" in argv:
+        i = argv.index("--venv-dir")
+        if i + 1 >= len(argv):
+            print("[err] --venv-dir cần một đường dẫn", file=sys.stderr)
+            sys.exit(2)
+        VENV_ROOT = Path(argv[i + 1]).expanduser().resolve()
 
 # 解释器导入名 -> pip 安装名
 DEPS: dict[str, str] = {
@@ -81,6 +93,7 @@ def install(py: Path, packages: list[str]) -> bool:
 
 
 def main() -> None:
+    _apply_venv_dir_arg(sys.argv)
     check_only = "--check" in sys.argv
 
     py = ensure_venv(check_only)

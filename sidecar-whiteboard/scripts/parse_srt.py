@@ -62,58 +62,78 @@ def parse_srt(text: str) -> list[dict]:
 
 def group_scenes(cues: list[dict], target_sec: float, min_sec: float, max_sec: float) -> list[dict]:
     """
-    Chia các câu phụ đề liên tiếp thành các cảnh (scenes) theo thời lượng mục tiêu (target_sec).
-    Quy tắc chuẩn:
-    - Nếu cảnh kế tiếp có khoảng trống thời gian với cảnh trước (silence gap),
-      startMs của cảnh sau được tính bao gồm cả silence để khớp hoàn toàn với tổng timeline SRT.
-    - Cảnh đạt ngưỡng target_ms (và tối thiểu min_ms) sẽ ngắt cảnh.
-    - Nếu thêm cue tiếp theo làm vượt max_ms thì ngắt cảnh ngay lập tức.
+    Chia các câu phụ đề liên tiếp thành cảnh bằng quy hoạch động.
+
+    Mục tiêu (theo thứ tự ưu tiên): (1) tổng độ vi phạm khoảng [min, max] nhỏ nhất,
+    (2) tổng độ lệch so với target nhỏ nhất. Cảnh nào vẫn ngoài [min, max] được gắn cờ
+    `belowMin` / `aboveMax` (ví dụ một câu dài hơn max không thể tách).
+
+    Các cảnh lát kín toàn bộ timeline: cảnh đầu bắt đầu từ 0 (gồm cả đoạn lặng đầu file), khoảng
+    lặng giữa hai cảnh thuộc cảnh đứng trước, cảnh cuối kết thúc ở cuối câu phụ đề cuối.
+    Vì vậy tổng `sceneDurationMs` của các cảnh đúng bằng độ dài timeline và khớp với âm thanh.
+
+    Mỗi cảnh có: startMs/endMs (theo câu phụ đề đầu/cuối), timelineStartMs/timelineEndMs
+    (ranh giới thật trên timeline), sceneDurationMs (= timeline dài bao nhiêu), cueRange, text.
     """
     if not cues:
         return []
 
-    scenes: list[dict] = []
-    bucket: list[dict] = []
+    n = len(cues)
     target_ms, min_ms, max_ms = target_sec * 1000, min_sec * 1000, max_sec * 1000
 
-    last_scene_end = 0
+    def t_start(a: int) -> int:
+        return 0 if a == 0 else cues[a]["startMs"]
 
-    def flush() -> None:
-        nonlocal last_scene_end
-        if not bucket:
-            return
-        # Bắt đầu cảnh từ mốc kết thúc của cảnh trước đó (nếu có gap) hoặc từ đầu cue đầu tiên
-        # để đảm bảo timeline tổng của các cảnh liên tục và khớp với audio/SRT gốc.
-        start = bucket[0]["startMs"] if not scenes else last_scene_end
-        end = bucket[-1]["endMs"]
-        duration = max(0, end - start)
+    def t_end(b: int) -> int:
+        return cues[b]["endMs"] if b == n - 1 else cues[b + 1]["startMs"]
+
+    def cost(dur: int) -> tuple[int, int]:
+        viol = max(0, min_ms - dur) + max(0, dur - max_ms)
+        return (int(viol), int(abs(dur - target_ms)))
+
+    INF = (float("inf"), float("inf"))
+    # best[i] = chi phí tối ưu để chia các câu 0..i-1; prev[i] = điểm cắt trước đó
+    best: list[tuple] = [INF] * (n + 1)
+    prev = [0] * (n + 1)
+    best[0] = (0, 0)
+    for a in range(n):
+        if best[a] == INF:
+            continue
+        for b in range(a, n):
+            dur = t_end(b) - t_start(a)
+            c = cost(dur)
+            cand = (best[a][0] + c[0], best[a][1] + c[1])
+            if cand < best[b + 1]:
+                best[b + 1] = cand
+                prev[b + 1] = a
+            if dur > max_ms:
+                break  # kéo dài thêm chỉ vi phạm nhiều hơn
+
+    bounds: list[tuple[int, int]] = []
+    i = n
+    while i > 0:
+        a = prev[i]
+        bounds.append((a, i - 1))
+        i = a
+    bounds.reverse()
+
+    scenes: list[dict] = []
+    for a, b in bounds:
+        bucket = cues[a:b + 1]
+        ts, te = t_start(a), t_end(b)
+        dur = max(0, te - ts)
         scenes.append({
             "sceneIndex": len(scenes) + 1,
-            "startMs": start,
-            "endMs": end,
-            "sceneDurationMs": duration,
+            "startMs": bucket[0]["startMs"],
+            "endMs": bucket[-1]["endMs"],
+            "timelineStartMs": ts,
+            "timelineEndMs": te,
+            "sceneDurationMs": dur,
+            "belowMin": dur < min_ms,
+            "aboveMax": dur > max_ms,
             "cueRange": [bucket[0]["index"], bucket[-1]["index"]],
             "text": " ".join(c["text"] for c in bucket).strip(),
         })
-        last_scene_end = end
-        bucket.clear()
-
-    for cue in cues:
-        # Nếu cộng dồn cue này sẽ vượt max_ms thì chốt cảnh hiện tại trước
-        if bucket:
-            current_start = bucket[0]["startMs"] if not scenes else last_scene_end
-            span_with = cue["endMs"] - current_start
-            if span_with > max_ms and (cue["startMs"] - current_start) >= min_ms:
-                flush()
-
-        bucket.append(cue)
-        current_start = bucket[0]["startMs"] if not scenes else last_scene_end
-        span = bucket[-1]["endMs"] - current_start
-        # Đạt ngưỡng mục tiêu và không ngắn hơn min_ms thì ngắt cảnh
-        if span >= target_ms and span >= min_ms:
-            flush()
-
-    flush()
     return scenes
 
 
@@ -137,11 +157,12 @@ def main(argv=None) -> int:
         return 1
     scenes = group_scenes(cues, args.target_sec, args.min_sec, args.max_sec)
 
-    total_ms = cues[-1]["endMs"] - cues[0]["startMs"]
+    total_ms = cues[-1]["endMs"]
     print(f"Số dòng phụ đề: {len(cues)}  Tổng thời lượng: {total_ms/1000:.1f}s  Số cảnh đề xuất: {len(scenes)}", file=sys.stderr)
     for s in scenes:
-        print(f"  Cảnh {s['sceneIndex']:>2}  {s['startMs']/1000:6.1f}-{s['endMs']/1000:6.1f}s "
-              f"({s['sceneDurationMs']/1000:4.1f}s, phụ đề {s['cueRange'][0]}-{s['cueRange'][1]}): "
+        flag = " [ngắn hơn min]" if s["belowMin"] else (" [dài hơn max]" if s["aboveMax"] else "")
+        print(f"  Cảnh {s['sceneIndex']:>2}  {s['timelineStartMs']/1000:6.1f}-{s['timelineEndMs']/1000:6.1f}s "
+              f"({s['sceneDurationMs']/1000:4.1f}s, phụ đề {s['cueRange'][0]}-{s['cueRange'][1]}){flag}: "
               f"{s['text'][:40]}", file=sys.stderr)
 
     json.dump({"cues": cues, "scenes": scenes}, sys.stdout, ensure_ascii=False, indent=2)

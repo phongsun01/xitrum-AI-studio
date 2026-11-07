@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": [
+      "resources/*",
+      "binaries/*.dll",
+      "../sidecar-whiteboard/whiteboard_runner.py",
+      "../sidecar-whiteboard/requirements.txt",
+      "../sidecar-whiteboard/scripts/*.py",
+      "../sidecar-whiteboard/assets/drawing-hand.png"
+    ]
+  }
+}

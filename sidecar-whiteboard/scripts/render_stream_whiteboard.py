@@ -37,6 +37,32 @@ import stream_render as sr  # noqa: E402
 
 DEFAULT_HAND = _SCRIPT_DIR.parent / "assets" / "drawing-hand.png"
 
+# Hàm tuỳ chọn callback(done_frames, total_frames) do whiteboard_runner gán để báo tiến độ;
+# chạy từ dòng lệnh thì để None và không có gì thay đổi.
+PROGRESS_CALLBACK = None
+
+
+class _CountingWriter:
+    """Bọc cv2.VideoWriter: đếm khung hình đã ghi và gọi PROGRESS_CALLBACK."""
+
+    def __init__(self, writer, total_frames: int):
+        self._w = writer
+        self._total = max(1, int(total_frames))
+        self._done = 0
+
+    def isOpened(self):
+        return self._w.isOpened()
+
+    def write(self, frame):
+        self._w.write(frame)
+        self._done += 1
+        cb = PROGRESS_CALLBACK
+        if cb is not None:
+            cb(min(self._done, self._total), self._total)
+
+    def release(self):
+        self._w.release()
+
 
 # ──────────────────────────────────────────────────────────────
 # 区域几何：把标注画布坐标缩放到输出尺寸
@@ -353,6 +379,7 @@ class RegionStreamRenderer:
         writer = cv2.VideoWriter(str(raw_path), fourcc, cfg.fps, (self.out_w, self.out_h))
         if not writer.isOpened():
             raise RuntimeError("Không mở được bộ ghi video")
+        writer = _CountingWriter(writer, total_ms * cfg.fps / 1000.0)
 
         weight_sum = cfg.ink_weight + cfg.color_weight
         cur_ms = 0.0

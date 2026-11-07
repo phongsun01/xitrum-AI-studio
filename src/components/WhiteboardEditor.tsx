@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
 import {
   PenTool,
@@ -10,7 +11,12 @@ import {
   Film,
   Sparkles,
   RefreshCw,
+  XCircle,
+  Download,
 } from "lucide-react";
+
+const errText = (e: any): string => String(e?.message ?? e);
+const isCancelled = (e: any): boolean => errText(e).startsWith("CANCELLED");
 
 export function WhiteboardEditor() {
   const [srtPath, setSrtPath] = useState("");
@@ -27,6 +33,65 @@ export function WhiteboardEditor() {
     cues: any[];
     scenes: any[];
   } | null>(null);
+  const [selectedScene, setSelectedScene] = useState(0);
+
+  const [progress, setProgress] = useState<{ percent: number; message: string } | null>(null);
+  const [env, setEnv] = useState<{ ok: boolean; missing: string[]; error?: string; ffmpeg?: string | null } | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [installLog, setInstallLog] = useState("");
+
+  const refreshEnv = async () => {
+    try {
+      setEnv(await api.checkWhiteboardEnv());
+    } catch (e: any) {
+      setEnv({ ok: false, missing: [], error: errText(e) });
+    }
+  };
+
+  // Kiểm tra môi trường Python khi mở màn hình, và nghe sự kiện tiến độ/log từ backend.
+  useEffect(() => {
+    refreshEnv();
+    const unlisten: Array<() => void> = [];
+    let disposed = false;
+    const on = async (event: string, handler: (payload: any) => void) => {
+      try {
+        const un = await listen<any>(event, (ev) => handler(ev.payload));
+        if (disposed) un();
+        else unlisten.push(un);
+      } catch {
+        /* chạy ngoài Tauri (trình duyệt dev): bỏ qua */
+      }
+    };
+    on("whiteboard-progress", (p) => setProgress({ percent: Number(p?.percent) || 0, message: p?.message || "" }));
+    on("whiteboard-install-log", (line) => setInstallLog(String(line)));
+    return () => {
+      disposed = true;
+      unlisten.forEach((u) => u());
+    };
+  }, []);
+
+  const handleInstallEnv = async () => {
+    setInstalling(true);
+    setInstallLog("");
+    setStatusMsg(null);
+    try {
+      await api.installWhiteboardEnv();
+      setStatusMsg({ text: "Đã cài xong môi trường Python cho Whiteboard.", ok: true });
+    } catch (e: any) {
+      setStatusMsg({ text: isCancelled(e) ? "Đã hủy cài đặt." : `Lỗi cài môi trường: ${errText(e)}`, ok: false });
+    } finally {
+      setInstalling(false);
+      await refreshEnv();
+    }
+  };
+
+  const handleCancel = async () => {
+    try {
+      await api.cancelWhiteboard();
+    } catch {
+      /* không có gì để hủy */
+    }
+  };
 
   const handlePickSrt = async () => {
     try {
@@ -88,6 +153,7 @@ export function WhiteboardEditor() {
     try {
       const res = await api.parseWhiteboardSrt(srtPath);
       setSrtData(res);
+      setSelectedScene(0);
       setStatusMsg({
         text: `Đã phân tích thành công ${res.cues.length} câu thoại, gợi ý ${res.scenes.length} phân cảnh!`,
         ok: true,
@@ -106,16 +172,34 @@ export function WhiteboardEditor() {
     }
     // Ghi ra ô "annotation" đang nhập; nếu trống thì suy ra từ tên ảnh (giống handlePickImage).
     const targetPath = annotationPath || imagePath.replace(/\.[^/.]+$/, "") + ".annotation.json";
+
+    // Cảnh đang chọn (mặc định cảnh đầu): dùng đúng thời lượng timeline và các câu phụ đề của cảnh đó,
+    // với mốc thời gian tính từ đầu cảnh (0 = đầu cảnh).
+    const scene = srtData?.scenes[selectedScene];
+    const sceneId = `scene-${String((scene?.sceneIndex ?? 1)).padStart(2, "0")}`;
+    const durationMs = scene?.sceneDurationMs ?? 8000;
+    const base = scene?.timelineStartMs ?? 0;
+    const sceneCues = scene
+      ? srtData!.cues
+          .filter((c: any) => c.index >= scene.cueRange[0] && c.index <= scene.cueRange[1])
+          .map((c: any) => ({
+            ...c,
+            startMs: Math.max(0, c.startMs - base),
+            endMs: Math.max(0, c.endMs - base),
+          }))
+      : [];
+    const storyBasis = scene ? String(scene.text).slice(0, 300) : "Hoạt hình bảng trắng";
+
     setLoading(true);
     setStatusMsg(null);
     try {
       const generate = (overwrite: boolean) =>
         api.generateWhiteboardAnnotation(
           imagePath,
-          "scene-01",
-          "Hoạt hình bảng trắng",
-          srtData ? 15000 : 8000,
-          srtData ? srtData.cues.slice(0, 5) : [],
+          sceneId,
+          storyBasis,
+          durationMs,
+          sceneCues,
           targetPath,
           overwrite
         );
@@ -134,7 +218,7 @@ export function WhiteboardEditor() {
       const saved = res.savedTo || targetPath;
       setAnnotationPath(saved);
       setStatusMsg({
-        text: `Đã sinh và lưu annotation (${res.elements?.length || 0} vùng): ${saved}`,
+        text: `Đã sinh và lưu annotation cho ${sceneId} (${(durationMs / 1000).toFixed(1)}s, ${res.elements?.length || 0} vùng): ${saved}`,
         ok: true,
       });
     } catch (e: any) {
@@ -153,6 +237,7 @@ export function WhiteboardEditor() {
       return;
     }
     setLoading(true);
+    setProgress({ percent: 0, message: "Đang khởi động..." });
     setStatusMsg(null);
     try {
       const res = await api.renderWhiteboardScene(
@@ -167,9 +252,13 @@ export function WhiteboardEditor() {
         ok: true,
       });
     } catch (e: any) {
-      setStatusMsg({ text: `Lỗi render bảng trắng: ${e.message || e}`, ok: false });
+      setStatusMsg({
+        text: isCancelled(e) ? "Đã hủy render." : `Lỗi render bảng trắng: ${errText(e)}`,
+        ok: false,
+      });
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   };
 
@@ -187,6 +276,76 @@ export function WhiteboardEditor() {
           </div>
         </div>
       </div>
+
+      {env && !env.ok && (
+        <div
+          style={{
+            padding: "10px 14px",
+            borderRadius: "6px",
+            backgroundColor: "rgba(241, 196, 15, 0.12)",
+            border: "1px solid #f1c40f",
+            color: "#f1c40f",
+            fontSize: "0.9rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <AlertCircle size={16} />
+            <span>
+              Môi trường Python cho Whiteboard chưa sẵn sàng
+              {env.missing.length > 0 ? `: thiếu ${env.missing.join(", ")}` : ""}.
+              {env.error ? ` ${env.error}` : ""}
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <button
+              className="primary-btn"
+              onClick={handleInstallEnv}
+              disabled={installing || loading}
+              style={{ display: "flex", alignItems: "center", gap: "6px" }}
+            >
+              {installing ? <RefreshCw size={14} className="spin" /> : <Download size={14} />} Cài môi trường tự động
+            </button>
+            {installing && (
+              <button className="secondary-btn" onClick={handleCancel}>
+                Hủy
+              </button>
+            )}
+            <span style={{ fontSize: "0.8rem", opacity: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {installLog}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {env?.ok && !env.ffmpeg && (
+        <div style={{ fontSize: "0.8rem", opacity: 0.7 }}>
+          Lưu ý: không tìm thấy ffmpeg trong PATH; ghép nhiều cảnh (merge) có thể cần ffmpeg.
+        </div>
+      )}
+
+      {loading && (
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
+            <div
+              style={{
+                width: `${progress ? progress.percent : 0}%`,
+                height: "100%",
+                background: "#61afef",
+                transition: "width 0.2s",
+              }}
+            />
+          </div>
+          <span style={{ fontSize: "0.8rem", minWidth: "170px" }}>
+            {progress ? `${progress.percent.toFixed(0)}% · ${progress.message}` : "Đang xử lý..."}
+          </span>
+          <button className="secondary-btn" onClick={handleCancel} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <XCircle size={14} /> Hủy
+          </button>
+        </div>
+      )}
 
       {statusMsg && (
         <div
@@ -241,11 +400,24 @@ export function WhiteboardEditor() {
           {srtData && (
             <div style={{ marginTop: "14px", maxHeight: "220px", overflowY: "auto", fontSize: "0.85rem", background: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "6px" }}>
               <div style={{ fontWeight: "bold", marginBottom: "6px", color: "#98c379" }}>
-                Gợi ý {srtData.scenes.length} phân cảnh:
+                Gợi ý {srtData.scenes.length} phân cảnh (bấm để chọn cảnh dùng cho "Tạo mẫu"):
               </div>
-              {srtData.scenes.map((s: any) => (
-                <div key={s.sceneIndex} style={{ padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                  <span style={{ color: "#d19a66" }}>Cảnh {s.sceneIndex}</span> ({(s.sceneDurationMs / 1000).toFixed(1)}s): {s.text.slice(0, 45)}...
+              {srtData.scenes.map((s: any, i: number) => (
+                <div
+                  key={s.sceneIndex}
+                  onClick={() => setSelectedScene(i)}
+                  style={{
+                    padding: "4px 6px",
+                    borderBottom: "1px solid rgba(255,255,255,0.05)",
+                    cursor: "pointer",
+                    borderRadius: "4px",
+                    background: i === selectedScene ? "rgba(97,175,239,0.18)" : "transparent",
+                  }}
+                >
+                  <span style={{ color: "#d19a66" }}>Cảnh {s.sceneIndex}</span>{" "}
+                  ({(s.timelineStartMs / 1000).toFixed(1)}–{(s.timelineEndMs / 1000).toFixed(1)}s, {(s.sceneDurationMs / 1000).toFixed(1)}s)
+                  {s.belowMin && <span style={{ color: "#e5c07b" }}> ⚠ ngắn</span>}
+                  {s.aboveMax && <span style={{ color: "#e5c07b" }}> ⚠ dài</span>}: {s.text.slice(0, 45)}...
                 </div>
               ))}
             </div>

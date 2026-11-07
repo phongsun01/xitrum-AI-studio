@@ -325,7 +325,12 @@ export const api = {
         sceneIndex: number;
         startMs: number;
         endMs: number;
+        /** Ranh giới thật trên timeline SRT; các cảnh lát kín 0 → hết phụ đề. */
+        timelineStartMs: number;
+        timelineEndMs: number;
         sceneDurationMs: number;
+        belowMin: boolean;
+        aboveMax: boolean;
         cueRange: [number, number];
         text: string;
       }[];
@@ -375,6 +380,22 @@ export const api = {
       videoPaths,
       outputPath,
     }),
+
+  /** Dừng thao tác Whiteboard đang chạy (render, ghép, cài môi trường). */
+  cancelWhiteboard: () => invoke<void>("cancel_whiteboard"),
+
+  checkWhiteboardEnv: () =>
+    invoke<{
+      ok: boolean;
+      python?: string;
+      pythonVersion?: string;
+      missing: string[];
+      ffmpeg?: string | null;
+      error?: string;
+    }>("check_whiteboard_env"),
+
+  installWhiteboardEnv: () =>
+    invoke<{ python: string; venvDir: string }>("install_whiteboard_env"),
 
   // G0: Diagnostics & Secret Store
   checkSystemDependencies: () =>

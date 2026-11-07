@@ -6,7 +6,8 @@ use crate::models::{
 };
 use crate::state::AppState;
 use std::path::{Path, PathBuf};
-use tauri::State;
+use std::sync::Arc;
+use tauri::{Emitter, State};
 use uuid::Uuid;
 
 #[tauri::command]
@@ -1548,12 +1549,26 @@ pub async fn render_script_postproduction(
 // WHITEBOARD ANIMATION COMMANDS (F16)
 // ==========================================
 
+/// Chạy tác vụ Python chặn (có thể kéo dài nhiều phút) trên luồng blocking riêng, không giữ
+/// luồng async của Tauri.
+async fn whiteboard_blocking<T, F>(f: F) -> Result<T, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> anyhow::Result<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| AppError::Other(format!("Luồng Whiteboard bị lỗi: {}", e)))?
+        .map_err(|e| AppError::Other(e.to_string()))
+}
+
 #[tauri::command]
 pub async fn parse_whiteboard_srt(
     srt_path: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
-    state.whiteboard.parse_srt(srt_path).map_err(|e| AppError::Other(e.to_string()))
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || wb.parse_srt(srt_path)).await
 }
 
 #[tauri::command]
@@ -1567,17 +1582,22 @@ pub async fn generate_whiteboard_annotation(
     overwrite: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
-    state.whiteboard.generate_annotation(
-        image_path,
-        scene_id.unwrap_or_else(|| "scene-01".to_string()),
-        story_basis.unwrap_or_default(),
-        duration_ms.unwrap_or(10000),
-        cues.unwrap_or_default(),
-        output_path,
-        overwrite.unwrap_or(false),
-    ).map_err(|e| AppError::Other(e.to_string()))
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || {
+        wb.generate_annotation(
+            image_path,
+            scene_id.unwrap_or_else(|| "scene-01".to_string()),
+            story_basis.unwrap_or_default(),
+            duration_ms.unwrap_or(10000),
+            cues.unwrap_or_default(),
+            output_path,
+            overwrite.unwrap_or(false),
+        )
+    })
+    .await
 }
 
+/// Sự kiện `whiteboard-progress`: `{ type:"progress", task_id, percent (0-100), message }`.
 #[tauri::command]
 pub async fn render_whiteboard_scene(
     image_path: String,
@@ -1586,25 +1606,69 @@ pub async fn render_whiteboard_scene(
     fps: Option<i32>,
     paper_color: Option<String>,
     hand_path: Option<String>,
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
-    state.whiteboard.render_scene(
-        image_path,
-        annotation_path,
-        output_path,
-        fps.unwrap_or(30),
-        paper_color.unwrap_or_else(|| "#F5EBD7".to_string()),
-        hand_path,
-    ).map_err(|e| AppError::Other(e.to_string()))
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || {
+        wb.render_scene(
+            image_path,
+            annotation_path,
+            output_path,
+            fps.unwrap_or(30),
+            paper_color.unwrap_or_else(|| "#F5EBD7".to_string()),
+            hand_path,
+            &|p| {
+                let _ = app.emit("whiteboard-progress", p.clone());
+            },
+        )
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn merge_whiteboard_scenes(
     video_paths: Vec<String>,
     output_path: String,
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
-    state.whiteboard.merge_scenes(video_paths, output_path).map_err(|e| AppError::Other(e.to_string()))
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || {
+        wb.merge_scenes(video_paths, output_path, &|p| {
+            let _ = app.emit("whiteboard-progress", p.clone());
+        })
+    })
+    .await
+}
+
+/// Dừng thao tác Whiteboard đang chạy (render, ghép, cài môi trường). Runner được khởi động lại ở lần gọi sau.
+#[tauri::command]
+pub async fn cancel_whiteboard(state: tauri::State<'_, AppState>) -> Result<(), AppError> {
+    state.whiteboard.cancel();
+    Ok(())
+}
+
+/// `{ ok, python, pythonVersion?, missing[], ffmpeg?, error? }`; không bao giờ trả lỗi.
+#[tauri::command]
+pub async fn check_whiteboard_env(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, AppError> {
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || Ok(wb.check_env())).await
+}
+
+/// Cài môi trường Python cho Whiteboard; log từng dòng qua sự kiện `whiteboard-install-log` (chuỗi).
+#[tauri::command]
+pub async fn install_whiteboard_env(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || {
+        wb.install_env(&|line| {
+            let _ = app.emit("whiteboard-install-log", line.to_string());
+        })
+    })
+    .await
 }
 
 // ==========================================

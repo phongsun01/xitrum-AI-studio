@@ -80,7 +80,21 @@ class RunnerSmokeTest(unittest.TestCase):
     def rpc(self, **req):
         self.proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
         self.proc.stdin.flush()
-        return self._read_json()
+        # Sự kiện "progress" đi trước phản hồi cuối; gom lại để test kiểm tra, rồi trả phản hồi cuối.
+        self.progress = []
+        while True:
+            msg = self._read_json()
+            if msg.get("type") != "progress":
+                return msg
+            self.progress.append(msg)
+
+    def test_00_check_env(self):
+        resp = self.rpc(action="check_env", task_id="e")
+        self.assertEqual(resp["type"], "done", resp)
+        data = resp["data"]
+        self.assertTrue(data["ok"], data)
+        self.assertEqual(data["missing"], [])
+        self.assertTrue(data["python"])
 
     def test_01_ping(self):
         self.assertEqual(self.rpc(action="ping", task_id="p")["type"], "pong")
@@ -128,6 +142,13 @@ class RunnerSmokeTest(unittest.TestCase):
                         annotation_path=str(ann), output_path=str(video), fps=8, paper_color="#FFF2CC")
         self.assertEqual(resp["type"], "done", resp)
         self.assertGreater(video.stat().st_size, 0)
+
+        # Tiến độ: đơn điệu tăng, có task_id, kết thúc ở 100
+        pcts = [m["percent"] for m in self.progress]
+        self.assertGreaterEqual(len(pcts), 3, self.progress)
+        self.assertEqual(pcts, sorted(pcts))
+        self.assertEqual(pcts[-1], 100.0)
+        self.assertTrue(all(m["task_id"] == "r" for m in self.progress))
 
         # Màu giấy phải được truyền tới bộ render: khung đầu là giấy trắng #FFF2CC (BGR 204,242,255).
         cap = cv2.VideoCapture(str(video))
