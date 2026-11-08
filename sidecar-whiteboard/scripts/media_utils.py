@@ -8,15 +8,44 @@ import sys
 from pathlib import Path
 
 
+_UNIX_CANDIDATES = ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin")
+
+
 def find_ffmpeg() -> str | None:
     """
     Thứ tự: biến môi trường XITRUM_FFMPEG (app Tauri truyền đường dẫn ffmpeg đã đóng gói) →
-    ffmpeg trong PATH. Trả None nếu không có.
+    ffmpeg trong PATH → vị trí cài đặt phổ biến. Trả None nếu không có.
     """
     env = os.environ.get("XITRUM_FFMPEG")
     if env and Path(env).is_file():
         return env
-    return shutil.which("ffmpeg")
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    # App GUI (macOS/Linux) thường không có PATH đầy đủ → thử các vị trí cài đặt phổ biến.
+    for d in _UNIX_CANDIDATES:
+        c = Path(d) / "ffmpeg"
+        if c.is_file():
+            return str(c)
+    return None
+
+
+def find_ffprobe() -> str | None:
+    """ffprobe cạnh ffmpeg đã chọn → PATH → vị trí phổ biến. Bản ffmpeg đóng gói theo app không kèm ffprobe,
+    nên mọi nơi dùng ffprobe phải có đường lui (PyAV: probe_media)."""
+    ff = find_ffmpeg()
+    if ff:
+        sib = Path(ff).with_name("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
+        if sib.is_file():
+            return str(sib)
+    fp = shutil.which("ffprobe")
+    if fp:
+        return fp
+    for d in _UNIX_CANDIDATES:
+        c = Path(d) / "ffprobe"
+        if c.is_file():
+            return str(c)
+    return None
 
 
 def require_ffmpeg() -> str:

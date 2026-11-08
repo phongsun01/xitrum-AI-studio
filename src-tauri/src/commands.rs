@@ -731,6 +731,8 @@ pub async fn generate_whiteboard_srt_tts(
     voice_id: String,
     auto_timing: Option<bool>,
     scene_cue_ranges: Option<Vec<[usize; 2]>>,
+    speech_config: Option<serde_json::Value>,
+    cues: Option<Vec<serde_json::Value>>,
     _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
     let srt_p = std::path::Path::new(&srt_path);
@@ -746,7 +748,8 @@ pub async fn generate_whiteboard_srt_tts(
     let pipeline = crate::executors::tts::TtsPipeline::new();
     pipeline
         .synthesize_srt("whiteboard_srt_tts", srt_p, &voice_id, &output_file,
-                        auto_timing.unwrap_or(false), scene_cue_ranges.unwrap_or_default())
+                        auto_timing.unwrap_or(false), scene_cue_ranges.unwrap_or_default(),
+                        speech_config, cues)
         .await
         .map_err(|e| AppError::Other(e.to_string()))
 }
@@ -1712,6 +1715,16 @@ pub async fn parse_whiteboard_srt(
 }
 
 #[tauri::command]
+pub async fn inspect_whiteboard_wb_import(
+    srt_path: String,
+    wb_json_path: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || wb.inspect_wb_import(srt_path, wb_json_path)).await
+}
+
+#[tauri::command]
 pub async fn generate_whiteboard_annotation(
     image_path: String,
     scene_id: Option<String>,
@@ -1896,6 +1909,8 @@ pub struct WhiteboardThumbnail {
     pub png_data_url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<String>,
 }
 
 fn thumbnail_png(thumbnail: &WhiteboardThumbnail) -> anyhow::Result<String> {
@@ -1906,8 +1921,12 @@ fn thumbnail_png(thumbnail: &WhiteboardThumbnail) -> anyhow::Result<String> {
     anyhow::ensure!(encoded.len() <= 24 * 1024 * 1024, "Thumbnail quá lớn");
     let bytes = general_purpose::STANDARD.decode(encoded)?;
     let reader = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format()?;
-    anyhow::ensure!(reader.format() == Some(image::ImageFormat::Png)
-        && reader.into_dimensions()? == (1280, 720), "Thumbnail phải là PNG 1280×720");
+    let is_png = reader.format() == Some(image::ImageFormat::Png);
+    let dims = reader.into_dimensions()?;
+    anyhow::ensure!(
+        is_png && (dims == (1280, 720) || dims == (720, 1280)),
+        "Thumbnail phải là PNG kích thước 1280×720 (16:9) hoặc 720×1280 (9:16)"
+    );
     Ok(encoded.to_string())
 }
 
@@ -1937,6 +1956,28 @@ pub async fn read_whiteboard_cover_image(image_path: String, app: tauri::AppHand
     }).await
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhiteboardSpeaker {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "voiceId")]
+    pub voice_id: String,
+    #[serde(rename = "sourceCharacterId", default, skip_serializing_if = "Option::is_none")]
+    pub source_character_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhiteboardSpeechConfig {
+    pub mode: String, // "single" | "characters"
+    #[serde(rename = "defaultVoiceId")]
+    pub default_voice_id: String,
+    #[serde(rename = "timingMode")]
+    pub timing_mode: String, // "fixed" | "auto"
+    pub speakers: Vec<WhiteboardSpeaker>,
+    #[serde(rename = "audioFingerprint", default, skip_serializing_if = "Option::is_none")]
+    pub audio_fingerprint: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WhiteboardProject {
     pub id: String,
@@ -1949,6 +1990,8 @@ pub struct WhiteboardProject {
     pub paper_color: String,
     #[serde(rename = "handPath", skip_serializing_if = "Option::is_none")]
     pub hand_path: Option<String>,
+    #[serde(rename = "speechConfig", default, skip_serializing_if = "Option::is_none")]
+    pub speech_config: Option<WhiteboardSpeechConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<WhiteboardThumbnail>,
     #[serde(rename = "thumbnailDraft", default, skip_serializing_if = "Option::is_none")]
@@ -2411,6 +2454,7 @@ mod whiteboard_review_regression_tests {
             font_choice: Some("grenzegotisch".into()), typography_version: Some(1),
             title: "Tam Anh Chiến Lữ Bố".into(), image_path: "cover.png".into(),
             layout: Some("full-bleed-top".into()),
+            aspect_ratio: Some("16:9".into()),
             pen_type: "quill".into(), png_data_url: format!("data:image/png;base64,{}", encoded),
         });
         p.thumbnail_draft = Some(WhiteboardThumbnailDraft { title: "Bản nháp mới".into(), image_path: "other.png".into(), font_choice: Some("auto".into()) });
@@ -2425,10 +2469,57 @@ mod whiteboard_review_regression_tests {
         assert_eq!(cover.typography_version, Some(1));
         assert_eq!(cover.layout.as_deref(), Some("full-bleed-top"));
         assert_eq!(thumbnail_png(cover).unwrap(), encoded);
+
+        // Portrait 9:16 (720x1280) validation test
+        let mut portrait_png = Vec::new();
+        image::RgbImage::new(720, 1280).write_to(&mut std::io::Cursor::new(&mut portrait_png), image::ImageFormat::Png).unwrap();
+        let encoded_portrait = general_purpose::STANDARD.encode(&portrait_png);
+        cover.png_data_url = format!("data:image/png;base64,{}", encoded_portrait);
+        assert_eq!(thumbnail_png(cover).unwrap(), encoded_portrait);
+
         assert_eq!(reopened.thumbnail_draft.as_ref().unwrap().title, "Bản nháp mới");
         assert_eq!(reopened.thumbnail_draft.as_ref().unwrap().font_choice.as_deref(), Some("auto"));
         cover.png_data_url = "data:image/png;base64,broken".into();
         assert!(thumbnail_png(cover).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn whiteboard_speech_config_roundtrip() {
+        let mut p = project();
+        assert!(p.speech_config.is_none());
+        p.speech_config = Some(WhiteboardSpeechConfig {
+            mode: "characters".into(),
+            default_voice_id: "Thùy Dung".into(),
+            timing_mode: "auto".into(),
+            speakers: vec![
+                WhiteboardSpeaker {
+                    id: "spk-1".into(),
+                    name: "Thầy giáo".into(),
+                    voice_id: "Hải Đăng".into(),
+                    source_character_id: None,
+                },
+                WhiteboardSpeaker {
+                    id: "spk-2".into(),
+                    name: "Học sinh".into(),
+                    voice_id: "Trúc Ly".into(),
+                    source_character_id: Some("char-hs".into()),
+                },
+            ],
+            audio_fingerprint: Some("fp-12345".into()),
+        });
+        let path = std::env::temp_dir().join(format!("wb-speech-{}.json", uuid::Uuid::new_v4()));
+        let name = path.to_string_lossy().to_string();
+        tauri::async_runtime::block_on(save_whiteboard_project(name.clone(), p)).unwrap();
+        let reopened = tauri::async_runtime::block_on(load_whiteboard_project(name)).unwrap();
+        let sc = reopened.speech_config.unwrap();
+        assert_eq!(sc.mode, "characters");
+        assert_eq!(sc.default_voice_id, "Thùy Dung");
+        assert_eq!(sc.timing_mode, "auto");
+        assert_eq!(sc.speakers.len(), 2);
+        assert_eq!(sc.speakers[0].name, "Thầy giáo");
+        assert_eq!(sc.speakers[0].voice_id, "Hải Đăng");
+        assert_eq!(sc.speakers[1].source_character_id.as_deref(), Some("char-hs"));
         std::fs::remove_file(path).unwrap();
     }
 

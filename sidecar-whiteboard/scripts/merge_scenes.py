@@ -11,8 +11,6 @@ ffmpeg 时，回退到 PyAV 逐帧重编码并缩放补边到第一段尺寸。�
 from __future__ import annotations
 
 import argparse
-import json
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -29,99 +27,137 @@ def _escape_concat_path(path: Path) -> str:
     return p_str.replace("'", "'\\''")
 
 
-def _normalize_concat_if_needed(inputs: list[Path], output: Path, ffmpeg: str):
-    """Return None for compatible clips, otherwise normalize all streams explicitly."""
-    import whiteboard_audio
-    _, ffprobe = whiteboard_audio.resolve_ffmpeg_and_probe()
-    if not ffprobe:
-        raise RuntimeError("FFPROBE_REQUIRED: Cần ffprobe để kiểm tra streams trước khi ghép, tránh mất audio")
+_SR = 48000
+_BYTES_PER_SAMPLE = 4  # s16le stereo
+
+
+def _probe_clips(inputs: list[Path]) -> list[dict]:
+    """Đọc thông số từng clip bằng PyAV (không cần ffprobe: bản ffmpeg đóng gói theo app không kèm ffprobe)."""
+    from media_utils import probe_media
     clips = []
     for path in inputs:
-        result = subprocess.run([ffprobe, "-v", "error", "-show_streams", "-show_format",
-                                 "-of", "json", str(path)], capture_output=True, text=True)
-        if result.returncode:
-            raise ValueError(f"Không probe được video: {path}")
-        data = json.loads(result.stdout)
-        video = next((v for v in data["streams"] if v["codec_type"] == "video"), None)
-        audio = next((v for v in data["streams"] if v["codec_type"] == "audio"), None)
-        if not video:
+        try:
+            info = probe_media(path)
+        except Exception as exc:
+            raise ValueError(f"Không probe được video: {path} ({exc})") from exc
+        v = info["video"]
+        if not v:
             raise ValueError(f"Tệp không có video: {path}")
-        duration = float(video.get("duration", data["format"]["duration"]))
-        signature = (video.get("codec_name"), video["width"], video["height"],
-                     video.get("r_frame_rate"), video.get("pix_fmt"),
-                     tuple(audio.get(k) for k in ("codec_name", "sample_rate", "channel_layout")) if audio else None)
-        clips.append((video, audio, duration, signature))
-    if all(c[3] == clips[0][3] and (not c[1] or abs(float(c[1].get("duration", c[2])) - c[2]) < 0.02) for c in clips):
-        return None
-    width, height = clips[0][0]["width"], clips[0][0]["height"]
-    width, height = width + width % 2, height + height % 2
-    fps = clips[0][0].get("r_frame_rate", "30/1")
-    has_audio = any(c[1] for c in clips)
+        if v["fps"] <= 0:
+            raise ValueError(f"FPS video không hợp lệ: {path}")
+        # Độ dài hình thật = số khung / fps (duration của container có thể bị audio kéo dài hơn).
+        dur = v["frames"] / v["fps"] if v["frames"] and v["fps"] else info["duration_s"]
+        clips.append({"path": path, "video": v, "audio": info["audio"], "duration": float(dur),
+                      "signature": (v["codec"], v["width"], v["height"], round(v["fps"], 3), v["pix_fmt"])})
+    return clips
+
+
+def _concat_video_only(clips: list[dict], output: Path, ffmpeg: str) -> None:
+    """Ghép phần hình (bỏ audio). Clip tương thích → -c copy; khác nhau → chuẩn hóa kích thước/fps và mã hóa lại."""
+    inputs = [c["path"] for c in clips]
+    if all(c["signature"] == clips[0]["signature"] for c in clips):
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
+            for c in clips:
+                f.write(f"file '{_escape_concat_path(c['path'])}'\n")
+                # Concat mặc định dùng duration container, có thể dài hơn hình vì audio.
+                f.write(f"duration {c['duration']:.9f}\n")
+            list_path = Path(f.name)
+        try:
+            res = subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
+                                  "-i", str(list_path), "-an", "-c:v", "copy", str(output)],
+                                 capture_output=True, text=True)
+        finally:
+            list_path.unlink(missing_ok=True)
+        if res.returncode == 0:
+            return
+        print(f"  [warn] ffmpeg -c copy thất bại, thử mã hóa lại: {res.stderr.strip()[:200]}")
+    v0 = clips[0]["video"]
+    width, height = v0["width"] + v0["width"] % 2, v0["height"] + v0["height"] % 2
+    fps = f"{v0['fps']:.6f}"
+    # Mỗi cảnh sau đổi FPS phải chiếm số frame nguyên. Audio dùng chính thời lượng
+    # này, thay vì thời lượng trước đổi FPS, để các điểm cắt không trôi dần.
+    frame_counts = [max(1, int(c["duration"] * float(fps) + 0.5)) for c in clips]
     cmd = [ffmpeg, "-y", "-v", "error"]
     for path in inputs:
         cmd += ["-i", str(path)]
-    filters, pads = [], []
-    for i, (_, audio, duration, _) in enumerate(clips):
-        filters.append(f"[{i}:v:0]scale={width}:{height}:force_original_aspect_ratio=decrease,"
-                       f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},"
-                       f"setpts=PTS-STARTPTS[v{i}]")
-        pads.append(f"[v{i}]")
-        if has_audio:
-            source = f"[{i}:a:0]" if audio else "anullsrc=r=48000:cl=stereo,"
-            filters.append(source + f"aformat=sample_rates=48000:channel_layouts=stereo,apad,"
-                           f"atrim=duration={duration:.9f},asetpts=PTS-STARTPTS[a{i}]")
-            pads.append(f"[a{i}]")
-    filters.append("".join(pads) + f"concat=n={len(clips)}:v=1:a={int(has_audio)}[v]" + ("[a]" if has_audio else ""))
-    cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p"]
-    if has_audio:
-        cmd += ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"]
-    cmd.append(str(output))
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode:
-        raise RuntimeError(f"Chuẩn hóa/ghép video thất bại: {result.stderr[-2000:]}")
-    return True
+    filters = [f"[{i}:v:0]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+               f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS,fps={fps},"
+               f"tpad=stop_mode=clone:stop_duration={1 / float(fps):.9f},"
+               f"trim=end_frame={frame_counts[i]},setpts=PTS-STARTPTS[v{i}]"
+               for i in range(len(clips))]
+    filters.append("".join(f"[v{i}]" for i in range(len(clips))) + f"concat=n={len(clips)}:v=1:a=0[v]")
+    cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-an",
+            "-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p", str(output)]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode:
+        raise RuntimeError(f"Chuẩn hóa/ghép video thất bại: {res.stderr[-2000:]}")
+    for c, frames in zip(clips, frame_counts):
+        c["duration"] = frames / float(fps)
+
+
+def _build_pcm_track(clips: list[dict], raw_path: Path, ffmpeg: str, tmp_dir: Path) -> None:
+    """
+    Dựng một track PCM s16le 48 kHz stereo liền mạch: mỗi clip được cắt/đệm im lặng đúng bằng độ dài HÌNH của nó.
+    Ghép AAC bằng -c copy làm cộng dồn phần đệm đầu/cuối của từng clip (≈50 ms/cảnh) nên tiếng trôi lệch dần
+    so với hình; ghép ở dạng PCM rồi mã hóa AAC đúng một lần thì không có sai số cộng dồn.
+    """
+    total_samples = 0
+    elapsed = 0.0
+    with open(raw_path, "wb") as out:
+        for i, c in enumerate(clips):
+            elapsed += c["duration"]
+            # Mục tiêu tích lũy (không làm tròn từng clip) để sai số không cộng dồn.
+            want = int(round(elapsed * _SR)) - total_samples
+            written = 0
+            if c["audio"]:
+                part = tmp_dir / f"a{i}.raw"
+                res = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(c["path"]), "-vn", "-map", "0:a:0",
+                                      "-af", f"aresample={_SR}", "-ac", "2", "-f", "s16le", str(part)],
+                                     capture_output=True, text=True)
+                if res.returncode:
+                    raise RuntimeError(f"Giải mã audio thất bại ({c['path']}): {res.stderr[-1000:]}")
+                need = want * _BYTES_PER_SAMPLE
+                with open(part, "rb") as src:
+                    while written < need:
+                        chunk = src.read(min(1 << 20, need - written))
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        written += len(chunk)
+                part.unlink(missing_ok=True)
+            pad = want * _BYTES_PER_SAMPLE - written
+            while pad > 0:
+                n = min(pad, 1 << 20)
+                out.write(b"\x00" * n)
+                pad -= n
+            total_samples += want
 
 
 def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
     ffmpeg = find_ffmpeg()
     if ffmpeg is None:
-        for candidate in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
-            if Path(candidate).exists():
-                ffmpeg = candidate
-                break
-    if ffmpeg is None:
         return False
-    normalized = _normalize_concat_if_needed(inputs, output, ffmpeg)
-    if normalized is not None:
-        return normalized
-    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
-        for p in inputs:
-            f.write(f"file '{_escape_concat_path(p)}'\n")
-        list_path = Path(f.name)
-    try:
-        res = subprocess.run(
-            [ffmpeg, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
-             "-i", str(list_path), "-c", "copy", str(output)],
-            capture_output=True, text=True,
-        )
-        if res.returncode == 0:
-            print(f"  Ghép bằng ffmpeg không mất dữ liệu xong: {output}")
+    clips = _probe_clips(inputs)
+    has_audio = any(c["audio"] for c in clips)
+    with tempfile.TemporaryDirectory(prefix="wb_merge_") as td:
+        tmp = Path(td)
+        if not has_audio:
+            _concat_video_only(clips, output, ffmpeg)
+            print(f"  Ghép video xong: {output}")
             return True
-        print(f"  [warn] ffmpeg -c copy thất bại, thử mã hóa lại: {res.stderr.strip()[:200]}")
-        res = subprocess.run(
-            [ffmpeg, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
-             "-i", str(list_path), "-c:v", "libx264", "-crf", "20",
-             "-c:a", "aac", "-b:a", "192k",
-             "-pix_fmt", "yuv420p", "-vf", "scale='trunc(iw/2)*2':'trunc(ih/2)*2'", str(output)],
-            capture_output=True, text=True,
-        )
-        if res.returncode == 0:
-            print(f"  Ghép bằng ffmpeg có mã hóa lại xong: {output}")
-            return True
-        print(f"  [warn] ffmpeg mã hóa lại cũng thất bại: {res.stderr.strip()[:200]}")
-        return False
-    finally:
-        list_path.unlink(missing_ok=True)
+        video_only = tmp / "video.mp4"
+        _concat_video_only(clips, video_only, ffmpeg)
+        raw = tmp / "audio.raw"
+        _build_pcm_track(clips, raw, ffmpeg, tmp)
+        res = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(video_only),
+                              "-f", "s16le", "-ar", str(_SR), "-ac", "2", "-i", str(raw),
+                              "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
+                              "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)],
+                             capture_output=True, text=True)
+        if res.returncode:
+            raise RuntimeError(f"Mux audio/video thất bại: {res.stderr[-1000:]}")
+    print(f"  Ghép video + audio khớp thời lượng xong: {output}")
+    return True
 
 
 def _pyav_concat(inputs: list[Path], output: Path) -> bool:

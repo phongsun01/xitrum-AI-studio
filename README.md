@@ -5,9 +5,49 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.7.8 (G3 Provider & Account Isolation Framework, Capability Matrix & Whiteboard Project Export)
+## 📦 Phiên Bản Hiện Tại: v0.8.0 (Whiteboard Character Bible & WB Schema 3 Import)
 
-Bản cập nhật lớn tái cấu trúc tầng thực thi AI Provider và bổ sung công cụ đóng gói dự án Whiteboard:
+Bản cập nhật lớn hoàn thiện hệ thống **Đa giọng đọc đối thoại (Character Bible)** và **Nhập kịch bản đồng bộ Whiteboard Schema 3 (.wb.json & .srt)**:
+
+### 🎬 1. Nhập Kịch Bản Đồng Bộ Whiteboard Schema 3 (.wb.json & .srt)
+- **Tự Động Nhận Diện & Modal Xác Nhận**: Khi chọn file phụ đề `<slug>.srt`, phần mềm tự động phát hiện tệp `<slug>.wb.json` đi kèm cùng thư mục, hiển thị bảng xem trước (preview) tiêu đề, số cảnh, số câu thoại, danh mục nhân vật và các giọng đọc được phân vai.
+- **Bảo Toàn Chuẩn 1 Cảnh = 1 Ảnh Vẽ Minh Họa**: Tùy chọn "Nhập theo phân cảnh từ WB (Khuyên dùng)" giữ nguyên vẹn cấu trúc kịch bản ban đầu. Dù một cảnh có 2–3 câu đối thoại qua lại giữa các nhân vật, toàn bộ câu thoại vẫn thuộc về **cùng 1 cảnh duy nhất dùng 1 bức tranh vẽ**, không bị thuật toán SRT cắt vụn.
+- **Xác Thực Toàn Vẹn Mã Băm (SHA-256)**: Đối chiếu mã băm SHA-256 từ byte raw của tệp SRT thực tế với `srt_sha256` trong kịch bản. Cảnh báo rõ ràng và từ chối nếu phát hiện tệp SRT bị sửa lệch bên ngoài.
+- **Nút "Kịch bản WB" Trực Tiếp**: Thao tác nhanh trên thanh công cụ SRT để người dùng chủ động kiểm tra và nạp lại kịch bản bất kỳ lúc nào.
+
+### 🎭 2. Hoạt Họa Bảng Trắng Đa Giọng Đọc (Whiteboard Multi-Speaker Character Bible)
+- **Tự Động Bóc Tách Phân Vai Từ SRT**: Nhận diện tiền tố nhãn `[Tên nhân vật]: Lời thoại` trong file phụ đề SRT (chuẩn hóa Unicode NFC), tự động lập danh sách nhân vật cho bảng phân vai Whiteboard.
+- **Phân Vai Độc Lập Cho Từng Nhân Vật**: Cho phép gán từng nhân vật với 1 giọng đọc VieNeu-TTS riêng biệt (Nam/Nữ, Bắc/Trung/Nam), có nút nghe thử giọng trực tiếp và giọng riêng cho Người dẫn chuyện.
+- **Tùy Biến Người Nói Từng Câu**: Cho phép người dùng linh hoạt đổi người nói cho bất kỳ câu thoại nào trong cột Chi tiết phân cảnh.
+- **Đa Giọng Nối Tiếp Nền Tảng**: Một cảnh giữ nguyên hình ảnh và lịch vẽ nhưng có thể chứa nhiều câu thoại đối thoại liên tục giữa các nhân vật mà không bị cắt nhỏ cảnh. Tự động loại bỏ nhãn nhân vật khỏi lời đọc TTS để không bị đọc tên nhân vật ra tiếng.
+- **Tương Thích Ngược Trọn Vẹn**: Hỗ trợ cả 2 chế độ (Giữ mốc thời gian SRT cố định & Tự căn thời lượng theo giọng đọc), lưu và mở lại đầy đủ qua định dạng dự án `speechConfig`.
+
+### 📱 3. Thumbnail Thích Ứng Định Dạng Dọc 9:16 (Adaptive Portrait Thumbnail)
+- **Tự Động Nhận Diện Tỉ Lệ Ảnh Bìa**: Khi người dùng tải ảnh dọc (9:16 - định dạng TikTok, Shorts, Reels), canvas tự động chuyển sang $720 \times 1280$ với bố cục chữ tiêu đề và watermark tối ưu cho khung dọc.
+- **Xem Trước & Xuất Video Chuẩn Tỉ Lệ**: Khung preview và video xuất ra giữ nguyên tỉ lệ 9:16 sắc nét, không bị co kéo hay ép thành tỉ lệ ngang 16:9.
+
+---
+
+## 📦 Lịch Sử Phiên Bản: v0.7.9 (Whiteboard Multi-Speaker Character Bible & Adaptive 9:16 Portrait Thumbnail)
+
+Bản cập nhật lớn cho phân hệ **Hoạt hình Bảng trắng (Whiteboard Explainer Animation)** với tính năng đối thoại nhiều nhân vật theo Character Bible và hỗ trợ ảnh bìa dọc 9:16:
+
+### 🎭 1. Hoạt Họa Bảng Trắng Đa Giọng Đọc (Whiteboard Multi-Speaker Character Bible)
+- **Tự Động Bóc Tách Phân Vai Từ SRT**: Nhận diện tiền tố nhãn `[Tên nhân vật]: Lời thoại` trong file phụ đề SRT (chuẩn hóa Unicode NFC), tự động lập danh sách nhân vật cho bảng phân vai Whiteboard.
+- **Phân Vai Độc Lập Cho Từng Nhân Vật**: Cho phép gán từng nhân vật với 1 giọng đọc VieNeu-TTS riêng biệt (Nam/Nữ, Bắc/Trung/Nam), có nút nghe thử giọng trực tiếp và giọng riêng cho Người dẫn chuyện.
+- **Tùy Biến Người Nói Từng Câu**: Cho phép người dùng linh hoạt đổi người nói cho bất kỳ câu thoại nào trong cột Chi tiết phân cảnh.
+- **Đa Giọng Nối Tiếp Nền Tảng**: Một cảnh giữ nguyên hình ảnh và lịch vẽ nhưng có thể chứa nhiều câu thoại đối thoại liên tục giữa các nhân vật mà không bị cắt nhỏ cảnh. Tự động loại bỏ nhãn nhân vật khỏi lời đọc TTS để không bị đọc tên nhân vật ra tiếng.
+- **Tương Thích Ngược Trọn Vẹn**: Hỗ trợ cả 2 chế độ (Giữ mốc thời gian SRT cố định & Tự căn thời lượng theo giọng đọc), lưu và mở lại đầy đủ qua định dạng dự án `speechConfig`.
+
+### 📱 2. Thumbnail Thích Ứng Định Dạng Dọc 9:16 (Adaptive Portrait Thumbnail)
+- **Tự Động Nhận Diện Tỉ Lệ Ảnh Bìa**: Khi người dùng tải ảnh dọc (9:16 - định dạng TikTok, Shorts, Reels), canvas tự động chuyển sang $720 \times 1280$ với bố cục chữ tiêu đề và watermark tối ưu cho khung dọc.
+- **Xem Trước & Xuất Video Chuẩn Tỉ Lệ**: Khung preview và video xuất ra giữ nguyên tỉ lệ 9:16 sắc nét, không bị co kéo hay ép thành tỉ lệ ngang 16:9.
+
+---
+
+## 📦 Lịch Sử Phiên Bản: v0.7.8 (G3 Provider & Account Isolation Framework, Capability Matrix & Whiteboard Project Export)
+
+Bản cập nhật tái cấu trúc tầng thực thi AI Provider và bổ sung công cụ đóng gói dự án Whiteboard:
 
 ### 🧩 1. Khung Trừu Tượng Provider & Cách Ly Tài Khoản (G3 Provider & Account Isolation)
 - **Kiến Trúc ProviderAdapter & ProviderRegistry**: Tách rời điều phối hàng đợi khỏi Runner cụ thể, bọc Muse bằng adapter contract thống nhất sẵn sàng tích hợp các provider tiếp theo (Dola, Midjourney...).

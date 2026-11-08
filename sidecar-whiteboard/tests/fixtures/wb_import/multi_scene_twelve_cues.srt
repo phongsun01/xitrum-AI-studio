@@ -1,0 +1,48 @@
+1
+00:00:00,000 --> 00:00:03,000
+Mặt trời vừa lên, lớp học đã rộn rã tiếng cười.
+
+2
+00:00:03,000 --> 00:00:06,500
+[Thầy giáo]: Hôm nay chúng ta sẽ giải một bài toán rất thú vị.
+
+3
+00:00:06,500 --> 00:00:09,500
+[An]: Thưa thầy, bài toán về vũ trụ ạ?
+
+4
+00:00:09,500 --> 00:00:13,500
+[Thầy giáo]: Đúng vậy, bài toán tính khoảng cách từ Trái Đất đến Mặt Trăng.
+
+5
+00:00:13,500 --> 00:00:17,500
+[Mai]: Khoảng ba trăm tám mươi tư nghìn cây số phải không ạ?
+
+6
+00:00:17,500 --> 00:00:21,000
+[Thầy giáo]: Rất chính xác, Mai nhớ bài rất tốt.
+
+7
+00:00:21,000 --> 00:00:24,500
+Cả lớp bắt đầu thảo luận sôi nổi theo từng nhóm nhỏ.
+
+8
+00:00:24,500 --> 00:00:28,000
+[An]: Mai ơi, cậu tính vận tốc của tàu vũ trụ thế nào rồi?
+
+9
+00:00:28,000 --> 00:00:31,500
+[Mai]: Tớ đang dùng công thức chuyển động đều đây.
+
+10
+00:00:31,500 --> 00:00:35,500
+[Thầy giáo]: Thời gian thảo luận đã hết, xin mời nhóm của An và Mai trình bày.
+
+11
+00:00:35,500 --> 00:00:38,500
+[An]: Nhóm em đã tìm ra đáp án rồi thưa thầy!
+
+12
+00:00:38,500 --> 00:00:42,500
+Một tràng pháo tay vang lên giòn giã kết thúc tiết học.
+

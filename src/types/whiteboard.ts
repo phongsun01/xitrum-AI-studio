@@ -63,13 +63,33 @@ export interface WhiteboardSrtTtsResponse {
   scenes?: WhiteboardAlignedScene[] | null;
 }
 
+export interface WhiteboardSpeaker {
+  id: string; // ID ổn định duy nhất (vd: "speaker-1", "narrator")
+  name: string; // Tên hiển thị (vd: "Thầy giáo", "Người dẫn chuyện")
+  voiceId: string; // VieNeu voice ID (vd: "Hải Đăng", "Thùy Dung")
+  sourceCharacterId?: string; // ID liên kết Character Bible khi import
+}
+
+export interface WhiteboardSpeechConfig {
+  mode: "single" | "characters";
+  defaultVoiceId: string;
+  timingMode: "fixed" | "auto";
+  speakers: WhiteboardSpeaker[];
+  audioFingerprint?: string;
+}
+
 export interface WhiteboardSrtCue {
+  id?: string;
   index: number;
   startMs: number;
   endMs: number;
   speechEndMs?: number;
   durMs: number;
   text: string;
+  sourceText?: string;
+  spokenText?: string;
+  speakerName?: string | null;
+  speakerId?: string | null;
 }
 
 export interface WhiteboardSrtScene {
@@ -164,6 +184,8 @@ export interface WhiteboardSceneItem {
   subjectFirst?: boolean;
   analysisConfidence?: number;
   elements?: WhiteboardElement[];
+  text?: string;
+  storyBasis?: string;
   error?: string;
 }
 
@@ -213,6 +235,7 @@ export interface WhiteboardThumbnail extends WhiteboardThumbnailDraft {
   pngDataUrl: string;
   layout?: "full-bleed-top";
   typographyVersion?: number;
+  aspectRatio?: "16:9" | "9:16";
 }
 
 export interface WhiteboardProject {
@@ -223,6 +246,7 @@ export interface WhiteboardProject {
   fps: number;
   paperColor: string;
   handPath?: string;
+  speechConfig?: WhiteboardSpeechConfig;
   thumbnail?: WhiteboardThumbnail;
   thumbnailDraft?: WhiteboardThumbnailDraft;
   scenes: WhiteboardSceneItem[];
@@ -230,4 +254,101 @@ export interface WhiteboardProject {
   masterAudioPath?: string;
   outputVideoPath?: string;
 }
+
+// Whiteboard Schema 3 (skill /wb) import interfaces
+export interface WhiteboardWbCharacter {
+  name: string;
+  aliases?: string[];
+  description?: string;
+  reference?: string | null;
+}
+
+export interface WhiteboardWbSpeaker {
+  id: string;
+  name: string;
+  voice_id: string;
+}
+
+export interface WhiteboardWbSpeech {
+  mode: "single" | "characters";
+  speakers: WhiteboardWbSpeaker[];
+}
+
+export interface WhiteboardWbCue {
+  id: string;
+  index: number;
+  scene_index: number;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  spoken_text?: string;
+  speaker_id?: string | null;
+}
+
+export interface WhiteboardWbBeat {
+  start_ms: number;
+  end_ms: number;
+  kind?: string;
+  spoken_anchor?: string;
+  action?: string;
+  assets?: string[];
+  visual_characters?: string[];
+}
+
+export interface WhiteboardWbScene {
+  index: number;
+  start_ms: number;
+  end_ms: number;
+  cue_ids: string[];
+  text: string;
+  mentioned_characters?: string[];
+  visual_characters?: string[];
+  props?: string[];
+  setting?: string;
+  moment?: string;
+  beat_timing?: string;
+  beats?: WhiteboardWbBeat[];
+}
+
+export interface WhiteboardWbMeta {
+  schema_version: number;
+  title?: string;
+  language?: string;
+  source?: string;
+  srt_source?: string;
+  srt_sha256: string;
+  timing?: {
+    kind?: string;
+    duration_ms?: number;
+  };
+  options?: {
+    speech?: string;
+    ratio?: string;
+    thumb?: boolean;
+    thumb_ratio?: string | null;
+    topic?: string | null;
+  };
+  character_mode?: string;
+  characters?: WhiteboardWbCharacter[];
+  speech?: WhiteboardWbSpeech;
+  cues: WhiteboardWbCue[];
+  scenes: WhiteboardWbScene[];
+}
+
+export interface WhiteboardWbInspectResult {
+  valid: boolean;
+  schemaVersion: number;
+  srtSha256Matches: boolean;
+  title?: string;
+  scenesCount: number;
+  cuesCount: number;
+  speakersCount: number;
+  durationMs: number;
+  speechMode: "single" | "characters";
+  speakers: WhiteboardSpeaker[];
+  scenes: WhiteboardSceneItem[];
+  warnings?: string[];
+  errors: string[];
+}
+
 

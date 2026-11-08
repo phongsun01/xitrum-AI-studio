@@ -9,6 +9,10 @@ import {
   WhiteboardEnvCheck,
   WhiteboardPenType,
   WHITEBOARD_PEN_OPTIONS,
+  WhiteboardSpeechConfig,
+  WhiteboardSpeaker,
+  WhiteboardSrtCue,
+  WhiteboardWbInspectResult,
 } from "../types/whiteboard";
 import {
   PenTool,
@@ -34,10 +38,12 @@ import {
   Eye,
   Image as ImageIcon,
   Sparkles,
+  BookOpen,
 } from "lucide-react";
 
 import { applyAlignedTiming } from "../lib/whiteboardTiming";
 import { COVER_LAYOUT, COVER_TYPOGRAPHY_VERSION, createWhiteboardThumbnail } from "../lib/whiteboardThumbnail";
+import { buildProjectFromWbImport } from "../utils/whiteboardWbAdapter";
 
 import { THUMBNAIL_FONTS, loadCoverFont, resolveCoverFont, normalizeCoverFontChoice } from "../lib/whiteboardFonts";
 
@@ -98,15 +104,46 @@ export function WhiteboardEditor() {
   const [ttsSuccess, setTtsSuccess] = useState(false);
   const [exactCues, setExactCues] = useState(true);
   const [autoTiming, setAutoTiming] = useState(true);
+  const [speechMode, setSpeechMode] = useState<"single" | "characters">("single");
+  const [speakers, setSpeakers] = useState<WhiteboardSpeaker[]>([]);
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
+  const [audioFingerprint, setAudioFingerprint] = useState<string | null>(null);
+
+  const computeCurrentSpeechFingerprint = () => {
+    return JSON.stringify({
+      mode: speechMode,
+      defaultVoiceId: selectedVoice,
+      timingMode: autoTiming ? "auto" : "fixed",
+      speakers: speakers.map(s => ({ id: s.id, voiceId: s.voiceId })),
+      cues: scenes.flatMap(s => s.cues).map(c => ({
+        index: c.index,
+        spokenText: c.spokenText || c.text,
+        speakerId: c.speakerId || null,
+      })),
+    });
+  };
+
+  const isTtsCurrent = Boolean(
+    masterAudioPath &&
+    audioFingerprint &&
+    audioFingerprint === computeCurrentSpeechFingerprint()
+  );
+
   const scenesRef = useRef(scenes);
   scenesRef.current = scenes;
   const ttsInputRef = useRef("");
-  ttsInputRef.current = JSON.stringify([srtPath, selectedVoice]);
+  ttsInputRef.current = JSON.stringify([srtPath, selectedVoice, speechMode, speakers, autoTiming]);
 
   // Modal xác nhận xuất video
   const [showAudioConfirmModal, setShowAudioConfirmModal] = useState(false);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [existingScenesCount, setExistingScenesCount] = useState(0);
+
+  // Modal xác nhận nhập bộ kịch bản Whiteboard (.wb.json)
+  const [wbImportModalData, setWbImportModalData] = useState<{
+    inspect: WhiteboardWbInspectResult;
+    srtPath: string;
+  } | null>(null);
 
   const activeScene = scenes[selectedSceneIndex] || null;
   const coverSource = thumbnailImagePath || scenes.find((scene) => scene.imagePath)?.imagePath || "";
@@ -140,9 +177,17 @@ export function WhiteboardEditor() {
     try {
       const title = thumbnailTitle.trim();
       const illustration = await api.readWhiteboardCoverImage(coverSource);
-      const pngDataUrl = await createWhiteboardThumbnail(title, penType, illustration, thumbnailFontChoice);
-      setThumbnail({ title, imagePath: coverSource, penType, pngDataUrl, layout: COVER_LAYOUT,
-        fontChoice: thumbnailFontChoice, typographyVersion: COVER_TYPOGRAPHY_VERSION });
+      const generated = await createWhiteboardThumbnail(title, penType, illustration, thumbnailFontChoice);
+      setThumbnail({
+        title,
+        imagePath: coverSource,
+        penType,
+        pngDataUrl: generated.pngDataUrl,
+        aspectRatio: generated.aspectRatio,
+        layout: COVER_LAYOUT,
+        fontChoice: thumbnailFontChoice,
+        typographyVersion: COVER_TYPOGRAPHY_VERSION,
+      });
       setThumbnailImagePath(coverSource);
       setStatusMsg({ text: "Đã tạo thumbnail. Lưu dự án để giữ ảnh bìa này; khi xuất sẽ chèn đúng 2 giây đầu.", ok: true });
     } catch (e) {
@@ -242,30 +287,103 @@ export function WhiteboardEditor() {
     }
   };
 
+  const autoDetectMasterAudio = async (path: string) => {
+    const defaultWav = path.replace(/\.[^/.]+$/, "") + ".wav";
+    const defaultMp3 = path.replace(/\.[^/.]+$/, "") + ".mp3";
+    if (!masterAudioPath) {
+      const hasWav = await api.checkFileExists(defaultWav);
+      if (hasWav) {
+        setMasterAudioPath(defaultWav);
+      } else {
+        const hasMp3 = await api.checkFileExists(defaultMp3);
+        if (hasMp3) {
+          setMasterAudioPath(defaultMp3);
+        }
+      }
+    }
+  };
+
   const handlePickSrt = async () => {
     try {
       const path = await api.pickFile([{ name: "SRT Subtitle", extensions: ["srt"] }]);
       if (path) {
         setSrtPath(path);
-        // Tự động kiểm tra file .wav hoặc .mp3 cùng tên có thực sự tồn tại không
-        const defaultWav = path.replace(/\.[^/.]+$/, "") + ".wav";
-        const defaultMp3 = path.replace(/\.[^/.]+$/, "") + ".mp3";
-        if (!masterAudioPath) {
-          const hasWav = await api.checkFileExists(defaultWav);
-          if (hasWav) {
-            setMasterAudioPath(defaultWav);
-          } else {
-            const hasMp3 = await api.checkFileExists(defaultMp3);
-            if (hasMp3) {
-              setMasterAudioPath(defaultMp3);
-            }
+        await autoDetectMasterAudio(path);
+
+        // Tự động kiểm tra kịch bản .wb.json đi kèm
+        try {
+          const inspect = await api.inspectWhiteboardWbImport(path);
+          const hasJson = !inspect.errors.some(
+            (e) => e.startsWith("WB_JSON_NOT_FOUND") || e.startsWith("WB_SRT_NOT_FOUND")
+          );
+          if (hasJson) {
+            setWbImportModalData({ inspect, srtPath: path });
+            return;
           }
+        } catch (wbErr) {
+          console.warn("Lỗi kiểm tra .wb.json:", wbErr);
         }
+
         setStatusMsg({ text: `Đã chọn tệp SRT: ${path}`, ok: true });
       }
     } catch (e: any) {
       setStatusMsg({ text: `Lỗi chọn file: ${errText(e)}`, ok: false });
     }
+  };
+
+  const handleInspectAndImportWb = async (customSrtPath?: string) => {
+    const targetPath = customSrtPath || srtPath;
+    if (!targetPath) {
+      setStatusMsg({ text: "Vui lòng chọn tệp SRT trước.", ok: false });
+      return;
+    }
+    setLoading(true);
+    try {
+      const inspect = await api.inspectWhiteboardWbImport(targetPath);
+      setWbImportModalData({ inspect, srtPath: targetPath });
+    } catch (e: any) {
+      setStatusMsg({ text: `Lỗi kiểm tra kịch bản WB: ${errText(e)}`, ok: false });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApplyWbImport = (data: { inspect: WhiteboardWbInspectResult; srtPath: string }) => {
+    const currentProject: WhiteboardProject = {
+      id: projectId,
+      schemaVersion: 1,
+      revision: projectRevision,
+      title: thumbnailTitle || "Dự án Whiteboard",
+      fps,
+      paperColor,
+      handPath: resolveHandFilename(penType),
+      scenes,
+      speechConfig: {
+        mode: speechMode,
+        defaultVoiceId: selectedVoice,
+        timingMode: autoTiming ? "auto" : "fixed",
+        speakers,
+      },
+    };
+
+    const proj = buildProjectFromWbImport(data.inspect, data.srtPath, currentProject);
+    if (proj.title) setThumbnailTitle(proj.title);
+    setScenes(proj.scenes);
+    if (proj.speechConfig) {
+      setSpeechMode(proj.speechConfig.mode);
+      setSpeakers(proj.speechConfig.speakers);
+      setSelectedVoice(proj.speechConfig.defaultVoiceId);
+    }
+    setSrtPath(data.srtPath);
+    setMasterAudioPath("");
+    setTtsSuccess(false);
+    setSelectedSceneIndex(0);
+    setWbImportModalData(null);
+
+    setStatusMsg({
+      text: `Đã nhập kịch bản Whiteboard thành công: ${proj.scenes.length} phân cảnh, ${data.inspect.cuesCount} câu thoại, ${data.inspect.speakers.length} nhân vật!`,
+      ok: true,
+    });
   };
 
   const handlePickMasterAudio = async () => {
@@ -290,6 +408,42 @@ export function WhiteboardEditor() {
     try {
       const res = await api.parseWhiteboardSrt(srtPath, exactCues);
 
+      // Tự động lập danh sách nhân vật (Character Bible của Whiteboard) từ nhãn SRT
+      const detectedNames = new Set<string>();
+      res.cues.forEach((c) => {
+        if (c.speakerName && c.speakerName.trim()) {
+          detectedNames.add(c.speakerName.trim());
+        }
+      });
+
+      if (detectedNames.size > 0) {
+        setSpeechMode("characters");
+        const availableVoices = voices.length > 0 ? voices : [
+          { id: "Thùy Dung", name: "Thùy Dung" },
+          { id: "Hải Đăng", name: "Hải Đăng" },
+          { id: "Trúc Ly", name: "Trúc Ly" },
+          { id: "Thái Sơn", name: "Thái Sơn" },
+          { id: "Quang Sơn", name: "Quang Sơn" },
+        ];
+        const newSpeakers: WhiteboardSpeaker[] = Array.from(detectedNames).map((name, idx) => {
+          const defaultVoiceForChar = availableVoices[(idx + 1) % availableVoices.length]?.id || selectedVoice;
+          return {
+            id: `spk-${idx + 1}`,
+            name,
+            voiceId: defaultVoiceForChar,
+          };
+        });
+        setSpeakers(newSpeakers);
+
+        // Gán speakerId cho từng cue
+        res.cues.forEach((c) => {
+          if (c.speakerName) {
+            const found = newSpeakers.find((s) => s.name.toLowerCase() === c.speakerName!.toLowerCase());
+            if (found) c.speakerId = found.id;
+          }
+        });
+      }
+
       // Tự động khởi tạo danh sách cảnh từ SRT nếu dự án đang rỗng
       const initialScenes: WhiteboardSceneItem[] = res.scenes.map((s, idx) => ({
         id: `scene-${String(s.sceneIndex).padStart(2, "0")}`,
@@ -304,6 +458,9 @@ export function WhiteboardEditor() {
           (c) => c.index >= s.cueRange[0] && c.index <= s.cueRange[1]
         ),
         status: "idle",
+        subjectFirst: true,
+        colorFill: "brush",
+        inkPath: "grid",
       }));
       setScenes(initialScenes);
       setSelectedSceneIndex(0);
@@ -338,7 +495,22 @@ export function WhiteboardEditor() {
     try {
       await annotationSaveQueue.current;
       const ranges = originalScenes.map(s => [s.cues[0]?.index, s.cues[s.cues.length - 1]?.index]);
-      const res = await api.generateWhiteboardSrtTts(srtPath, selectedVoice, autoTiming, autoTiming ? ranges : []);
+      const allCues = originalScenes.flatMap((s) => s.cues);
+      const currentSpeechConfig: WhiteboardSpeechConfig = {
+        mode: speechMode,
+        defaultVoiceId: selectedVoice,
+        timingMode: autoTiming ? "auto" : "fixed",
+        speakers,
+      };
+
+      const res = await api.generateWhiteboardSrtTts(
+        srtPath,
+        selectedVoice,
+        autoTiming,
+        autoTiming ? ranges : [],
+        currentSpeechConfig,
+        allCues
+      );
       if (JSON.stringify(scenesRef.current) !== snapshot || ttsInputRef.current !== inputSnapshot) throw new Error("Cảnh đã thay đổi khi tạo TTS. Hãy tạo lại với phân cảnh mới.");
       if (autoTiming) {
         const next = applyAlignedTiming(originalScenes, res);
@@ -356,6 +528,7 @@ export function WhiteboardEditor() {
         setProjectRevision(v => v + 1);
       }
       setMasterAudioPath(res.audio_path);
+      setAudioFingerprint(computeCurrentSpeechFingerprint());
       setTtsSuccess(true);
       setStatusMsg({ text: `Đã tạo TTS (${res.duration_sec}s)${autoTiming ? ", căn lại cảnh và lịch vẽ; cần render lại" : ", giữ mốc SRT"}: ${res.audio_path}`, ok: true });
     } catch (e: any) {
@@ -370,10 +543,37 @@ export function WhiteboardEditor() {
   const handleReset = () => {
     setSrtPath("");
     setProjectPath("");
+    setProjectId("project-" + Date.now());
+    setProjectRevision(1);
     setOutputVideoPath("");
     setMasterAudioPath("");
-    setScenes([]);
+    setAudioFingerprint(null);
+    setThumbnailTitle("");
+    setThumbnailImagePath("");
+    setThumbnail(undefined);
+    setThumbnailFontError("");
+    setScenes([
+      {
+        id: "scene-01",
+        order: 1,
+        revision: 1,
+        imagePath: "",
+        annotationPath: "",
+        timelineStartMs: 0,
+        timelineEndMs: 10000,
+        durationMs: 10000,
+        cues: [],
+        status: "idle",
+        subjectFirst: true,
+        colorFill: "brush",
+        inkPath: "grid",
+      },
+    ]);
     setSelectedSceneIndex(0);
+    setSpeechMode("single");
+    setSelectedVoice("Thùy Dung");
+    setAutoTiming(true);
+    setSpeakers([]);
     setStatusMsg({ text: "Đã làm mới bảng trắng về trạng thái ban đầu.", ok: true });
     setTtsSuccess(false);
     refreshEnv();
@@ -393,6 +593,9 @@ export function WhiteboardEditor() {
       durationMs: 10000,
       cues: [],
       status: "idle",
+      subjectFirst: true,
+      colorFill: "brush",
+      inkPath: "grid",
     };
     setScenes([...scenes, newScene]);
     setSelectedSceneIndex(scenes.length);
@@ -781,6 +984,13 @@ export function WhiteboardEditor() {
       fps,
       paperColor,
       handPath: resolveHandFilename(penType),
+      speechConfig: {
+        mode: speechMode,
+        defaultVoiceId: selectedVoice,
+        timingMode: autoTiming ? "auto" : "fixed",
+        speakers,
+        audioFingerprint: audioFingerprint || undefined,
+      },
       thumbnail,
       thumbnailDraft: { title: thumbnailTitle, imagePath: thumbnailImagePath, fontChoice: thumbnailFontChoice },
       scenes,
@@ -817,6 +1027,22 @@ export function WhiteboardEditor() {
       setSrtPath(proj.sourceSrtPath || "");
       setMasterAudioPath(proj.masterAudioPath || "");
       setOutputVideoPath(proj.outputVideoPath || "");
+
+      // Khôi phục speechConfig (nếu project cũ không có speechConfig thì reset sạch về single mode)
+      if (proj.speechConfig) {
+        setSpeechMode(proj.speechConfig.mode);
+        setSelectedVoice(proj.speechConfig.defaultVoiceId || "Thùy Dung");
+        setAutoTiming(proj.speechConfig.timingMode === "auto");
+        setSpeakers(proj.speechConfig.speakers || []);
+        setAudioFingerprint(proj.speechConfig.audioFingerprint || null);
+      } else {
+        setSpeechMode("single");
+        setSelectedVoice("Thùy Dung");
+        setAutoTiming(true);
+        setSpeakers([]);
+        setAudioFingerprint(null);
+      }
+
       setSelectedSceneIndex(0);
       setStatusMsg({ text: `Đã mở dự án: ${path} (${proj.scenes?.length || 0} cảnh)`, ok: true });
     } catch (e: any) {
@@ -840,6 +1066,13 @@ export function WhiteboardEditor() {
       fps,
       paperColor,
       handPath: resolveHandFilename(penType),
+      speechConfig: {
+        mode: speechMode,
+        defaultVoiceId: selectedVoice,
+        timingMode: autoTiming ? "auto" : "fixed",
+        speakers,
+        audioFingerprint: audioFingerprint || undefined,
+      },
       thumbnail,
       thumbnailDraft: { title: thumbnailTitle, imagePath: thumbnailImagePath, fontChoice: thumbnailFontChoice },
       scenes: exportWithoutAudio.current ? scenes.map((scene) => ({ ...scene, audioPath: undefined })) : scenes,
@@ -881,6 +1114,13 @@ export function WhiteboardEditor() {
     }
 
     if (masterAudioPath && !forceNoAudio) {
+      if (audioFingerprint && !isTtsCurrent) {
+        setStatusMsg({
+          text: "Cấu hình giọng đọc/phân vai/câu thoại đã thay đổi so với file âm thanh master hiện tại. Vui lòng nhấn 'Tạo TTS' để đồng bộ lại trước khi xuất dự án.",
+          ok: false,
+        });
+        return;
+      }
       let cursor = 0;
       const mismatch = scenes.some((scene) => {
         const invalid = scene.timelineStartMs !== cursor || scene.timelineEndMs - scene.timelineStartMs !== scene.durationMs;
@@ -1090,6 +1330,15 @@ export function WhiteboardEditor() {
               <button className="secondary-btn" onClick={handleParseSrt} disabled={!srtPath || loading} style={{ padding: "4px 8px", fontSize: "12px", flexShrink: 0 }}>
                 Chia Cảnh
               </button>
+              <button
+                className="secondary-btn"
+                onClick={() => handleInspectAndImportWb()}
+                disabled={!srtPath || loading}
+                style={{ padding: "4px 8px", fontSize: "12px", flexShrink: 0, color: "#0284c7" }}
+                title="Kiểm tra và nhập kịch bản đồng bộ từ tệp .wb.json"
+              >
+                Kịch bản WB
+              </button>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--text-muted)", margin: "2px 0" }}>
@@ -1107,41 +1356,192 @@ export function WhiteboardEditor() {
 
             <label style={{ fontSize: "12px" }}>
               <input type="checkbox" checked={autoTiming} disabled={loading || generatingTts}
-                onChange={e => setAutoTiming(e.target.checked)} />
+                onChange={e => {
+                  setAutoTiming(e.target.checked);
+                  setTtsSuccess(false);
+                }} />
               Tự căn thời lượng theo TTS (giữ nguyên cảnh và ảnh)
             </label>
+
+            {/* Chế độ giọng đọc: Một giọng duy nhất hoặc Theo nhân vật */}
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#f1f5f9", padding: "4px 8px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+              <span style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>Chế độ đọc:</span>
+              <label style={{ fontSize: "11px", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="wb-speech-mode"
+                  checked={speechMode === "single"}
+                  onChange={() => {
+                    setSpeechMode("single");
+                    setTtsSuccess(false);
+                  }}
+                />
+                Một giọng
+              </label>
+              <label style={{ fontSize: "11px", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="wb-speech-mode"
+                  checked={speechMode === "characters"}
+                  onChange={() => {
+                    setSpeechMode("characters");
+                    setTtsSuccess(false);
+                  }}
+                />
+                Theo nhân vật ({speakers.length})
+              </label>
+            </div>
+
+            {/* Bảng phân vai theo nhân vật (Character Bible của Whiteboard) */}
+            {speechMode === "characters" && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "6px",
+                  background: "#f8fafc",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "6px",
+                  padding: "8px",
+                  fontSize: "11px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 600, color: "#334155" }}>
+                  <span>Phân vai giọng đọc nhân vật</span>
+                  <span style={{ fontSize: "10px", color: "#64748b" }}>Tự bóc tách từ [Tên]: trong SRT</span>
+                </div>
+
+                {speakers.length === 0 ? (
+                  <div style={{ color: "#94a3b8", fontStyle: "italic", padding: "4px 0" }}>
+                    Chưa phát hiện nhân vật. Nhấn “Chia Cảnh” từ file SRT có nhãn [Tên]: để nạp nhân vật.
+                  </div>
+                ) : (
+                  speakers.map((spk, sIdx) => (
+                    <div key={spk.id} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontWeight: 600, minWidth: "80px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={spk.name}>
+                        {spk.name}:
+                      </span>
+                      <select
+                        value={spk.voiceId}
+                        onChange={(e) => {
+                          const updated = [...speakers];
+                          updated[sIdx].voiceId = e.target.value;
+                          setSpeakers(updated);
+                          setTtsSuccess(false);
+                        }}
+                        style={{ flex: 1, minWidth: 0, padding: "3px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                      >
+                        {voices.length > 0 ? (
+                          voices.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name}
+                            </option>
+                          ))
+                        ) : (
+                          <>
+                            <option value="Thùy Dung">Thùy Dung (Nữ · Nam)</option>
+                            <option value="Hải Đăng">Hải Đăng (Nam · Bắc)</option>
+                            <option value="Trúc Ly">Trúc Ly (Nữ · Bắc)</option>
+                            <option value="Thái Sơn">Thái Sơn (Nam · Nam)</option>
+                            <option value="Quang Sơn">Quang Sơn (Nam · Trung)</option>
+                          </>
+                        )}
+                      </select>
+                      <button
+                        type="button"
+                        className="secondary-btn"
+                        onClick={async () => {
+                          try {
+                            setPreviewingVoiceId(spk.voiceId);
+                            const p = await api.previewTtsVoice(spk.voiceId, `Xin chào, tôi là ${spk.name}`);
+                            if (p) {
+                              const audio = new Audio(p);
+                              audio.play();
+                            }
+                          } catch (err) {
+                            console.error(err);
+                          } finally {
+                            setPreviewingVoiceId(null);
+                          }
+                        }}
+                        disabled={previewingVoiceId === spk.voiceId}
+                        style={{ padding: "2px 6px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "2px" }}
+                        title="Nghe thử giọng"
+                      >
+                        {previewingVoiceId === spk.voiceId ? <RefreshCw size={10} className="spin" /> : <Play size={10} />} Nghe
+                      </button>
+                    </div>
+                  ))
+                )}
+
+                {/* Hàng người dẫn chuyện mặc định */}
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", borderTop: "1px dashed #e2e8f0", paddingTop: "4px" }}>
+                  <span style={{ fontWeight: 600, minWidth: "80px", color: "#64748b" }} title="Các câu không có nhãn nhân vật">
+                    Dẫn chuyện:
+                  </span>
+                  <select
+                    value={selectedVoice}
+                    onChange={(e) => {
+                      setSelectedVoice(e.target.value);
+                      setTtsSuccess(false);
+                    }}
+                    style={{ flex: 1, minWidth: 0, padding: "3px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                  >
+                    {voices.length > 0 ? (
+                      voices.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Thùy Dung">Thùy Dung (Nữ · Nam)</option>
+                        <option value="Hải Đăng">Hải Đăng (Nam · Bắc)</option>
+                        <option value="Trúc Ly">Trúc Ly (Nữ · Bắc)</option>
+                        <option value="Thái Sơn">Thái Sơn (Nam · Nam)</option>
+                        <option value="Quang Sơn">Quang Sơn (Nam · Trung)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+            )}
+
             {/* Tạo giọng đọc VieNeu-TTS 1 chạm từ file SRT */}
             <div style={{ display: "flex", gap: "6px", alignItems: "center", width: "100%", boxSizing: "border-box" }}>
-              <select
-                value={selectedVoice}
-                onChange={(e) => {
-                  setSelectedVoice(e.target.value);
-                  setTtsSuccess(false);
-                }}
-                style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "5px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
-              >
-                {voices.length > 0 ? (
-                  voices.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))
-                ) : (
-                  <>
-                    <option value="Thùy Dung">Thùy Dung (Nữ · Nam)</option>
-                    <option value="Thái Sơn">Thái Sơn (Nam · Nam)</option>
-                    <option value="Hải Đăng">Hải Đăng (Nam · Bắc)</option>
-                    <option value="Trúc Ly">Trúc Ly (Nữ · Bắc)</option>
-                    <option value="Quang Sơn">Quang Sơn (Nam · Trung)</option>
-                  </>
-                )}
-              </select>
+              {speechMode === "single" && (
+                <select
+                  value={selectedVoice}
+                  onChange={(e) => {
+                    setSelectedVoice(e.target.value);
+                    setTtsSuccess(false);
+                  }}
+                  style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "5px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                >
+                  {voices.length > 0 ? (
+                    voices.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="Thùy Dung">Thùy Dung (Nữ · Nam)</option>
+                      <option value="Thái Sơn">Thái Sơn (Nam · Nam)</option>
+                      <option value="Hải Đăng">Hải Đăng (Nam · Bắc)</option>
+                      <option value="Trúc Ly">Trúc Ly (Nữ · Bắc)</option>
+                      <option value="Quang Sơn">Quang Sơn (Nam · Trung)</option>
+                    </>
+                  )}
+                </select>
+              )}
               <button
                 className="secondary-btn"
                 onClick={handleGenerateSrtTts}
                 disabled={!srtPath || generatingTts || loading}
-                title="Tạo giọng đọc thuyết minh master từ toàn bộ nội dung SRT"
+                title="Tạo giọng đọc master từ toàn bộ nội dung SRT theo phân vai"
                 style={{
+                  flex: speechMode === "characters" ? 1 : undefined,
                   padding: "5px 10px",
                   fontSize: "12px",
                   flexShrink: 0,
@@ -1157,12 +1557,18 @@ export function WhiteboardEditor() {
               >
                 {generatingTts ? (
                   <RefreshCw size={12} className="spin" />
-                ) : ttsSuccess ? (
+                ) : (ttsSuccess && isTtsCurrent) ? (
                   <Check size={13} color="#16a34a" />
                 ) : (
                   <Mic size={12} />
                 )}
-                {generatingTts ? "Đang tạo..." : ttsSuccess ? "Đã tạo xong" : "Tạo TTS"}
+                {generatingTts
+                  ? "Đang tạo..."
+                  : (ttsSuccess && isTtsCurrent)
+                  ? "Đã tạo xong TTS"
+                  : speechMode === "characters"
+                  ? "Tạo TTS Theo Phân Vai"
+                  : "Tạo TTS"}
               </button>
             </div>
 
@@ -1372,8 +1778,14 @@ export function WhiteboardEditor() {
                 <button className="secondary-btn" onClick={handleRandomStyle} disabled={loading || !activeScene.imageType || activeScene.imageType === "uncertain"}>
                   {activeScene.styleMode === "random" ? "Đổi kiểu ngẫu nhiên" : "Ngẫu nhiên phù hợp"}
                 </button>
-                <label><input type="checkbox" checked={activeScene.subjectFirst || false}
-                  onChange={(e) => updateActiveScene({ subjectFirst: e.target.checked })} /> Tô chủ thể trước nền</label>
+                <label style={{ fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={activeScene.subjectFirst !== undefined ? activeScene.subjectFirst : true}
+                    onChange={(e) => updateActiveScene({ subjectFirst: e.target.checked })}
+                  />
+                  Tô chủ thể trước nền
+                </label>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                 <div>
@@ -1390,13 +1802,13 @@ export function WhiteboardEditor() {
                 <div>
                   <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>Tô màu (Color Fill):</label>
                   <select
-                    value={activeScene.colorFill || "contour-wipe"}
+                    value={activeScene.colorFill || "brush"}
                     onChange={(e) => updateActiveScene({ colorFill: e.target.value as any, styleMode: "manual" })}
                     style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
                   >
-                    <option value="none">Không tô (Chỉ vẽ nét - Tối ưu Line-Art)</option>
-                    <option value="contour-wipe">Quét viền xuống (Contour-Wipe)</option>
                     <option value="brush">Quét cọ theo quỹ đạo (Brush)</option>
+                    <option value="contour-wipe">Quét viền xuống (Contour-Wipe)</option>
+                    <option value="none">Không tô (Chỉ vẽ nét - Tối ưu Line-Art)</option>
                     <option value="palette-brush">Tô theo nhóm màu Lab (Palette-Brush - R3)</option>
                   </select>
                 </div>
@@ -1558,15 +1970,73 @@ export function WhiteboardEditor() {
             {/* Phụ đề của cảnh nếu có */}
             {activeScene.cues.length > 0 && (
               <div>
-                <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "4px" }}>
-                  Phụ đề trong cảnh ({activeScene.cues.length} câu)
-                </label>
-                <div style={{ maxHeight: "120px", overflowY: "auto", fontSize: "12px", background: "#ffffff", padding: "8px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
-                  {activeScene.cues.map((c: any) => (
-                    <div key={c.index} style={{ marginBottom: "4px" }}>
-                      <span style={{ color: "var(--primary)", fontWeight: 600 }}>#{c.index}</span> {c.text}
-                    </div>
-                  ))}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: 600 }}>
+                    Phụ đề & Nhân vật ({activeScene.cues.length} câu)
+                  </label>
+                  {speechMode === "characters" && (
+                    <span style={{ fontSize: "11px", color: "#64748b" }}>
+                      Có thể gán lại người nói cho từng câu
+                    </span>
+                  )}
+                </div>
+                <div style={{ maxHeight: "160px", overflowY: "auto", fontSize: "12px", background: "#ffffff", padding: "8px", borderRadius: "6px", border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {activeScene.cues.map((c: WhiteboardSrtCue, cueIdx: number) => {
+                    return (
+                      <div key={c.index || cueIdx} style={{ display: "flex", alignItems: "flex-start", gap: "6px", background: "#f8fafc", padding: "4px 6px", borderRadius: "4px", border: "1px solid #f1f5f9" }}>
+                        <span style={{ color: "var(--primary)", fontWeight: 700, minWidth: "22px", fontSize: "11px", marginTop: "2px" }}>#{c.index}</span>
+                        
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: "12px", color: "#1e293b", wordBreak: "break-word" }}>
+                            {c.spokenText || c.text}
+                          </div>
+                          {c.sourceText && c.sourceText !== c.spokenText && (
+                            <div style={{ fontSize: "10px", color: "#94a3b8" }}>
+                              Gốc: {c.sourceText}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Dropdown đổi người nói cho câu này khi ở chế độ Theo nhân vật */}
+                        {speechMode === "characters" && (
+                          <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: "4px" }}>
+                            <select
+                              value={c.speakerId || ""}
+                              onChange={(e) => {
+                                const newId = e.target.value || null;
+                                const updatedCues = [...activeScene.cues];
+                                const targetSpk = speakers.find((s) => s.id === newId);
+                                updatedCues[cueIdx] = {
+                                  ...updatedCues[cueIdx],
+                                  speakerId: newId,
+                                  speakerName: targetSpk ? targetSpk.name : null,
+                                };
+                                updateActiveScene({ cues: updatedCues });
+                                setTtsSuccess(false);
+                              }}
+                              style={{
+                                fontSize: "11px",
+                                padding: "2px 4px",
+                                borderRadius: "4px",
+                                border: "1px solid #cbd5e1",
+                                background: c.speakerId ? "#eff6ff" : "#ffffff",
+                                color: c.speakerId ? "#1d4ed8" : "#475569",
+                                fontWeight: c.speakerId ? 600 : 400,
+                              }}
+                              title="Người nói câu này"
+                            >
+                              <option value="">(Người dẫn chuyện)</option>
+                              {speakers.map((spk) => (
+                                <option key={spk.id} value={spk.id}>
+                                  {spk.name} ({spk.voiceId})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1825,10 +2295,12 @@ export function WhiteboardEditor() {
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: "11px", fontWeight: 600, color: "#64748b" }}>Xem trước (Ảnh tràn khung · Tiêu đề phía trên)</span>
+              <span style={{ fontSize: "11px", fontWeight: 600, color: "#64748b" }}>
+                Xem trước {thumbnail?.aspectRatio === "9:16" ? "(Dọc 9:16)" : "(Ngang 16:9)"} · Tiêu đề phía trên
+              </span>
               {thumbnail && (
                 <span style={{ fontSize: "10px", color: "#059669", background: "#dcfce7", padding: "1px 6px", borderRadius: "3px", fontWeight: 600 }}>
-                  HD 720p
+                  {thumbnail.aspectRatio === "9:16" ? "Portrait 720×1280" : "HD 1280×720"}
                 </span>
               )}
             </div>
@@ -1836,20 +2308,35 @@ export function WhiteboardEditor() {
             {thumbnail ? (
               <div
                 style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
                   width: "100%",
-                  aspectRatio: "16 / 9",
+                  minHeight: "220px",
+                  background: "#f1f5f9",
                   borderRadius: "6px",
-                  overflow: "hidden",
-                  boxShadow: "0 2px 4px rgba(0,0,0,0.06)",
-                  border: "1px solid #cbd5e1",
-                  background: "#ffffff",
+                  padding: "8px",
                 }}
               >
-                <img
-                  src={thumbnail.pngDataUrl}
-                  alt="Xem trước thumbnail đã tạo"
-                  style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-                />
+                <div
+                  style={{
+                    width: thumbnail.aspectRatio === "9:16" ? "auto" : "100%",
+                    height: thumbnail.aspectRatio === "9:16" ? "320px" : "auto",
+                    aspectRatio: thumbnail.aspectRatio === "9:16" ? "9 / 16" : "16 / 9",
+                    maxWidth: "100%",
+                    borderRadius: "6px",
+                    overflow: "hidden",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                  }}
+                >
+                  <img
+                    src={thumbnail.pngDataUrl}
+                    alt="Xem trước thumbnail đã tạo"
+                    style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+                  />
+                </div>
               </div>
             ) : (
               <div
@@ -2058,6 +2545,258 @@ export function WhiteboardEditor() {
                 Đóng
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 4: Nhập Kịch Bản Whiteboard Schema 3 (.wb.json) */}
+      {wbImportModalData && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "16px",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "12px",
+              padding: "22px",
+              maxWidth: "560px",
+              width: "100%",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "14px",
+              maxHeight: "90vh",
+              overflowY: "auto",
+            }}
+          >
+            {wbImportModalData.inspect.valid ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#0284c7" }}>
+                  <BookOpen size={24} />
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>
+                      Phát hiện kịch bản Whiteboard đồng bộ (.wb.json)
+                    </h3>
+                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                      Khớp mã băm SHA-256 với tệp phụ đề {wbImportModalData.srtPath.split("/").pop()}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    backgroundColor: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "8px",
+                    padding: "12px 14px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                    fontSize: "13px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "#64748b" }}>Tiêu đề kịch bản:</span>
+                    <strong style={{ color: "#0f172a" }}>
+                      {wbImportModalData.inspect.title || "Chưa đặt tiêu đề"}
+                    </strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "#64748b" }}>Cấu trúc phân cảnh:</span>
+                    <strong style={{ color: "#0f172a" }}>
+                      {wbImportModalData.inspect.scenesCount} phân cảnh (1 cảnh = 1 ảnh minh họa)
+                    </strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "#64748b" }}>Tổng số câu thoại:</span>
+                    <strong style={{ color: "#0f172a" }}>
+                      {wbImportModalData.inspect.cuesCount} câu ({(wbImportModalData.inspect.durationMs / 1000).toFixed(1)} giây)
+                    </strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "#64748b" }}>Chế độ đọc thoại:</span>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        backgroundColor:
+                          wbImportModalData.inspect.speechMode === "characters" ? "#dbeafe" : "#f1f5f9",
+                        color:
+                          wbImportModalData.inspect.speechMode === "characters" ? "#1e40af" : "#475569",
+                      }}
+                    >
+                      {wbImportModalData.inspect.speechMode === "characters"
+                        ? "Phân vai nhiều nhân vật"
+                        : "Một giọng"}
+                    </span>
+                  </div>
+                </div>
+
+                {wbImportModalData.inspect.speakers.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#475569", marginBottom: "6px" }}>
+                      Danh mục nhân vật phát hiện ({wbImportModalData.inspect.speakers.length}):
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                      {wbImportModalData.inspect.speakers.map((sp) => (
+                        <div
+                          key={sp.id}
+                          style={{
+                            fontSize: "12px",
+                            padding: "4px 8px",
+                            borderRadius: "6px",
+                            background: "#e0f2fe",
+                            border: "1px solid #bae6fd",
+                            color: "#0369a1",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                        >
+                          <strong>{sp.name}</strong>
+                          <span style={{ color: "#0284c7", fontSize: "11px" }}>({sp.voiceId})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {wbImportModalData.inspect.warnings && wbImportModalData.inspect.warnings.length > 0 && (
+                  <div
+                    style={{
+                      backgroundColor: "#fefce8",
+                      border: "1px solid #fef08a",
+                      borderRadius: "6px",
+                      padding: "8px 10px",
+                      fontSize: "12px",
+                      color: "#854d0e",
+                    }}
+                  >
+                    {wbImportModalData.inspect.warnings.map((w, idx) => (
+                      <div key={idx}>⚠️ {w}</div>
+                    ))}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: "8px",
+                    marginTop: "8px",
+                    borderTop: "1px solid #f1f5f9",
+                    paddingTop: "12px",
+                  }}
+                >
+                  <button
+                    className="secondary-btn"
+                    onClick={() => {
+                      setWbImportModalData(null);
+                      handleParseSrt();
+                    }}
+                    style={{ padding: "8px 14px", fontSize: "13px" }}
+                  >
+                    Chỉ chia cảnh theo SRT
+                  </button>
+                  <button
+                    className="primary-btn"
+                    onClick={() => handleApplyWbImport(wbImportModalData)}
+                    style={{
+                      padding: "8px 16px",
+                      fontSize: "13px",
+                      backgroundColor: "#0284c7",
+                      borderColor: "#0369a1",
+                    }}
+                  >
+                    Nhập theo phân cảnh từ WB (Khuyên dùng)
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#dc2626" }}>
+                  <AlertCircle size={24} />
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>
+                      Kịch bản Whiteboard (.wb.json) không khớp
+                    </h3>
+                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                      Phát hiện tệp kịch bản nhưng không thể sử dụng trực tiếp
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    backgroundColor: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    borderRadius: "8px",
+                    padding: "10px 12px",
+                    fontSize: "12px",
+                    color: "#991b1b",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                  }}
+                >
+                  {wbImportModalData.inspect.errors.map((err, idx) => (
+                    <div key={idx}>• {err}</div>
+                  ))}
+                </div>
+
+                <p style={{ margin: 0, fontSize: "13px", color: "#475569", lineHeight: 1.5 }}>
+                  Tệp phụ đề có thể đã bị chỉnh sửa lệch khỏi kịch bản gốc. Bạn có thể bỏ qua kịch bản và chỉ dùng phụ đề để tự động chia cảnh, hoặc hủy bỏ để kiểm tra lại tệp nguồn.
+                </p>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: "8px",
+                    marginTop: "8px",
+                    borderTop: "1px solid #f1f5f9",
+                    paddingTop: "12px",
+                  }}
+                >
+                  <button
+                    className="secondary-btn"
+                    onClick={() => setWbImportModalData(null)}
+                    style={{ padding: "8px 14px", fontSize: "13px" }}
+                  >
+                    Hủy bỏ
+                  </button>
+                  <button
+                    className="primary-btn"
+                    onClick={() => {
+                      setWbImportModalData(null);
+                      handleParseSrt();
+                    }}
+                    style={{
+                      padding: "8px 16px",
+                      fontSize: "13px",
+                      backgroundColor: "#f59e0b",
+                      borderColor: "#d97706",
+                    }}
+                  >
+                    Tiếp tục chỉ dùng phụ đề SRT
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

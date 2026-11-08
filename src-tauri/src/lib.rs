@@ -125,6 +125,7 @@ pub fn run() {
             render_script_postproduction,
             analyze_whiteboard_image,
             parse_whiteboard_srt,
+            inspect_whiteboard_wb_import,
             generate_whiteboard_annotation,
             render_whiteboard_scene,
             render_whiteboard_preview,

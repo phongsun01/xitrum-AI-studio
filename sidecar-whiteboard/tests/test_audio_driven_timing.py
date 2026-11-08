@@ -113,4 +113,177 @@ class AudioTimingTests(unittest.TestCase):
             self.assertEqual(len(writer.frames),10)
             self.assertTrue(np.allclose(writer.frames[-1][10:30,20:60],image[10:30,20:60],atol=1))
 
+    def test_multi_speaker_resolves_and_infers_assigned_voices(self):
+        srt_content = (
+            "1\n00:00:00,000 --> 00:00:02,000\n[Thầy giáo]: Chào các em.\n\n"
+            "2\n00:00:02,000 --> 00:00:04,000\n[Học sinh]: Chúng em chào thầy.\n\n"
+            "3\n00:00:04,000 --> 00:00:06,000\nCả lớp bắt đầu trật tự.\n"
+        )
+        srt_file = self.dir / "multispeaker.srt"
+        srt_file.write_text(srt_content)
+        out_wav = self.dir / "multispeaker.wav"
+
+        inferred_calls = []
+        fake = types.SimpleNamespace(
+            sample_rate=1000,
+            _preset_voices={"Hải Đăng": None, "Trúc Ly": None, "Thùy Dung": None},
+            _default_voice="Thùy Dung"
+        )
+        def mock_infer(text, voice=None):
+            inferred_calls.append((text, voice))
+            return np.ones(1000, dtype=np.float32) * 0.1
+
+        fake.infer = mock_infer
+        speech_cfg = {
+            "mode": "characters",
+            "defaultVoiceId": "Thùy Dung",
+            "timingMode": "auto",
+            "speakers": [
+                {"id": "spk-1", "name": "Thầy giáo", "voiceId": "Hải Đăng"},
+                {"id": "spk-2", "name": "Học sinh", "voiceId": "Trúc Ly"},
+            ]
+        }
+
+        with patch.object(tts, 'get_tts', return_value=fake), patch.dict(sys.modules, {'soundfile': types.SimpleNamespace(write=unittest.mock.Mock())}):
+            res = tts.generate_srt_tts_aligned(str(srt_file), "Thùy Dung", str(out_wav), speech_config=speech_cfg)
+
+        self.assertEqual(len(inferred_calls), 3)
+        self.assertEqual(inferred_calls[0], ("Chào các em.", "Hải Đăng"))
+        self.assertEqual(inferred_calls[1], ("Chúng em chào thầy.", "Trúc Ly"))
+        self.assertEqual(inferred_calls[2], ("Cả lớp bắt đầu trật tự.", "Thùy Dung"))
+        self.assertEqual(len(res['cues']), 3)
+        self.assertEqual(res['cues'][0]['speakerName'], "Thầy giáo")
+        self.assertEqual(res['cues'][1]['speakerName'], "Học sinh")
+        self.assertIsNone(res['cues'][2]['speakerName'])
+
+    def test_reassigned_cue_to_narrator_overrides_source_text_label(self):
+        srt_content = (
+            "1\n00:00:00,000 --> 00:00:02,000\n[Thầy giáo]: Chào các em.\n"
+        )
+        srt_file = self.dir / "reassign.srt"
+        srt_file.write_text(srt_content)
+        out_wav = self.dir / "reassign.wav"
+
+        inferred_calls = []
+        fake = types.SimpleNamespace(
+            sample_rate=1000,
+            _preset_voices={"Hải Đăng": None, "Thùy Dung": None},
+            _default_voice="Thùy Dung"
+        )
+        fake.infer = lambda text, voice=None: (inferred_calls.append((text, voice)), np.ones(1000, dtype=np.float32) * 0.1)[1]
+        speech_cfg = {
+            "mode": "characters",
+            "defaultVoiceId": "Thùy Dung",
+            "timingMode": "auto",
+            "speakers": [
+                {"id": "spk-1", "name": "Thầy giáo", "voiceId": "Hải Đăng"},
+            ]
+        }
+        # Cue được explicitly gán speakerId = null (chuyển sang người dẫn chuyện)
+        custom_cues = [{
+            "id": "cue-1",
+            "index": 1,
+            "startMs": 0,
+            "endMs": 2000,
+            "text": "[Thầy giáo]: Chào các em.",
+            "sourceText": "[Thầy giáo]: Chào các em.",
+            "spokenText": "Chào các em.",
+            "speakerName": None,
+            "speakerId": None,
+        }]
+
+        with patch.object(tts, 'get_tts', return_value=fake), patch.dict(sys.modules, {'soundfile': types.SimpleNamespace(write=unittest.mock.Mock())}):
+            res = tts.generate_srt_tts_aligned(str(srt_file), "Thùy Dung", str(out_wav), speech_config=speech_cfg, custom_cues=custom_cues)
+
+        self.assertEqual(len(inferred_calls), 1)
+        # Giọng phải là Thùy Dung (Người dẫn chuyện), không phải Hải Đăng
+        self.assertEqual(inferred_calls[0], ("Chào các em.", "Thùy Dung"))
+        self.assertIsNone(res['cues'][0]['speakerName'])
+        self.assertIsNone(res['cues'][0]['speakerId'])
+        # File aligned srt text xuất ra không còn mang nhãn [Thầy giáo]:
+        self.assertEqual(res['cues'][0]['text'], "Chào các em.")
+
+    def test_invalid_speaker_id_or_voice_raises_error(self):
+        srt_content = "1\n00:00:00,000 --> 00:00:02,000\n[Thầy giáo]: Chào các em.\n"
+        srt_file = self.dir / "invalid.srt"
+        srt_file.write_text(srt_content)
+        out_wav = self.dir / "invalid.wav"
+
+        fake = types.SimpleNamespace(
+            sample_rate=1000,
+            _preset_voices={"Hải Đăng": None, "Thùy Dung": None},
+            _default_voice="Thùy Dung"
+        )
+        fake.infer = lambda text, voice=None: np.ones(1000, dtype=np.float32)
+
+        # 1. ID nhân vật không tồn tại
+        speech_cfg_bad_id = {
+            "mode": "characters",
+            "defaultVoiceId": "Thùy Dung",
+            "speakers": [{"id": "spk-1", "name": "Thầy giáo", "voiceId": "Hải Đăng"}]
+        }
+        custom_cues_bad_id = [{
+            "id": "cue-1", "index": 1, "startMs": 0, "endMs": 2000,
+            "text": "Chào các em.", "spokenText": "Chào các em.",
+            "speakerId": "non-existent-id"
+        }]
+        with patch.object(tts, 'get_tts', return_value=fake), patch.dict(sys.modules, {'soundfile': types.SimpleNamespace(write=unittest.mock.Mock())}):
+            with self.assertRaises(ValueError) as ctx:
+                tts.generate_srt_tts_aligned(str(srt_file), "Thùy Dung", str(out_wav), speech_config=speech_cfg_bad_id, custom_cues=custom_cues_bad_id)
+            self.assertIn("SPEAKER_NOT_FOUND", str(ctx.exception))
+
+        # 2. Voice không hợp lệ
+        speech_cfg_bad_voice = {
+            "mode": "characters",
+            "defaultVoiceId": "Thùy Dung",
+            "speakers": [{"id": "spk-1", "name": "Thầy giáo", "voiceId": "InvalidVoice999"}]
+        }
+        custom_cues_bad_voice = [{
+            "id": "cue-1", "index": 1, "startMs": 0, "endMs": 2000,
+            "text": "Chào các em.", "spokenText": "Chào các em.",
+            "speakerId": "spk-1"
+        }]
+        with patch.object(tts, 'get_tts', return_value=fake), patch.dict(sys.modules, {'soundfile': types.SimpleNamespace(write=unittest.mock.Mock())}):
+            with self.assertRaises(ValueError) as ctx:
+                tts.generate_srt_tts_aligned(str(srt_file), "Thùy Dung", str(out_wav), speech_config=speech_cfg_bad_voice, custom_cues=custom_cues_bad_voice)
+            self.assertIn("VOICE_NOT_FOUND", str(ctx.exception))
+
+    def test_multi_speaker_fixed_timing_resolves_voices(self):
+        srt_content = (
+            "1\n00:00:00,000 --> 00:00:02,000\n[Thầy giáo]: Chào các em.\n\n"
+            "2\n00:00:02,000 --> 00:00:04,000\n[Học sinh]: Chúng em chào thầy.\n"
+        )
+        srt_file = self.dir / "fixed.srt"
+        srt_file.write_text(srt_content)
+        out_wav = self.dir / "fixed.wav"
+
+        inferred_calls = []
+        fake = types.SimpleNamespace(
+            sample_rate=1000,
+            _preset_voices={"Hải Đăng": None, "Trúc Ly": None, "Thùy Dung": None},
+            _default_voice="Thùy Dung"
+        )
+        def mock_infer(text, voice=None):
+            inferred_calls.append((text, voice))
+            return np.ones(1000, dtype=np.float32) * 0.1
+
+        fake.infer = mock_infer
+        speech_cfg = {
+            "mode": "characters",
+            "defaultVoiceId": "Thùy Dung",
+            "timingMode": "fixed",
+            "speakers": [
+                {"id": "spk-1", "name": "Thầy giáo", "voiceId": "Hải Đăng"},
+                {"id": "spk-2", "name": "Học sinh", "voiceId": "Trúc Ly"},
+            ]
+        }
+
+        with patch.object(tts, 'get_tts', return_value=fake), patch.dict(sys.modules, {'soundfile': types.SimpleNamespace(write=unittest.mock.Mock())}):
+            dur = tts.generate_srt_tts(str(srt_file), "Thùy Dung", str(out_wav), speech_config=speech_cfg)
+
+        self.assertEqual(len(inferred_calls), 2)
+        self.assertEqual(inferred_calls[0], ("Chào các em.", "Hải Đăng"))
+        self.assertEqual(inferred_calls[1], ("Chúng em chào thầy.", "Trúc Ly"))
+        self.assertGreater(dur, 0)
+
 if __name__=='__main__': unittest.main()

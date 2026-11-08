@@ -22,9 +22,11 @@ import argparse
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 _TIME = re.compile(r"(\d+):(\d{2}):(\d{2})[,.](\d{1,3})")
+_SPEAKER_PREFIX = re.compile(r"^\s*\[([^\]]+)\]\s*:\s*(.*)$", re.DOTALL)
 
 
 def _to_ms(h: str, m: str, s: str, ms: str) -> int:
@@ -32,7 +34,9 @@ def _to_ms(h: str, m: str, s: str, ms: str) -> int:
 
 
 def parse_srt(text: str) -> list[dict]:
-    """把 SRT 文本解析成字幕条列表。容忍多余空行、BOM、逗号/点毫秒分隔。"""
+    """把 SRT 文本解析成字幕条列表。容忍多余空行、BOM、逗号/点毫秒分隔。
+    Hỗ trợ bóc tách nhãn người nói ở đầu câu cú pháp [Tên]: Lời thoại.
+    """
     text = text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
     blocks = re.split(r"\n\s*\n", text.strip())
     cues: list[dict] = []
@@ -49,13 +53,30 @@ def parse_srt(text: str) -> list[dict]:
             continue
         start = _to_ms(*times[0])
         end = _to_ms(*times[1])
-        body = " ".join(lines[time_line_idx + 1:]).strip()
+        raw_body = " ".join(lines[time_line_idx + 1:]).strip()
+
+        # Bóc tách nhãn nhân vật [Tên nhân vật]: Lời thoại
+        speaker_name = None
+        spoken_text = raw_body
+        match = _SPEAKER_PREFIX.match(raw_body)
+        if match:
+            candidate_speaker = match.group(1).strip()
+            rest = match.group(2).strip()
+            if candidate_speaker:
+                speaker_name = unicodedata.normalize("NFC", candidate_speaker)
+                spoken_text = unicodedata.normalize("NFC", rest)
+
         cues.append({
+            "id": f"cue-{len(cues) + 1}",
             "index": len(cues) + 1,
             "startMs": start,
             "endMs": end,
             "durMs": max(0, end - start),
-            "text": body,
+            "text": spoken_text if speaker_name else raw_body,
+            "sourceText": raw_body,
+            "spokenText": spoken_text,
+            "speakerName": speaker_name,
+            "speakerId": None,
         })
     return cues
 

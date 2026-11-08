@@ -14,7 +14,6 @@ Bao gồm:
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -23,16 +22,13 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 
 def resolve_ffmpeg_binary() -> Optional[str]:
     """Tìm binary ffmpeg trên hệ thống."""
-    f = shutil.which("ffmpeg")
-    if f:
-        return f
-    for cand in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
-        if Path(cand).exists():
-            return cand
-    return None
+    import media_utils
+    return media_utils.find_ffmpeg()
 
 
 class BaseFrameWriter:

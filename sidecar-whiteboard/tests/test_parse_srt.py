@@ -82,6 +82,26 @@ class GroupScenesTest(unittest.TestCase):
         self.assertEqual([c["text"] for c in cues], ["Xin chào", "Thế giới"])
         self.assertTiles(group(cues), cues)
 
+    def test_parse_srt_speaker_prefix(self):
+        raw = (
+            "1\n00:00:00,000 --> 00:00:02,500\n[Thầy giáo]: Chào các em hôm nay ta học bài mới.\n\n"
+            "2\n00:00:03,000 --> 00:00:05,000\n[Học sinh]:   Thưa thầy vâng ạ!  \n\n"
+            "3\n00:00:05,500 --> 00:00:07,000\nCả lớp im lặng lắng nghe.\n"
+        )
+        cues = parse_srt(raw)
+        self.assertEqual(len(cues), 3)
+        self.assertEqual(cues[0]["speakerName"], "Thầy giáo")
+        self.assertEqual(cues[0]["spokenText"], "Chào các em hôm nay ta học bài mới.")
+        self.assertEqual(cues[0]["text"], "Chào các em hôm nay ta học bài mới.")
+        self.assertEqual(cues[0]["sourceText"], "[Thầy giáo]: Chào các em hôm nay ta học bài mới.")
+
+        self.assertEqual(cues[1]["speakerName"], "Học sinh")
+        self.assertEqual(cues[1]["spokenText"], "Thưa thầy vâng ạ!")
+
+        self.assertIsNone(cues[2]["speakerName"])
+        self.assertEqual(cues[2]["spokenText"], "Cả lớp im lặng lắng nghe.")
+        self.assertEqual(cues[2]["text"], "Cả lớp im lặng lắng nghe.")
+
 
 if __name__ == "__main__":
     unittest.main()

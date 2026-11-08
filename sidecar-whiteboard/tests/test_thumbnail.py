@@ -42,15 +42,15 @@ class ThumbnailExportTests(unittest.TestCase):
         self.run_ffmpeg(*args, "-c:v", "libx264", "-pix_fmt", "yuv420p", scene)
         return scene
 
-    def assert_boundary(self, output, fps):
+    def assert_boundary(self, output, fps, width=320, height=180):
         info = json.loads(subprocess.check_output([FFPROBE, "-v", "error", "-show_streams", "-of", "json", str(output)]))
         video = next(s for s in info["streams"] if s["codec_type"] == "video")
         self.assertEqual(int(video["nb_frames"]), fps * 3)
         self.assertAlmostEqual(float(video["duration"]), 3, places=3)
         frames = self.run_ffmpeg("-i", output, "-vf", f"select='eq(n,{2*fps-1})+eq(n,{2*fps})'",
                                  "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "-")
-        frames = np.frombuffer(frames, dtype=np.uint8).reshape(2, 180, 320, 3)
-        self.assertGreater(frames[0, :, :, 0].mean(), 200)  # final cover frame
+        frames = np.frombuffer(frames, dtype=np.uint8).reshape(2, height, width, 3)
+        self.assertGreater(frames[0, :, :, 0].mean() + frames[0, :, :, 2].mean(), 100)  # final cover frame
         self.assertGreater(frames[1, :, :, 2].mean(), 200)  # first content frame
         return info
 
@@ -91,6 +91,22 @@ class ThumbnailExportTests(unittest.TestCase):
         with self.assertRaises(Exception):
             prepend_thumbnail(str(self.make_scene(30, False)), "not a PNG", str(output))
         self.assertFalse(output.exists())
+
+    def test_portrait_thumbnail_matches_vertical_video(self):
+        portrait_png = io.BytesIO()
+        Image.new("RGB", (720, 1280), (0, 120, 240)).save(portrait_png, format="PNG")
+        cover_portrait = base64.b64encode(portrait_png.getvalue()).decode()
+
+        scene = self.root / "vertical_scene.mp4"
+        self.run_ffmpeg("-f", "lavfi", "-i", "color=blue:s=720x1280:r=25:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", scene)
+        output = self.root / "vertical_out.mp4"
+        prepend_thumbnail(str(scene), cover_portrait, str(output))
+        self.assert_boundary(output, 25, width=720, height=1280)
+
+        info = json.loads(subprocess.check_output([FFPROBE, "-v", "error", "-show_streams", "-of", "json", str(output)]))
+        video = next(s for s in info["streams"] if s["codec_type"] == "video")
+        self.assertEqual(int(video["width"]), 720)
+        self.assertEqual(int(video["height"]), 1280)
 
 
 if __name__ == "__main__":

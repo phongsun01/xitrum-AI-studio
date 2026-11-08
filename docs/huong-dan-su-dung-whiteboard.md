@@ -153,3 +153,28 @@ Bấm **Tạo lại thumbnail** sau khi đổi tiêu đề, font, mẫu bút ho�
 | Bàn tay vẽ bị khung màu đen quanh bút | File `drawing-hand.png` không phải nền trong suốt thật (vẫn còn ô ca-rô checkerboard hoặc nền đen) | Dùng phần mềm đồ họa (Photoshop, Figma, GIMP) xuất file PNG với suốt trong hoàn toàn (Transparency enabled). |
 | Video xuất ra bị lệch giọng thuyết minh | File master audio có độ dài không khớp với tổng thời lượng các phân cảnh | Điều chỉnh lại thời lượng từng cảnh trong danh sách sao cho tổng các `durationMs` khớp với độ dài file audio. |
 
+---
+
+## 6. Tính Năng Đa Giọng Đọc (Character Bible) & Nhập Bộ Kịch Bản Whiteboard (.wb.json & .srt)
+
+### 6.1. Đối thoại nhiều nhân vật trong Whiteboard
+- **Cú pháp phụ đề**: Viết nhãn tên nhân vật ở đầu câu: `[Tên nhân vật]: Lời thoại` (ví dụ `[Thầy giáo]: Chào các em.`, `[Học sinh]: Chúng em chào thầy.`). Những câu không có nhãn sẽ tự động được coi là lời của **Người dẫn chuyện**.
+- **Bảng phân vai Character Bible**:
+  - Chuyển chế độ sang **"Theo nhân vật (N)"**.
+  - Mỗi nhân vật có thể chọn 1 giọng đọc VieNeu riêng biệt (Nam/Nữ, Bắc/Trung/Nam).
+  - Có nút **"Nghe"** để nghe thử từng giọng đọc trực tiếp.
+  - Có thể thay đổi người nói cho từng câu cụ thể trong danh sách câu thoại của cảnh.
+
+### 6.2. Nhập bộ Kịch bản Whiteboard Schema 3 (`.wb.json` & `.srt`)
+Khi bạn sử dụng công cụ tạo kịch bản Whiteboard (`skill /wb`), hệ thống sẽ sinh ra 2 tệp đồng bộ: `<slug>.srt` và `<slug>.wb.json`.
+
+1. **Tự động nhận diện khi chọn file SRT**:
+   - Khi bạn bấm **"Chọn"** và chọn tệp `.srt`, nếu có tệp `.wb.json` cùng tên ở cùng thư mục, ứng dụng sẽ tự động mở hộp thoại **"Phát hiện kịch bản Whiteboard đồng bộ (.wb.json)"**.
+2. **Nút "Kịch bản WB"**:
+   - Bạn cũng có thể bấm trực tiếp nút **"Kịch bản WB"** cạnh nút "Chia Cảnh" để mở bảng xem trước và nhập lại kịch bản.
+3. **Bảo toàn nguyên tắc 1 cảnh = 1 bức vẽ**:
+   - Khác với nút "Chia Cảnh" tự động cắt phụ đề theo thời gian 25–35 giây, tùy chọn **"Nhập theo phân cảnh từ WB (Khuyên dùng)"** sẽ giữ nguyên cấu trúc cảnh kịch bản đã định nghĩa: **Một cảnh duy nhất (dùng 1 bức tranh vẽ) có thể chứa 2–3 câu thoại đối đáp qua lại giữa các nhân vật**.
+4. **Kiểm tra tính toàn vẹn (SHA-256)**:
+   - Hệ thống tự động so khớp mã băm SHA-256 của tệp phụ đề với bản ghi trong kịch bản. Nếu tệp phụ đề bị sửa lệch bên ngoài, ứng dụng sẽ cảnh báo rõ ràng để tránh sai lệch đồng bộ audio và hình ảnh.
+
+

@@ -6,10 +6,12 @@ import {
   WhiteboardMergeResponse,
   WhiteboardEnvCheck,
   WhiteboardSrtCue,
+  WhiteboardSpeechConfig,
   WhiteboardSrtTtsResponse,
   WhiteboardElement,
   WhiteboardProject,
   WhiteboardImageAnalysis,
+  WhiteboardWbInspectResult,
 } from "./types/whiteboard";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
@@ -373,12 +375,21 @@ export const api = {
       voiceId,
       speed: speed ?? 1.0,
     }),
-  generateWhiteboardSrtTts: (srtPath: string, voiceId: string, autoTiming = false, sceneCueRanges: number[][] = []) =>
+  generateWhiteboardSrtTts: (
+    srtPath: string,
+    voiceId: string,
+    autoTiming = false,
+    sceneCueRanges: number[][] = [],
+    speechConfig?: WhiteboardSpeechConfig,
+    cues?: WhiteboardSrtCue[]
+  ) =>
     invoke<WhiteboardSrtTtsResponse>("generate_whiteboard_srt_tts", {
       srtPath,
       voiceId,
       autoTiming,
       sceneCueRanges,
+      speechConfig: speechConfig ?? null,
+      cues: cues ?? null,
     }),
   retimeWhiteboardAnnotation: (filePath: string, durationMs: number, speechEndMs: number) =>
     invoke<{ annotation_path: string; elements: WhiteboardElement[] }>("retime_whiteboard_annotation", {
@@ -462,6 +473,9 @@ export const api = {
   // Whiteboard Animation API (F16)
   parseWhiteboardSrt: (srtPath: string, exactCues?: boolean) =>
     invoke<WhiteboardParseSrtResponse>("parse_whiteboard_srt", { srtPath, exactCues: exactCues ?? false }),
+
+  inspectWhiteboardWbImport: (srtPath: string, wbJsonPath?: string | null) =>
+    invoke<WhiteboardWbInspectResult>("inspect_whiteboard_wb_import", { srtPath, wbJsonPath: wbJsonPath ?? null }),
 
   generateWhiteboardAnnotation: (
     imagePath: string,

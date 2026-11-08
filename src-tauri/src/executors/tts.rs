@@ -31,6 +31,10 @@ pub enum TtsRequest {
         output_path: String,
         auto_timing: bool,
         scene_cue_ranges: Vec<[usize; 2]>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        speech_config: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cues: Option<Vec<serde_json::Value>>,
     },
     Exit,
 }
@@ -246,6 +250,8 @@ impl TtsPipeline {
         output_path: &Path,
         auto_timing: bool,
         scene_cue_ranges: Vec<[usize; 2]>,
+        speech_config: Option<serde_json::Value>,
+        cues: Option<Vec<serde_json::Value>>,
     ) -> Result<serde_json::Value> {
         let (mut child, mut stdin, mut reader) = self.spawn_runner().await?;
 
@@ -256,6 +262,8 @@ impl TtsPipeline {
             output_path: output_path.to_string_lossy().to_string(),
             auto_timing,
             scene_cue_ranges,
+            speech_config,
+            cues,
         };
 
         let line = serde_json::to_string(&req)? + "\n";

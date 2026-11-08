@@ -1,0 +1,108 @@
+{
+  "schema_version": 3,
+  "title": "Buổi học đầu tiên",
+  "language": "vi",
+  "source": "single_scene_three_cues.md",
+  "srt_source": "single_scene_three_cues.srt",
+  "srt_sha256": "8349c5fda53b1b517b1205d19efdfdf7725ede04843c32b65538fd4f1d3b8aa2",
+  "timing": {
+    "kind": "estimated",
+    "duration_ms": 5000
+  },
+  "options": {
+    "speech": "characters",
+    "ratio": "16:9",
+    "thumb": false,
+    "thumb_ratio": null,
+    "topic": null
+  },
+  "character_mode": "described",
+  "characters": [
+    {
+      "name": "Thầy giáo",
+      "aliases": [],
+      "description": "Thầy giáo đứng trên bục giảng",
+      "reference": null
+    },
+    {
+      "name": "Học sinh",
+      "aliases": [],
+      "description": "Học sinh ngồi nghe giảng",
+      "reference": null
+    }
+  ],
+  "speech": {
+    "mode": "characters",
+    "speakers": [
+      {
+        "id": "teacher",
+        "name": "Thầy giáo",
+        "voice_id": "Hải Đăng"
+      },
+      {
+        "id": "student",
+        "name": "Học sinh",
+        "voice_id": "Trúc Ly"
+      }
+    ]
+  },
+  "cues": [
+    {
+      "id": "cue-1",
+      "index": 1,
+      "scene_index": 1,
+      "start_ms": 0,
+      "end_ms": 1500,
+      "text": "Buổi học bắt đầu.",
+      "spoken_text": "Buổi học bắt đầu.",
+      "speaker_id": null
+    },
+    {
+      "id": "cue-2",
+      "index": 2,
+      "scene_index": 1,
+      "start_ms": 1500,
+      "end_ms": 3500,
+      "text": "[Thầy giáo]: Chào các em.",
+      "spoken_text": "Chào các em.",
+      "speaker_id": "teacher"
+    },
+    {
+      "id": "cue-3",
+      "index": 3,
+      "scene_index": 1,
+      "start_ms": 3500,
+      "end_ms": 5000,
+      "text": "[Học sinh]: Chúng em chào thầy.",
+      "spoken_text": "Chúng em chào thầy.",
+      "speaker_id": "student"
+    }
+  ],
+  "scenes": [
+    {
+      "index": 1,
+      "start_ms": 0,
+      "end_ms": 5000,
+      "cue_ids": ["cue-1", "cue-2", "cue-3"],
+      "text": "Buổi học bắt đầu.\nChào các em.\nChúng em chào thầy.",
+      "mentioned_characters": ["Thầy giáo", "Học sinh"],
+      "visual_characters": ["Thầy giáo", "Học sinh"],
+      "props": [],
+      "setting": "Lớp học",
+      "moment": "Thầy giáo và học sinh chào nhau mở đầu buổi học",
+      "beat_timing": "estimated",
+      "beats": [
+        {
+          "start_ms": 0,
+          "end_ms": 5000,
+          "kind": "speech",
+          "spoken_anchor": "Chào các em.",
+          "action": "Giữ hình thầy và trò",
+          "assets": [],
+          "visual_characters": ["Thầy giáo", "Học sinh"]
+        }
+      ]
+    }
+  ]
+}
+

@@ -31,6 +31,14 @@ pub enum WhiteboardRequest {
         #[serde(default = "default_max_sec")]
         max_sec: f64,
     },
+    #[serde(rename = "inspect_wb_import")]
+    InspectWbImport {
+        #[serde(default)]
+        task_id: String,
+        srt_path: String,
+        #[serde(default)]
+        wb_json_path: Option<String>,
+    },
     #[serde(rename = "generate_annotation")]
     GenerateAnnotation {
         #[serde(default)]
@@ -733,6 +741,15 @@ impl WhiteboardPipeline {
             max_sec: 35.0,
         };
         self.call(req, self.timeouts.quick, "phân tích SRT", &|_| {})
+    }
+
+    pub fn inspect_wb_import(&self, srt_path: String, wb_json_path: Option<String>) -> Result<serde_json::Value> {
+        let req = WhiteboardRequest::InspectWbImport {
+            task_id: uuid::Uuid::new_v4().to_string(),
+            srt_path,
+            wb_json_path,
+        };
+        self.call(req, self.timeouts.quick, "kiểm tra bộ WB", &|_| {})
     }
 
     pub fn generate_annotation(

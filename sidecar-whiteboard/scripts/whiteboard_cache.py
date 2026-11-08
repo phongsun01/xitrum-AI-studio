@@ -16,10 +16,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 CURRENT_CACHE_VERSION = 2
 
@@ -84,12 +86,8 @@ def probe_video_streams(video_path: str | Path) -> Tuple[bool, int, int, float, 
     Probe video bằng ffprobe:
     Trả về: (ok, width, height, duration_sec, has_audio)
     """
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        for c in ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "/usr/bin/ffprobe"]:
-            if Path(c).exists():
-                ffprobe = c
-                break
+    import media_utils
+    ffprobe = media_utils.find_ffprobe()
 
     if not ffprobe or not Path(video_path).is_file():
         # Fallback PyAV nếu không có ffprobe

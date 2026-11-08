@@ -13,14 +13,18 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 
 def resolve_ffmpeg_and_probe() -> Tuple[Optional[str], Optional[str]]:
-    """Tìm binary ffmpeg và ffprobe có thể thực thi."""
-    ffmpeg = shutil.which("ffmpeg")
-    ffprobe = shutil.which("ffprobe")
+    """Tìm binary ffmpeg và ffprobe có thể thực thi (ưu tiên ffmpeg đóng gói theo app: XITRUM_FFMPEG)."""
+    import media_utils
+    ffmpeg = media_utils.find_ffmpeg()
+    ffprobe = media_utils.find_ffprobe()
 
     candidates_ffmpeg = [
         "/opt/homebrew/bin/ffmpeg",
@@ -215,6 +219,13 @@ def mux_video_and_audio(
             res_v = subprocess.run(cmd_v, capture_output=True, text=True)
             if res_v.returncode == 0:
                 v_dur_ms = int(float(res_v.stdout.strip()) * 1000)
+        except Exception:
+            v_dur_ms = 0
+    if v_dur_ms <= 0:
+        # Bản ffmpeg đóng gói không kèm ffprobe: đo bằng PyAV để vẫn đệm/giữ hình cuối đúng.
+        try:
+            import media_utils
+            v_dur_ms = int(round(media_utils.probe_media(video_path)["duration_s"] * 1000))
         except Exception:
             v_dur_ms = 0
 

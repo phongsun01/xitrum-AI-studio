@@ -23,8 +23,8 @@ def prepend_thumbnail(video_path: str, encoded_png: str, output_path: str):
     from PIL import Image
     import io
     with Image.open(io.BytesIO(png)) as image:
-        if image.format != "PNG" or image.size != (1280, 720):
-            raise ValueError("Thumbnail phải là PNG 1280×720")
+        if image.format != "PNG" or image.size not in ((1280, 720), (720, 1280)):
+            raise ValueError("Thumbnail phải là PNG 1280×720 (16:9) hoặc 720×1280 (9:16)")
         image.verify()
     probe = subprocess.run([ffprobe, "-v", "error", "-show_streams", "-show_format", "-of", "json", video_path],
                            capture_output=True, text=True, check=True)

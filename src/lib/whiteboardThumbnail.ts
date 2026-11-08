@@ -25,23 +25,52 @@ export async function createWhiteboardThumbnail(title: string, pen: WhiteboardPe
   const watermarkFont = resolveCoverFont("pen");
   await Promise.all([loadCoverFont(font.id), loadCoverFont(watermarkFont.id)]);
   const preset = COVER_PRESETS[pen];
+
+  // Inspect the illustration dimensions to detect portrait (9:16) vs landscape (16:9).
+  const image = await FabricImage.fromURL(illustration);
+  const isPortrait = (image.height || 0) > (image.width || 0);
+  const canvasWidth = isPortrait ? 720 : 1280;
+  const canvasHeight = isPortrait ? 1280 : 720;
+
   const canvas = new StaticCanvas(document.createElement("canvas"), {
-    width: 1280, height: 720, backgroundColor: preset.background, enableRetinaScaling: false,
+    width: canvasWidth, height: canvasHeight, backgroundColor: preset.background, enableRetinaScaling: false,
   });
   try {
     // Cover the whole canvas, centered, without stretching the illustration.
-    const image = await FabricImage.fromURL(illustration);
-    const scale = Math.max(1280 / image.width, 720 / image.height);
-    image.set({ left: 640, top: 360, originX: "center", originY: "center", scaleX: scale, scaleY: scale });
+    const scale = Math.max(canvasWidth / (image.width || 1), canvasHeight / (image.height || 1));
+    image.set({
+      left: canvasWidth / 2,
+      top: canvasHeight / 2,
+      originX: "center",
+      originY: "center",
+      scaleX: scale,
+      scaleY: scale,
+    });
     canvas.add(image);
-    // Keep all text within the empty upper 30%, above the main subjects.
+
+    // Keep all text within the empty upper area, above the main subjects.
+    const textWidth = isPortrait ? 620 : 1100;
+    const textTop = isPortrait ? 60 : 36;
+    const maxTextHeight = isPortrait ? 260 : 155;
+    const initialFontSize = isPortrait ? 76 : 82;
+
     const text = new Textbox(title.trim().normalize("NFC"), {
-      originX: "center", originY: "top", left: 640, top: 36, width: 1100,
-      fontSize: 82, fontFamily: font.family, textAlign: "center",
-      fontWeight: font.weight, fill: preset.ink, lineHeight: 1.15, splitByGrapheme: false,
+      originX: "center", originY: "top",
+      left: canvasWidth / 2,
+      top: textTop,
+      width: textWidth,
+      fontSize: initialFontSize,
+      fontFamily: font.family,
+      textAlign: "center",
+      fontWeight: font.weight,
+      fill: preset.ink,
+      lineHeight: 1.15,
+      splitByGrapheme: false,
       shadow: new Shadow({ color: preset.background, blur: 3, offsetX: 0, offsetY: 1 }),
     });
-    while ((text.height > 155 || text.width > 1100) && text.fontSize > 20) text.set("fontSize", text.fontSize - 2);
+    while ((text.height > maxTextHeight || text.width > textWidth) && text.fontSize > 20) {
+      text.set("fontSize", text.fontSize - 2);
+    }
     // The pen controls the effect even when the user chooses a different font.
     const effects = {
       pen: { stroke: preset.background, strokeWidth: 1.2, glow: preset.background, blur: 3, offset: 1 },
@@ -64,13 +93,22 @@ export async function createWhiteboardThumbnail(title: string, pen: WhiteboardPe
         colorStops: colors.map((color, index) => ({ offset: index / 2, color })) }));
     }
     canvas.add(text);
+
+    const watermarkLeft = isPortrait ? 680 : 1240;
+    const watermarkTop = isPortrait ? 1238 : 678;
     canvas.add(new FabricText("xitrum-AI-studio", {
-      left: 1240, top: 678, originX: "right", originY: "top", fontSize: 20,
+      left: watermarkLeft, top: watermarkTop, originX: "right", originY: "top", fontSize: 20,
       fontFamily: watermarkFont.family, fontWeight: watermarkFont.weight, fill: preset.ink, opacity: 0.85,
       shadow: new Shadow({ color: preset.background, blur: 4, offsetX: 0, offsetY: 0 }),
     }));
     canvas.renderAll();
-    return canvas.toDataURL({ format: "png", multiplier: 1 });
+    const pngDataUrl = canvas.toDataURL({ format: "png", multiplier: 1 });
+    return {
+      pngDataUrl,
+      aspectRatio: (isPortrait ? "9:16" : "16:9") as "16:9" | "9:16",
+      width: canvasWidth,
+      height: canvasHeight,
+    };
   } finally {
     await canvas.dispose();
   }

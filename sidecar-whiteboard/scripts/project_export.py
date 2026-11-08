@@ -40,7 +40,7 @@ import media_utils as mu  # noqa: E402
 
 SCHEMA_VERSION = 1
 # Tăng khi thuật toán render đổi hình ảnh đầu ra, để vô hiệu cache cũ.
-ENGINE_VERSION = "wb-render-1"
+ENGINE_VERSION = "wb-render-1+p3"
 AUDIO_RATE = 48000
 DEFAULT_HAND = Path(__file__).resolve().parent.parent / "assets" / "drawing-hand.png"
 
@@ -175,7 +175,8 @@ def validate_project(project, scene_ids=None):
     if master and not os.path.isfile(master):
         err(None, "masterAudio", f"Không tìm thấy audio toàn bài: {master}")
     hand = project.get("hand")
-    if hand and not os.path.isfile(hand):
+    if hand and hand not in _HAND_PRESETS and not os.path.isfile(hand) \
+            and not (Path(__file__).resolve().parent.parent / "assets" / hand).is_file():
         err(None, "hand", f"Không tìm thấy ảnh bàn tay: {hand}")
 
     scenes = resolve_scenes(project, scene_ids)
@@ -216,12 +217,31 @@ def validate_project(project, scene_ids=None):
 
 
 # ─────────────────────────── render từng cảnh ───────────────────────────
+_HAND_PRESETS = ("pen", "default", "brush", "calligraphy", "calligraphy-brush")
+
+
+def _scene_settings(project, r) -> dict:
+    """Cùng bộ cài đặt như lệnh render_scene (tự phân tích kiểu vẽ ảnh, tay vẽ, subject-first...);
+    cảnh có thể ghi đè bằng inkPath/colorFill/inkWeight/colorWeight/subjectFirst."""
+    import whiteboard_settings
+    sc = r["scene"]
+    return whiteboard_settings.resolve_render_settings({
+        "image_path": sc["imagePath"], "fps": int(project.get("fps", 30)),
+        "paper_color": project.get("paperColor"), "hand_path": project.get("hand"),
+        "ink_path": sc.get("inkPath"), "color_fill": sc.get("colorFill"),
+        "ink_weight": sc.get("inkWeight"), "color_weight": sc.get("colorWeight"),
+        "subject_first": sc.get("subjectFirst", project.get("subjectFirst", False)),
+    })
+
+
 def _scene_cache_key(project, r) -> str:
     sc = r["scene"]
-    hand = project.get("hand") or str(DEFAULT_HAND)
+    s = _scene_settings(project, r)
+    hand = s["hand_path"] or str(DEFAULT_HAND)
     parts = [ENGINE_VERSION, _sha256(sc["imagePath"]), _sha256(sc["annotationPath"]),
              _sha256(hand) if os.path.isfile(hand) else "nohand",
-             str(project.get("fps", 30)), _norm_color(project.get("paperColor")), str(int(r["durationMs"]))]
+             str(s["fps"]), s["paper_color"], str(int(r["durationMs"])),
+             s["ink_path"], s["color_fill"], str(s["ink_weight"]), str(s["color_weight"]), str(s["subject_first"])]
     return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
@@ -232,11 +252,15 @@ def _render_scene(project, r, dest: Path, on_frames):
     sc = r["scene"]
     tmp = dest.with_name(dest.stem + ".part.mp4")
     args = [sc["imagePath"], sc["annotationPath"], str(tmp)]
-    hand = project.get("hand")
-    if hand and os.path.isfile(hand):
-        args.append(hand)
-    args += ["--fps", str(int(project.get("fps", 30))), "--paper-color", _norm_color(project.get("paperColor")),
-             "--total-ms", str(int(r["durationMs"]))]
+    s = _scene_settings(project, r)
+    if s["hand_path"] and os.path.isfile(s["hand_path"]):
+        args.append(s["hand_path"])
+    args += ["--fps", str(s["fps"]), "--paper-color", s["paper_color"],
+             "--total-ms", str(int(r["durationMs"])),
+             "--ink-path", str(s["ink_path"]), "--color-fill", str(s["color_fill"]),
+             "--ink-weight", str(s["ink_weight"]), "--color-weight", str(s["color_weight"])]
+    if s["subject_first"]:
+        args.append("--subject-first")
     rsw.PROGRESS_CALLBACK = on_frames
     try:
         code = rsw.main(args)

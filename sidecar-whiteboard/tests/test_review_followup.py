@@ -19,7 +19,6 @@ sys.path.insert(0, str(SCRIPTS))
 import merge_scenes
 import render_stream_whiteboard as render
 import stream_render as sr
-import whiteboard_audio
 import whiteboard_encoder as encoder
 
 
@@ -93,10 +92,13 @@ class ReviewFollowup(unittest.TestCase):
         self.assertEqual(len(frames), 1)
         np.testing.assert_array_equal(frames[0], r.color_img)
 
-    def test_missing_probe_fails_safely_before_concat(self):
-        with patch.object(whiteboard_audio, "resolve_ffmpeg_and_probe", return_value=("ffmpeg", None)):
-            with self.assertRaisesRegex(RuntimeError, "FFPROBE_REQUIRED"):
-                merge_scenes._normalize_concat_if_needed([], Path("unused.mp4"), "ffmpeg")
+    def test_unreadable_clip_fails_safely_before_concat(self):
+        # Không còn phụ thuộc ffprobe; clip không đọc được phải báo lỗi rõ ràng, không ghép mất audio.
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.mp4"
+            bad.write_bytes(b"not a video")
+            with self.assertRaisesRegex(ValueError, "probe"):
+                merge_scenes._probe_clips([bad])
 
     def test_render_error_keeps_previous_output_and_stops_encoder(self):
         if not encoder.resolve_ffmpeg_binary():

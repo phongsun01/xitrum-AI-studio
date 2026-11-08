@@ -1,0 +1,770 @@
+diff --git a/sidecar-whiteboard/scripts/media_utils.py b/sidecar-whiteboard/scripts/media_utils.py
+index cc6121d..f44df77 100644
+--- a/sidecar-whiteboard/scripts/media_utils.py
++++ b/sidecar-whiteboard/scripts/media_utils.py
+@@ -8,6 +8,9 @@ import sys
+ from pathlib import Path
+ 
+ 
++_UNIX_CANDIDATES = ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin")
++
++
+ def find_ffmpeg() -> str | None:
+     """
+     Thứ tự: biến môi trường XITRUM_FFMPEG (app Tauri truyền đường dẫn ffmpeg đã đóng gói) →
+@@ -16,7 +19,33 @@ def find_ffmpeg() -> str | None:
+     env = os.environ.get("XITRUM_FFMPEG")
+     if env and Path(env).is_file():
+         return env
+-    return shutil.which("ffmpeg")
++    found = shutil.which("ffmpeg")
++    if found:
++        return found
++    # App GUI (macOS/Linux) thường không có PATH đầy đủ → thử các vị trí cài đặt phổ biến.
++    for d in _UNIX_CANDIDATES:
++        c = Path(d) / "ffmpeg"
++        if c.is_file():
++            return str(c)
++    return None
++
++
++def find_ffprobe() -> str | None:
++    """ffprobe cạnh ffmpeg đã chọn → PATH → vị trí phổ biến. Bản ffmpeg đóng gói theo app không kèm ffprobe,
++    nên mọi nơi dùng ffprobe phải có đường lui (PyAV: probe_media)."""
++    ff = find_ffmpeg()
++    if ff:
++        sib = Path(ff).with_name("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
++        if sib.is_file():
++            return str(sib)
++    fp = shutil.which("ffprobe")
++    if fp:
++        return fp
++    for d in _UNIX_CANDIDATES:
++        c = Path(d) / "ffprobe"
++        if c.is_file():
++            return str(c)
++    return None
+ 
+ 
+ def require_ffmpeg() -> str:
+diff --git a/sidecar-whiteboard/scripts/merge_scenes.py b/sidecar-whiteboard/scripts/merge_scenes.py
+index e154fc3..503f13c 100644
+--- a/sidecar-whiteboard/scripts/merge_scenes.py
++++ b/sidecar-whiteboard/scripts/merge_scenes.py
+@@ -11,8 +11,6 @@ ffmpeg 时，回退到 PyAV 逐帧重编码并缩放补边到第一段尺寸。
+ from __future__ import annotations
+ 
+ import argparse
+-import json
+-import shutil
+ import subprocess
+ import sys
+ import tempfile
+@@ -29,99 +27,126 @@ def _escape_concat_path(path: Path) -> str:
+     return p_str.replace("'", "'\\''")
+ 
+ 
+-def _normalize_concat_if_needed(inputs: list[Path], output: Path, ffmpeg: str):
+-    """Return None for compatible clips, otherwise normalize all streams explicitly."""
+-    import whiteboard_audio
+-    _, ffprobe = whiteboard_audio.resolve_ffmpeg_and_probe()
+-    if not ffprobe:
+-        raise RuntimeError("FFPROBE_REQUIRED: Cần ffprobe để kiểm tra streams trước khi ghép, tránh mất audio")
++_SR = 48000
++_BYTES_PER_SAMPLE = 4  # s16le stereo
++
++
++def _probe_clips(inputs: list[Path]) -> list[dict]:
++    """Đọc thông số từng clip bằng PyAV (không cần ffprobe: bản ffmpeg đóng gói theo app không kèm ffprobe)."""
++    from media_utils import probe_media
+     clips = []
+     for path in inputs:
+-        result = subprocess.run([ffprobe, "-v", "error", "-show_streams", "-show_format",
+-                                 "-of", "json", str(path)], capture_output=True, text=True)
+-        if result.returncode:
+-            raise ValueError(f"Không probe được video: {path}")
+-        data = json.loads(result.stdout)
+-        video = next((v for v in data["streams"] if v["codec_type"] == "video"), None)
+-        audio = next((v for v in data["streams"] if v["codec_type"] == "audio"), None)
+-        if not video:
++        try:
++            info = probe_media(path)
++        except Exception as exc:
++            raise ValueError(f"Không probe được video: {path} ({exc})") from exc
++        v = info["video"]
++        if not v:
+             raise ValueError(f"Tệp không có video: {path}")
+-        duration = float(video.get("duration", data["format"]["duration"]))
+-        signature = (video.get("codec_name"), video["width"], video["height"],
+-                     video.get("r_frame_rate"), video.get("pix_fmt"),
+-                     tuple(audio.get(k) for k in ("codec_name", "sample_rate", "channel_layout")) if audio else None)
+-        clips.append((video, audio, duration, signature))
+-    if all(c[3] == clips[0][3] and (not c[1] or abs(float(c[1].get("duration", c[2])) - c[2]) < 0.02) for c in clips):
+-        return None
+-    width, height = clips[0][0]["width"], clips[0][0]["height"]
+-    width, height = width + width % 2, height + height % 2
+-    fps = clips[0][0].get("r_frame_rate", "30/1")
+-    has_audio = any(c[1] for c in clips)
++        # Độ dài hình thật = số khung / fps (duration của container có thể bị audio kéo dài hơn).
++        dur = v["frames"] / v["fps"] if v["frames"] and v["fps"] else info["duration_s"]
++        clips.append({"path": path, "video": v, "audio": info["audio"], "duration": float(dur),
++                      "signature": (v["codec"], v["width"], v["height"], round(v["fps"], 3), v["pix_fmt"])})
++    return clips
++
++
++def _concat_video_only(clips: list[dict], output: Path, ffmpeg: str) -> None:
++    """Ghép phần hình (bỏ audio). Clip tương thích → -c copy; khác nhau → chuẩn hóa kích thước/fps và mã hóa lại."""
++    inputs = [c["path"] for c in clips]
++    if all(c["signature"] == clips[0]["signature"] for c in clips):
++        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
++            for p in inputs:
++                f.write(f"file '{_escape_concat_path(p)}'\n")
++            list_path = Path(f.name)
++        try:
++            res = subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
++                                  "-i", str(list_path), "-an", "-c:v", "copy", str(output)],
++                                 capture_output=True, text=True)
++        finally:
++            list_path.unlink(missing_ok=True)
++        if res.returncode == 0:
++            return
++        print(f"  [warn] ffmpeg -c copy thất bại, thử mã hóa lại: {res.stderr.strip()[:200]}")
++    v0 = clips[0]["video"]
++    width, height = v0["width"] + v0["width"] % 2, v0["height"] + v0["height"] % 2
++    fps = f"{v0['fps']:.6f}"
+     cmd = [ffmpeg, "-y", "-v", "error"]
+     for path in inputs:
+         cmd += ["-i", str(path)]
+-    filters, pads = [], []
+-    for i, (_, audio, duration, _) in enumerate(clips):
+-        filters.append(f"[{i}:v:0]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+-                       f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},"
+-                       f"setpts=PTS-STARTPTS[v{i}]")
+-        pads.append(f"[v{i}]")
+-        if has_audio:
+-            source = f"[{i}:a:0]" if audio else "anullsrc=r=48000:cl=stereo,"
+-            filters.append(source + f"aformat=sample_rates=48000:channel_layouts=stereo,apad,"
+-                           f"atrim=duration={duration:.9f},asetpts=PTS-STARTPTS[a{i}]")
+-            pads.append(f"[a{i}]")
+-    filters.append("".join(pads) + f"concat=n={len(clips)}:v=1:a={int(has_audio)}[v]" + ("[a]" if has_audio else ""))
+-    cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p"]
+-    if has_audio:
+-        cmd += ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"]
+-    cmd.append(str(output))
+-    result = subprocess.run(cmd, capture_output=True, text=True)
+-    if result.returncode:
+-        raise RuntimeError(f"Chuẩn hóa/ghép video thất bại: {result.stderr[-2000:]}")
+-    return True
++    filters = [f"[{i}:v:0]scale={width}:{height}:force_original_aspect_ratio=decrease,"
++               f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},setpts=PTS-STARTPTS[v{i}]"
++               for i in range(len(clips))]
++    filters.append("".join(f"[v{i}]" for i in range(len(clips))) + f"concat=n={len(clips)}:v=1:a=0[v]")
++    cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-an",
++            "-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p", str(output)]
++    res = subprocess.run(cmd, capture_output=True, text=True)
++    if res.returncode:
++        raise RuntimeError(f"Chuẩn hóa/ghép video thất bại: {res.stderr[-2000:]}")
++
++
++def _build_pcm_track(clips: list[dict], raw_path: Path, ffmpeg: str, tmp_dir: Path) -> None:
++    """
++    Dựng một track PCM s16le 48 kHz stereo liền mạch: mỗi clip được cắt/đệm im lặng đúng bằng độ dài HÌNH của nó.
++    Ghép AAC bằng -c copy làm cộng dồn phần đệm đầu/cuối của từng clip (≈50 ms/cảnh) nên tiếng trôi lệch dần
++    so với hình; ghép ở dạng PCM rồi mã hóa AAC đúng một lần thì không có sai số cộng dồn.
++    """
++    total_samples = 0
++    elapsed = 0.0
++    with open(raw_path, "wb") as out:
++        for i, c in enumerate(clips):
++            elapsed += c["duration"]
++            # Mục tiêu tích lũy (không làm tròn từng clip) để sai số không cộng dồn.
++            want = int(round(elapsed * _SR)) - total_samples
++            written = 0
++            if c["audio"]:
++                part = tmp_dir / f"a{i}.raw"
++                res = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(c["path"]), "-vn", "-map", "0:a:0",
++                                      "-af", f"aresample={_SR}", "-ac", "2", "-f", "s16le", str(part)],
++                                     capture_output=True, text=True)
++                if res.returncode:
++                    raise RuntimeError(f"Giải mã audio thất bại ({c['path']}): {res.stderr[-1000:]}")
++                need = want * _BYTES_PER_SAMPLE
++                with open(part, "rb") as src:
++                    while written < need:
++                        chunk = src.read(min(1 << 20, need - written))
++                        if not chunk:
++                            break
++                        out.write(chunk)
++                        written += len(chunk)
++                part.unlink(missing_ok=True)
++            pad = want * _BYTES_PER_SAMPLE - written
++            while pad > 0:
++                n = min(pad, 1 << 20)
++                out.write(b"\x00" * n)
++                pad -= n
++            total_samples += want
+ 
+ 
+ def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
+     ffmpeg = find_ffmpeg()
+-    if ffmpeg is None:
+-        for candidate in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
+-            if Path(candidate).exists():
+-                ffmpeg = candidate
+-                break
+     if ffmpeg is None:
+         return False
+-    normalized = _normalize_concat_if_needed(inputs, output, ffmpeg)
+-    if normalized is not None:
+-        return normalized
+-    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
+-        for p in inputs:
+-            f.write(f"file '{_escape_concat_path(p)}'\n")
+-        list_path = Path(f.name)
+-    try:
+-        res = subprocess.run(
+-            [ffmpeg, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
+-             "-i", str(list_path), "-c", "copy", str(output)],
+-            capture_output=True, text=True,
+-        )
+-        if res.returncode == 0:
+-            print(f"  Ghép bằng ffmpeg không mất dữ liệu xong: {output}")
+-            return True
+-        print(f"  [warn] ffmpeg -c copy thất bại, thử mã hóa lại: {res.stderr.strip()[:200]}")
+-        res = subprocess.run(
+-            [ffmpeg, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
+-             "-i", str(list_path), "-c:v", "libx264", "-crf", "20",
+-             "-c:a", "aac", "-b:a", "192k",
+-             "-pix_fmt", "yuv420p", "-vf", "scale='trunc(iw/2)*2':'trunc(ih/2)*2'", str(output)],
+-            capture_output=True, text=True,
+-        )
+-        if res.returncode == 0:
+-            print(f"  Ghép bằng ffmpeg có mã hóa lại xong: {output}")
++    clips = _probe_clips(inputs)
++    has_audio = any(c["audio"] for c in clips)
++    with tempfile.TemporaryDirectory(prefix="wb_merge_") as td:
++        tmp = Path(td)
++        if not has_audio:
++            _concat_video_only(clips, output, ffmpeg)
++            print(f"  Ghép video xong: {output}")
+             return True
+-        print(f"  [warn] ffmpeg mã hóa lại cũng thất bại: {res.stderr.strip()[:200]}")
+-        return False
+-    finally:
+-        list_path.unlink(missing_ok=True)
++        video_only = tmp / "video.mp4"
++        _concat_video_only(clips, video_only, ffmpeg)
++        raw = tmp / "audio.raw"
++        _build_pcm_track(clips, raw, ffmpeg, tmp)
++        res = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(video_only),
++                              "-f", "s16le", "-ar", str(_SR), "-ac", "2", "-i", str(raw),
++                              "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
++                              "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)],
++                             capture_output=True, text=True)
++        if res.returncode:
++            raise RuntimeError(f"Mux audio/video thất bại: {res.stderr[-1000:]}")
++    print(f"  Ghép video + audio khớp thời lượng xong: {output}")
++    return True
+ 
+ 
+ def _pyav_concat(inputs: list[Path], output: Path) -> bool:
+diff --git a/sidecar-whiteboard/scripts/project_export.py b/sidecar-whiteboard/scripts/project_export.py
+index 32cd247..86cd4a3 100644
+--- a/sidecar-whiteboard/scripts/project_export.py
++++ b/sidecar-whiteboard/scripts/project_export.py
+@@ -40,7 +40,7 @@ import media_utils as mu  # noqa: E402
+ 
+ SCHEMA_VERSION = 1
+ # Tăng khi thuật toán render đổi hình ảnh đầu ra, để vô hiệu cache cũ.
+-ENGINE_VERSION = "wb-render-1"
++ENGINE_VERSION = "wb-render-1+p3"
+ AUDIO_RATE = 48000
+ DEFAULT_HAND = Path(__file__).resolve().parent.parent / "assets" / "drawing-hand.png"
+ 
+@@ -175,7 +175,8 @@ def validate_project(project, scene_ids=None):
+     if master and not os.path.isfile(master):
+         err(None, "masterAudio", f"Không tìm thấy audio toàn bài: {master}")
+     hand = project.get("hand")
+-    if hand and not os.path.isfile(hand):
++    if hand and hand not in _HAND_PRESETS and not os.path.isfile(hand) \
++            and not (Path(__file__).resolve().parent.parent / "assets" / hand).is_file():
+         err(None, "hand", f"Không tìm thấy ảnh bàn tay: {hand}")
+ 
+     scenes = resolve_scenes(project, scene_ids)
+@@ -216,12 +217,31 @@ def validate_project(project, scene_ids=None):
+ 
+ 
+ # ─────────────────────────── render từng cảnh ───────────────────────────
++_HAND_PRESETS = ("pen", "default", "brush", "calligraphy", "calligraphy-brush")
++
++
++def _scene_settings(project, r) -> dict:
++    """Cùng bộ cài đặt như lệnh render_scene (tự phân tích kiểu vẽ ảnh, tay vẽ, subject-first...);
++    cảnh có thể ghi đè bằng inkPath/colorFill/inkWeight/colorWeight/subjectFirst."""
++    import whiteboard_settings
++    sc = r["scene"]
++    return whiteboard_settings.resolve_render_settings({
++        "image_path": sc["imagePath"], "fps": int(project.get("fps", 30)),
++        "paper_color": project.get("paperColor"), "hand_path": project.get("hand"),
++        "ink_path": sc.get("inkPath"), "color_fill": sc.get("colorFill"),
++        "ink_weight": sc.get("inkWeight"), "color_weight": sc.get("colorWeight"),
++        "subject_first": sc.get("subjectFirst", project.get("subjectFirst", False)),
++    })
++
++
+ def _scene_cache_key(project, r) -> str:
+     sc = r["scene"]
+-    hand = project.get("hand") or str(DEFAULT_HAND)
++    s = _scene_settings(project, r)
++    hand = s["hand_path"] or str(DEFAULT_HAND)
+     parts = [ENGINE_VERSION, _sha256(sc["imagePath"]), _sha256(sc["annotationPath"]),
+              _sha256(hand) if os.path.isfile(hand) else "nohand",
+-             str(project.get("fps", 30)), _norm_color(project.get("paperColor")), str(int(r["durationMs"]))]
++             str(s["fps"]), s["paper_color"], str(int(r["durationMs"])),
++             s["ink_path"], s["color_fill"], str(s["ink_weight"]), str(s["color_weight"]), str(s["subject_first"])]
+     return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+ 
+ 
+@@ -232,11 +252,15 @@ def _render_scene(project, r, dest: Path, on_frames):
+     sc = r["scene"]
+     tmp = dest.with_name(dest.stem + ".part.mp4")
+     args = [sc["imagePath"], sc["annotationPath"], str(tmp)]
+-    hand = project.get("hand")
+-    if hand and os.path.isfile(hand):
+-        args.append(hand)
+-    args += ["--fps", str(int(project.get("fps", 30))), "--paper-color", _norm_color(project.get("paperColor")),
+-             "--total-ms", str(int(r["durationMs"]))]
++    s = _scene_settings(project, r)
++    if s["hand_path"] and os.path.isfile(s["hand_path"]):
++        args.append(s["hand_path"])
++    args += ["--fps", str(s["fps"]), "--paper-color", s["paper_color"],
++             "--total-ms", str(int(r["durationMs"])),
++             "--ink-path", str(s["ink_path"]), "--color-fill", str(s["color_fill"]),
++             "--ink-weight", str(s["ink_weight"]), "--color-weight", str(s["color_weight"])]
++    if s["subject_first"]:
++        args.append("--subject-first")
+     rsw.PROGRESS_CALLBACK = on_frames
+     try:
+         code = rsw.main(args)
+diff --git a/sidecar-whiteboard/scripts/whiteboard_audio.py b/sidecar-whiteboard/scripts/whiteboard_audio.py
+index 0727853..d55f8b2 100644
+--- a/sidecar-whiteboard/scripts/whiteboard_audio.py
++++ b/sidecar-whiteboard/scripts/whiteboard_audio.py
+@@ -13,14 +13,18 @@ import json
+ import os
+ import shutil
+ import subprocess
++import sys
+ from pathlib import Path
+ from typing import Optional, Tuple
+ 
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++
+ 
+ def resolve_ffmpeg_and_probe() -> Tuple[Optional[str], Optional[str]]:
+-    """Tìm binary ffmpeg và ffprobe có thể thực thi."""
+-    ffmpeg = shutil.which("ffmpeg")
+-    ffprobe = shutil.which("ffprobe")
++    """Tìm binary ffmpeg và ffprobe có thể thực thi (ưu tiên ffmpeg đóng gói theo app: XITRUM_FFMPEG)."""
++    import media_utils
++    ffmpeg = media_utils.find_ffmpeg()
++    ffprobe = media_utils.find_ffprobe()
+ 
+     candidates_ffmpeg = [
+         "/opt/homebrew/bin/ffmpeg",
+@@ -217,6 +221,13 @@ def mux_video_and_audio(
+                 v_dur_ms = int(float(res_v.stdout.strip()) * 1000)
+         except Exception:
+             v_dur_ms = 0
++    if v_dur_ms <= 0:
++        # Bản ffmpeg đóng gói không kèm ffprobe: đo bằng PyAV để vẫn đệm/giữ hình cuối đúng.
++        try:
++            import media_utils
++            v_dur_ms = int(round(media_utils.probe_media(video_path)["duration_s"] * 1000))
++        except Exception:
++            v_dur_ms = 0
+ 
+     # Nếu audio dài hơn video trên 300ms và có yêu cầu giữ hình cuối (R0)
+     if pad_audio_or_video and a_dur_ms > v_dur_ms > 0 and (a_dur_ms - v_dur_ms) > 0:
+diff --git a/sidecar-whiteboard/scripts/whiteboard_cache.py b/sidecar-whiteboard/scripts/whiteboard_cache.py
+index b019724..c74a6b1 100644
+--- a/sidecar-whiteboard/scripts/whiteboard_cache.py
++++ b/sidecar-whiteboard/scripts/whiteboard_cache.py
+@@ -18,9 +18,12 @@ import json
+ import os
+ import shutil
+ import subprocess
++import sys
+ from pathlib import Path
+ from typing import Any, Dict, Optional, Tuple
+ 
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++
+ CURRENT_CACHE_VERSION = 2
+ 
+ 
+@@ -84,12 +87,8 @@ def probe_video_streams(video_path: str | Path) -> Tuple[bool, int, int, float,
+     Probe video bằng ffprobe:
+     Trả về: (ok, width, height, duration_sec, has_audio)
+     """
+-    ffprobe = shutil.which("ffprobe")
+-    if not ffprobe:
+-        for c in ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "/usr/bin/ffprobe"]:
+-            if Path(c).exists():
+-                ffprobe = c
+-                break
++    import media_utils
++    ffprobe = media_utils.find_ffprobe()
+ 
+     if not ffprobe or not Path(video_path).is_file():
+         # Fallback PyAV nếu không có ffprobe
+diff --git a/sidecar-whiteboard/scripts/whiteboard_encoder.py b/sidecar-whiteboard/scripts/whiteboard_encoder.py
+index 1d1650c..55547df 100644
+--- a/sidecar-whiteboard/scripts/whiteboard_encoder.py
++++ b/sidecar-whiteboard/scripts/whiteboard_encoder.py
+@@ -23,16 +23,13 @@ from typing import Optional, Tuple
+ import cv2
+ import numpy as np
+ 
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++
+ 
+ def resolve_ffmpeg_binary() -> Optional[str]:
+     """Tìm binary ffmpeg trên hệ thống."""
+-    f = shutil.which("ffmpeg")
+-    if f:
+-        return f
+-    for cand in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
+-        if Path(cand).exists():
+-            return cand
+-    return None
++    import media_utils
++    return media_utils.find_ffmpeg()
+ 
+ 
+ class BaseFrameWriter:
+diff --git a/sidecar-whiteboard/scripts/whiteboard_settings.py b/sidecar-whiteboard/scripts/whiteboard_settings.py
+new file mode 100644
+index 0000000..a429587
+--- /dev/null
++++ b/sidecar-whiteboard/scripts/whiteboard_settings.py
+@@ -0,0 +1,72 @@
++"""Cài đặt render cảnh dùng chung cho runner (render_scene) và project_export (dự án V1),
++để hai đường render cho cùng một hình ảnh với cùng một cấu hình."""
++from __future__ import annotations
++
++import os
++import re
++from pathlib import Path
++
++ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
++
++
++def normalize_paper_color(value):
++    v = (value or "#F5EBD7").strip()
++    if re.fullmatch(r"[0-9A-Fa-f]{6}", v):
++        v = "#" + v
++    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", v):
++        raise ValueError(f"Màu nền giấy không hợp lệ: {value!r} (cần dạng #RRGGBB)")
++    return v.upper()
++
++
++def resolve_render_settings(req):
++    image_path = req.get("image_path")
++    fps = int(req.get("fps", 30))
++    paper_color = normalize_paper_color(req.get("paper_color"))
++    hand_path = req.get("hand_path")
++    ink_path = req.get("ink_path")
++    color_fill = req.get("color_fill")
++    ink_weight = req.get("ink_weight")
++    color_weight = req.get("color_weight")
++    # W3: Nếu chưa chỉ định rõ ink_path hoặc color_fill, tự động phân tích ảnh
++    if not ink_path or not color_fill:
++        try:
++            import whiteboard_analyzer
++            style_info = whiteboard_analyzer.resolve_scene_style(
++                image_path,
++                user_override={"inkPath": ink_path, "colorFill": color_fill, "inkWeight": ink_weight, "colorWeight": color_weight}
++            )["resolved"]
++            ink_path = style_info["inkPath"]
++            color_fill = style_info["colorFill"]
++            ink_weight = style_info["inkWeight"]
++            color_weight = style_info["colorWeight"]
++        except Exception:
++            pass
++
++    if not 1 <= fps <= 120:
++        raise ValueError(f"FPS không hợp lệ: {fps} (cần từ 1 đến 120)")
++
++    if not hand_path or hand_path == "pen" or hand_path == "default":
++        default_hand = ASSETS_DIR / "drawing-hand.png"
++        if default_hand.exists():
++            hand_path = str(default_hand)
++    elif hand_path == "brush" or hand_path == "calligraphy" or hand_path == "calligraphy-brush":
++        brush_hand = ASSETS_DIR / "calligraphy-brush.png"
++        if brush_hand.exists():
++            hand_path = str(brush_hand)
++    elif not os.path.isabs(hand_path):
++        candidate = ASSETS_DIR / hand_path
++        if candidate.exists():
++            hand_path = str(candidate)
++
++    ink_path = ink_path or "grid"
++    color_fill = color_fill or "contour-wipe"
++    ink_weight = float(ink_weight if ink_weight is not None else 2)
++    color_weight = float(color_weight if color_weight is not None else 1)
++    if color_fill == "none":
++        ink_weight, color_weight = 1.0, 0.0
++    return dict(image_path=image_path, annotation_path=req.get("annotation_path"),
++                fps=fps, paper_color=paper_color, hand_path=hand_path,
++                subject_first=bool(req.get("subject_first", False)),
++                audio_path=req.get("audio_path"), duration_ms=req.get("duration_ms"),
++                ink_path=ink_path, color_fill=color_fill,
++                ink_weight=ink_weight, color_weight=color_weight)
+diff --git a/sidecar-whiteboard/tests/test_merge_audio_sync.py b/sidecar-whiteboard/tests/test_merge_audio_sync.py
+new file mode 100644
+index 0000000..bf7b1d3
+--- /dev/null
++++ b/sidecar-whiteboard/tests/test_merge_audio_sync.py
+@@ -0,0 +1,92 @@
++"""P3: ghép nhiều cảnh có audio không được trôi lệch so với hình; không cần ffprobe."""
++import os
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / "scripts"))
++import merge_scenes  # noqa: E402
++import media_utils  # noqa: E402
++
++FF = media_utils.find_ffmpeg()
++
++
++def make_clip(path, seconds, freq=None, fps=10):
++    cmd = [FF, "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c=white:s=64x48:r={fps}:d={seconds}"]
++    if freq:
++        cmd += ["-f", "lavfi", "-i", f"sine=frequency={freq}:sample_rate=44100:duration={seconds}"]
++    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
++    if freq:
++        cmd += ["-c:a", "aac", "-shortest"]
++    subprocess.run(cmd + [str(path)], check=True)
++
++
++@unittest.skipUnless(FF, "cần ffmpeg")
++class MergeAudioSync(unittest.TestCase):
++    def test_audio_matches_video_and_no_ffprobe_needed(self):
++        with tempfile.TemporaryDirectory() as td:
++            td = Path(td)
++            clips = []
++            for i, (sec, f) in enumerate([(1.5, 440), (2.0, 880), (1.0, 1320)]):
++                p = td / f"c{i}.mp4"
++                make_clip(p, sec, f)
++                clips.append(p)
++            out = td / "out.mp4"
++            old_path = os.environ.get("PATH", "")
++            old_ff = os.environ.get("XITRUM_FFMPEG")
++            # Bản ffmpeg đóng gói không có ffprobe: chỉ để ffmpeg trong một thư mục riêng, không đặt ffprobe vào PATH.
++            iso = td / "bin"
++            iso.mkdir()
++            shutil.copy(FF, iso / "ffmpeg")
++            os.environ["XITRUM_FFMPEG"] = str(iso / "ffmpeg")
++            os.environ["PATH"] = str(iso)
++            try:
++                self.assertEqual(merge_scenes.main(["--inputs", *map(str, clips), "--output", str(out)]), 0)
++            finally:
++                os.environ["PATH"] = old_path
++                if old_ff is None:
++                    os.environ.pop("XITRUM_FFMPEG", None)
++                else:
++                    os.environ["XITRUM_FFMPEG"] = old_ff
++            info = media_utils.probe_media(out)
++            self.assertEqual(info["video"]["frames"], 45)
++            self.assertIsNotNone(info["audio"])
++            import av
++            n = 0
++            with av.open(str(out)) as c:
++                rate = c.streams.audio[0].rate
++                for fr in c.decode(audio=0):
++                    n += fr.samples
++            self.assertAlmostEqual(n / rate, 4.5, delta=0.05)
++
++    def test_mixed_with_and_without_audio(self):
++        with tempfile.TemporaryDirectory() as td:
++            td = Path(td)
++            a, b = td / "a.mp4", td / "b.mp4"
++            make_clip(a, 1.0, 440)
++            make_clip(b, 1.0, None)
++            out = td / "o.mp4"
++            self.assertEqual(merge_scenes.main(["--inputs", str(a), str(b), "--output", str(out)]), 0)
++            info = media_utils.probe_media(out)
++            self.assertEqual(info["video"]["frames"], 20)
++            self.assertIsNotNone(info["audio"])
++
++    def test_video_only(self):
++        with tempfile.TemporaryDirectory() as td:
++            td = Path(td)
++            a, b = td / "a.mp4", td / "b.mp4"
++            make_clip(a, 1.0)
++            make_clip(b, 1.0)
++            out = td / "o.mp4"
++            self.assertEqual(merge_scenes.main(["--inputs", str(a), str(b), "--output", str(out)]), 0)
++            info = media_utils.probe_media(out)
++            self.assertEqual(info["video"]["frames"], 20)
++            self.assertIsNone(info["audio"])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/sidecar-whiteboard/tests/test_project_settings_parity.py b/sidecar-whiteboard/tests/test_project_settings_parity.py
+new file mode 100644
+index 0000000..2a975c2
+--- /dev/null
++++ b/sidecar-whiteboard/tests/test_project_settings_parity.py
+@@ -0,0 +1,48 @@
++"""P3: dự án V1 dùng cùng cài đặt render như render_scene và cache key phản ánh kiểu vẽ."""
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / "scripts"))
++import cv2  # noqa: E402
++import numpy as np  # noqa: E402
++import project_export as pe  # noqa: E402
++import whiteboard_settings as ws  # noqa: E402
++
++
++class SettingsParity(unittest.TestCase):
++    def setUp(self):
++        self.td = tempfile.TemporaryDirectory()
++        d = Path(self.td.name)
++        self.img = d / "a.png"
++        cv2.imwrite(str(self.img), np.full((40, 60, 3), 255, np.uint8))
++        self.ann = d / "a.json"
++        self.ann.write_text("{}")
++
++    def tearDown(self):
++        self.td.cleanup()
++
++    def r(self, **extra):
++        return {"scene": {"imagePath": str(self.img), "annotationPath": str(self.ann), **extra}, "durationMs": 2000}
++
++    def test_scene_settings_match_runner(self):
++        proj = {"fps": 24, "paperColor": "ffffff", "hand": "brush"}
++        s = pe._scene_settings(proj, self.r(colorFill="none", subjectFirst=True))
++        direct = ws.resolve_render_settings({"image_path": str(self.img), "fps": 24, "paper_color": "ffffff",
++                                             "hand_path": "brush", "color_fill": "none", "subject_first": True})
++        self.assertEqual(s, direct)
++        self.assertEqual(s["paper_color"], "#FFFFFF")
++        self.assertTrue(s["hand_path"].endswith("calligraphy-brush.png"))
++
++    def test_cache_key_changes_with_style(self):
++        proj = {"fps": 30}
++        a = pe._scene_cache_key(proj, self.r(colorFill="none"))
++        b = pe._scene_cache_key(proj, self.r(colorFill="contour-wipe"))
++        c = pe._scene_cache_key(proj, self.r(colorFill="none", subjectFirst=True))
++        self.assertEqual(len({a, b, c}), 3)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/sidecar-whiteboard/tests/test_review_followup.py b/sidecar-whiteboard/tests/test_review_followup.py
+index f890621..0ddc094 100644
+--- a/sidecar-whiteboard/tests/test_review_followup.py
++++ b/sidecar-whiteboard/tests/test_review_followup.py
+@@ -93,10 +93,13 @@ class ReviewFollowup(unittest.TestCase):
+         self.assertEqual(len(frames), 1)
+         np.testing.assert_array_equal(frames[0], r.color_img)
+ 
+-    def test_missing_probe_fails_safely_before_concat(self):
+-        with patch.object(whiteboard_audio, "resolve_ffmpeg_and_probe", return_value=("ffmpeg", None)):
+-            with self.assertRaisesRegex(RuntimeError, "FFPROBE_REQUIRED"):
+-                merge_scenes._normalize_concat_if_needed([], Path("unused.mp4"), "ffmpeg")
++    def test_unreadable_clip_fails_safely_before_concat(self):
++        # Không còn phụ thuộc ffprobe; clip không đọc được phải báo lỗi rõ ràng, không ghép mất audio.
++        with tempfile.TemporaryDirectory() as tmp:
++            bad = Path(tmp) / "bad.mp4"
++            bad.write_bytes(b"not a video")
++            with self.assertRaisesRegex(ValueError, "probe"):
++                merge_scenes._probe_clips([bad])
+ 
+     def test_render_error_keeps_previous_output_and_stops_encoder(self):
+         if not encoder.resolve_ffmpeg_binary():
+diff --git a/sidecar-whiteboard/whiteboard_runner.py b/sidecar-whiteboard/whiteboard_runner.py
+index 6d6085e..cc34aac 100644
+--- a/sidecar-whiteboard/whiteboard_runner.py
++++ b/sidecar-whiteboard/whiteboard_runner.py
+@@ -391,67 +391,8 @@ def handle_generate_annotation(req):
+ # ──────────────────────────────────────────────────────────────
+ # render_scene / merge_scenes
+ # ──────────────────────────────────────────────────────────────
+-def _normalize_paper_color(value):
+-    v = (value or "#F5EBD7").strip()
+-    if re.fullmatch(r"[0-9A-Fa-f]{6}", v):
+-        v = "#" + v
+-    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", v):
+-        raise ValueError(f"Màu nền giấy không hợp lệ: {value!r} (cần dạng #RRGGBB)")
+-    return v.upper()
+-
+-
+-def resolve_render_settings(req):
+-    image_path = req.get("image_path")
+-    fps = int(req.get("fps", 30))
+-    paper_color = _normalize_paper_color(req.get("paper_color"))
+-    hand_path = req.get("hand_path")
+-    ink_path = req.get("ink_path")
+-    color_fill = req.get("color_fill")
+-    ink_weight = req.get("ink_weight")
+-    color_weight = req.get("color_weight")
+-    # W3: Nếu chưa chỉ định rõ ink_path hoặc color_fill, tự động phân tích ảnh
+-    if not ink_path or not color_fill:
+-        try:
+-            import whiteboard_analyzer
+-            style_info = whiteboard_analyzer.resolve_scene_style(
+-                image_path,
+-                user_override={"inkPath": ink_path, "colorFill": color_fill, "inkWeight": ink_weight, "colorWeight": color_weight}
+-            )["resolved"]
+-            ink_path = style_info["inkPath"]
+-            color_fill = style_info["colorFill"]
+-            ink_weight = style_info["inkWeight"]
+-            color_weight = style_info["colorWeight"]
+-        except Exception:
+-            pass
+-
+-    if not 1 <= fps <= 120:
+-        raise ValueError(f"FPS không hợp lệ: {fps} (cần từ 1 đến 120)")
+-
+-    if not hand_path or hand_path == "pen" or hand_path == "default":
+-        default_hand = CURRENT_DIR / "assets" / "drawing-hand.png"
+-        if default_hand.exists():
+-            hand_path = str(default_hand)
+-    elif hand_path == "brush" or hand_path == "calligraphy" or hand_path == "calligraphy-brush":
+-        brush_hand = CURRENT_DIR / "assets" / "calligraphy-brush.png"
+-        if brush_hand.exists():
+-            hand_path = str(brush_hand)
+-    elif not os.path.isabs(hand_path):
+-        candidate = CURRENT_DIR / "assets" / hand_path
+-        if candidate.exists():
+-            hand_path = str(candidate)
+-
+-    ink_path = ink_path or "grid"
+-    color_fill = color_fill or "contour-wipe"
+-    ink_weight = float(ink_weight if ink_weight is not None else 2)
+-    color_weight = float(color_weight if color_weight is not None else 1)
+-    if color_fill == "none":
+-        ink_weight, color_weight = 1.0, 0.0
+-    return dict(image_path=image_path, annotation_path=req.get("annotation_path"),
+-                fps=fps, paper_color=paper_color, hand_path=hand_path,
+-                subject_first=bool(req.get("subject_first", False)),
+-                audio_path=req.get("audio_path"), duration_ms=req.get("duration_ms"),
+-                ink_path=ink_path, color_fill=color_fill,
+-                ink_weight=ink_weight, color_weight=color_weight)
++from whiteboard_settings import normalize_paper_color as _normalize_paper_color  # noqa: E402
++from whiteboard_settings import resolve_render_settings  # noqa: E402
+ 
+ 
+ def handle_render_scene(req):
