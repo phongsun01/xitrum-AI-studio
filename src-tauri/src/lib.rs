@@ -134,6 +134,10 @@ pub fn run() {
             save_whiteboard_annotation,
             load_whiteboard_project,
             render_whiteboard_project,
+            validate_whiteboard_project_v1,
+            export_whiteboard_project,
+            save_whiteboard_project_v1,
+            load_whiteboard_project_v1,
             cancel_whiteboard,
             check_whiteboard_env,
             install_whiteboard_env,
@@ -141,7 +145,12 @@ pub fn run() {
             check_system_dependencies,
             save_os_secret,
             delete_os_secret,
-            has_os_secret
+            has_os_secret,
+            list_provider_descriptors,
+            list_accounts,
+            save_account,
+            delete_account,
+            check_account_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

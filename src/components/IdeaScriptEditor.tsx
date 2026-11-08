@@ -24,7 +24,7 @@ import {
   Unlock,
   Package,
 } from "lucide-react";
-import { api, ScriptProjectItem, CharacterItem, ProductItem, ScriptSceneItem } from "../api";
+import { api, ScriptProjectItem, CharacterItem, ProductItem, ScriptSceneItem, AccountItem } from "../api";
 
 interface Props {
   onAddToast: (type: "success" | "error" | "info" | "warn", message: string) => void;
@@ -72,6 +72,10 @@ export const IdeaScriptEditor: React.FC<Props> = ({ onAddToast, onRefreshTasks, 
 
   // Phase 3: Analyzing state
   const [analyzingTarget, setAnalyzingTarget] = useState<string | null>(null);
+
+  // G3: Provider & Account Selection
+  const [availableAccounts, setAvailableAccounts] = useState<AccountItem[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
 
   const CAMERA_MOVES = [
     { id: "drone", label: "Flycam / Drone", en: "aerial drone shot" },
@@ -184,6 +188,12 @@ export const IdeaScriptEditor: React.FC<Props> = ({ onAddToast, onRefreshTasks, 
   useEffect(() => {
     loadScripts();
     loadTtsVoices();
+    api.listAccounts("muse").then((accs) => {
+      setAvailableAccounts(accs);
+      if (accs.length > 0 && !selectedAccountId) {
+        setSelectedAccountId(accs[0].id);
+      }
+    }).catch(console.error);
   }, []);
 
   // Mẫu Prompt dùng chung chuẩn 100% từ ke-hoach-y-tuong-video.md
@@ -501,7 +511,11 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
       // Lưu lại thay đổi hiện tại trước khi đẩy
       await api.saveScriptProject({ ...currentScript, status: "reviewed", updated_at: Date.now() });
 
-      const res = await api.dispatchScriptToQueue(currentScript.id);
+      const res = await api.dispatchScriptToQueue(
+        currentScript.id,
+        "muse",
+        selectedAccountId ? selectedAccountId : null
+      );
       if (res.ok) {
         onAddToast(
           "success",
@@ -690,7 +704,23 @@ Quy tắc: tổng thời lượng các cảnh bằng thời lượng đã chọn
                 Thể loại: <b>{currentScript.genre}</b> • Tỷ lệ: <b>{currentScript.ratio}</b> • Thời lượng: <b>{currentScript.target_duration_sec}s</b> • Trạng thái: <span style={{ color: "#16a34a", fontWeight: 600 }}>{currentScript.status}</span>
               </p>
             </div>
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+              {availableAccounts.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  <label style={{ fontSize: "12px", color: "var(--text-muted)" }}>Tài khoản:</label>
+                  <select
+                    value={selectedAccountId}
+                    onChange={(e) => setSelectedAccountId(e.target.value)}
+                    style={{ fontSize: "12px", padding: "4px 8px", borderRadius: "4px" }}
+                  >
+                    {availableAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} ({acc.readiness})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <button
                 className="secondary-btn"
                 style={{ borderColor: "#16a34a", color: "#16a34a" }}

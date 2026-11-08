@@ -8,6 +8,7 @@ Hỗ trợ các action:
 - generate_annotation: Tách vùng từ ảnh line-art và sinh annotation.json (có thể ghi ra tệp)
 - render_scene: Render hoạt hình bảng trắng vẽ tay từ ảnh line-art + annotation
 - merge_scenes: Nối các video phân cảnh thành video MP4 hoàn chỉnh
+- validate_project / render_project: kiểm tra và xuất dự án nhiều cảnh (audio, cache, manifest)
 
 Giao thức: mỗi yêu cầu là một dòng JSON trên stdin, mỗi phản hồi là đúng một dòng JSON trên
 kênh giao thức. Kênh này là bản sao của stdout gốc (xem _isolate_protocol_channel); mọi thứ
@@ -613,15 +614,48 @@ ENV_DEPS = {"cv2": "opencv-python", "numpy": "numpy", "av": "av", "PIL": "Pillow
 
 def handle_check_env(req):
     import importlib.util
-    import shutil
+    import media_utils
     missing = [pip for mod, pip in ENV_DEPS.items() if importlib.util.find_spec(mod) is None]
     return {
         "ok": not missing,
         "python": sys.executable,
         "pythonVersion": sys.version.split()[0],
         "missing": missing,
-        "ffmpeg": shutil.which("ffmpeg"),
+        "ffmpeg": media_utils.find_ffmpeg(),
     }
+
+
+# ──────────────────────────────────────────────────────────────
+# Dự án nhiều cảnh: kiểm tra và xuất
+# ──────────────────────────────────────────────────────────────
+def handle_validate_project(req):
+    import project_export
+    project = req.get("project")
+    if not isinstance(project, dict):
+        raise ValueError("Thiếu dữ liệu dự án (project).")
+    return project_export.validate_project(project, req.get("scene_ids"))
+
+
+def handle_render_project(req):
+    import time
+    import project_export
+
+    project = req.get("project")
+    output_path = req.get("output_path")
+    if not isinstance(project, dict):
+        raise ValueError("Thiếu dữ liệu dự án (project).")
+    if not output_path:
+        raise ValueError("Chưa chỉ định output_path cho video xuất.")
+    task_id = req.get("task_id", "")
+    state = {"pct": -1.0, "msg": "", "t": 0.0}
+
+    def on_progress(pct, msg):
+        now = time.monotonic()
+        if pct >= 100 or msg != state["msg"] or (pct - state["pct"] >= 0.5 and now - state["t"] >= 0.2):
+            state.update(pct=pct, msg=msg, t=now)
+            send_progress(task_id, pct, msg)
+
+    return project_export.export_project(project, output_path, req.get("scene_ids"), on_progress)
 
 
 def handle_verify_cache(req):
@@ -656,6 +690,8 @@ def handle_render_preview(req):
 
 
 HANDLERS = {
+    "validate_project": handle_validate_project,
+    "render_project": handle_render_project,
     "check_env": handle_check_env,
     "analyze_image_style": handle_analyze_image_style,
     "parse_srt": handle_parse_srt,

@@ -5,7 +5,22 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.7.7 (Audio-Driven Compact Timeline, Rich Thumbnail Generator & Character Bible Expansion)
+## 📦 Phiên Bản Hiện Tại: v0.7.8 (G3 Provider & Account Isolation Framework, Capability Matrix & Whiteboard Project Export)
+
+Bản cập nhật lớn tái cấu trúc tầng thực thi AI Provider và bổ sung công cụ đóng gói dự án Whiteboard:
+
+### 🧩 1. Khung Trừu Tượng Provider & Cách Ly Tài Khoản (G3 Provider & Account Isolation)
+- **Kiến Trúc ProviderAdapter & ProviderRegistry**: Tách rời điều phối hàng đợi khỏi Runner cụ thể, bọc Muse bằng adapter contract thống nhất sẵn sàng tích hợp các provider tiếp theo (Dola, Midjourney...).
+- **Cách Ly Tài Khoản Độc Lập (AccountItem & Per-Account Concurrency)**: Cho phép cấu hình nhiều tài khoản cho cùng một provider, mỗi tài khoản sở hữu thư mục Profile Chrome riêng, Proxy riêng và bộ giới hạn luồng (Semaphore) độc lập.
+- **Capability Matrix & Pre-dispatch Validation**: Khai báo và xác thực trước các thông số (tỷ lệ khung hình, độ dài, khả năng hỗ trợ ảnh tham chiếu/âm thanh/hủy tác vụ). Các tham số không tương thích sẽ bị chặn ngay trước khi nạp vào hàng đợi.
+- **Giao Diện Quản Lý Tài Khoản (AccountManager)**: Quản lý, kiểm tra trạng thái đăng nhập session của từng tài khoản, hiển thị rõ ràng lộ trình thực thi (Provider/Account) trên bảng hàng đợi realtime và cho phép chọn tài khoản khi đẩy kịch bản sang hàng đợi.
+
+### 📦 2. Đóng Gói Xuất Bản Dự Án Whiteboard (Whiteboard Project Export)
+- Đóng gói trọn vẹn tài nguyên dự án Whiteboard Animation (ảnh, âm thanh, kịch bản, SRT) sang thư mục xuất bản độc lập kèm manifest provenance.
+
+---
+
+## 📦 Lịch Sử Phiên Bản: v0.7.7 (Audio-Driven Compact Timeline, Rich Thumbnail Generator & Character Bible Expansion)
 
 Nâng cấp quan trọng phân hệ **Whiteboard Explainer Animation** với cơ chế căn chỉnh timeline theo giọng đọc và tạo thumbnail chuyên nghiệp:
 

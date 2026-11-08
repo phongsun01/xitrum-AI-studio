@@ -181,6 +181,38 @@ class RunnerSmokeTest(unittest.TestCase):
         self.assertEqual(resp["type"], "error")
         self.assertEqual(self.rpc(action="ping")["type"], "pong", "runner phải còn sống sau các lỗi")
 
+    def test_09_validate_and_render_project_over_rpc(self):
+        ann = self.tmp / "proj.annotation.json"
+        resp = self.rpc(action="generate_annotation", image_path=str(self.image), scene_id="s1",
+                        duration_ms=2000, output_path=str(ann), overwrite=True)
+        self.assertEqual(resp["type"], "done", resp)
+        project = {"schemaVersion": 1, "id": "p", "fps": 8, "paperColor": "#FFF2CC",
+                   "scenes": [{"id": "s1", "imagePath": str(self.image), "annotationPath": str(ann),
+                               "durationMs": 2000}]}
+        v = self.rpc(action="validate_project", project=project)
+        self.assertEqual(v["type"], "done", v)
+        self.assertEqual(v["data"]["errors"], [])
+        bad = json.loads(json.dumps(project))
+        bad["scenes"][0]["imagePath"] = str(self.tmp / "khong-co.png")
+        v = self.rpc(action="validate_project", project=bad)
+        self.assertEqual(v["data"]["errors"][0]["sceneId"], "s1")
+
+        out = self.tmp / "project.mp4"
+        resp = self.rpc(action="render_project", task_id="rp", project=project, output_path=str(out))
+        self.assertEqual(resp["type"], "done", resp)
+        self.assertEqual(resp["data"]["totalFrames"], 16)
+        pcts = [m["percent"] for m in self.progress]
+        self.assertEqual(pcts, sorted(pcts))
+        self.assertEqual(pcts[-1], 100.0)
+        self.assertTrue(all(m["task_id"] == "rp" for m in self.progress))
+        self.assertTrue(out.exists() and out.stat().st_size > 0)
+
+        # dữ liệu sai trả lỗi rõ ràng, runner vẫn sống
+        resp = self.rpc(action="render_project", task_id="rp2", project=bad, output_path=str(self.tmp / "x.mp4"))
+        self.assertEqual(resp["type"], "error")
+        self.assertIn("s1", resp["message"])
+        self.assertEqual(self.rpc(action="ping")["type"], "pong")
+
 
 if __name__ == "__main__":
     unittest.main()

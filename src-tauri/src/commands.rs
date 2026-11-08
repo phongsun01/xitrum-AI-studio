@@ -2,8 +2,8 @@ use crate::db::chrono_now;
 use crate::errors::AppError;
 use serde::{Deserialize, Serialize};
 use crate::models::{
-    AppConfig, AudioJobItem, AudioSegmentItem, ProxyItem, ScriptProjectItem, ScriptSceneItem,
-    TaskItem, TaskKind, TemplateItem,
+    AccountItem, AppConfig, AudioJobItem, AudioSegmentItem, ProviderDescriptor,
+    ProxyItem, ScriptProjectItem, ScriptSceneItem, TaskItem, TaskKind, TemplateItem,
 };
 use crate::state::AppState;
 use std::path::{Path, PathBuf};
@@ -20,10 +20,11 @@ pub async fn enqueue_task(
     provider: Option<String>,
     requested_model: Option<String>,
     scene_revision: Option<i64>,
+    account_id: Option<String>,
     force_new_generation: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<TaskItem, AppError> {
-    state.queue.enqueue_advanced(
+    state.queue.enqueue_with_account(
         kind,
         prompt,
         ratio,
@@ -31,6 +32,7 @@ pub async fn enqueue_task(
         provider,
         requested_model,
         scene_revision,
+        account_id,
         force_new_generation.unwrap_or(false),
     ).await
 }
@@ -971,6 +973,8 @@ pub fn delete_dead_proxies(state: State<'_, AppState>) -> Result<usize, AppError
 #[tauri::command]
 pub async fn dispatch_script_to_queue(
     script_id: String,
+    provider: Option<String>,
+    account_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
     let script = state
@@ -1089,14 +1093,15 @@ pub async fn dispatch_script_to_queue(
         // Tạo task trong queue (idempotent: chống spam đúp khi click liên tiếp)
         let task = state
             .queue
-            .enqueue_advanced(
+            .enqueue_with_account(
                 TaskKind::MuseVideo,
                 Some(final_prompt),
                 Some(script.ratio.clone()),
                 char_ref_img,
-                Some("muse".into()),
+                provider.clone().or_else(|| Some("muse".into())),
                 None,
                 Some(1),
+                account_id.clone(),
                 false, // không gửi trùng nếu đã có cùng generation key
             )
             .await?;
@@ -1596,6 +1601,87 @@ pub async fn render_script_postproduction(
 }
 
 
+
+// ==========================================
+// G3: KHUNG PROVIDER & ACCOUNT MANAGEMENT
+// ==========================================
+
+#[tauri::command]
+pub async fn list_provider_descriptors(
+    state: State<'_, AppState>,
+) -> Result<Vec<ProviderDescriptor>, AppError> {
+    Ok(state.queue.provider_registry.list_descriptors().await)
+}
+
+#[tauri::command]
+pub fn list_accounts(
+    provider: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<AccountItem>, AppError> {
+    state.db.list_accounts(provider.as_deref())
+}
+
+#[tauri::command]
+pub fn save_account(
+    account: AccountItem,
+    state: State<'_, AppState>,
+) -> Result<(), AppError> {
+    // Nếu account đã tồn tại thì update, ngược lại insert
+    if let Ok(Some(_existing)) = state.db.get_account(&account.id) {
+        state.db.update_account(&account)?;
+    } else {
+        state.db.insert_account(&account)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_account(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<(), AppError> {
+    state.db.delete_account(&id)
+}
+
+#[tauri::command]
+pub async fn check_account_session(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let account = state
+        .db
+        .get_account(&id)?
+        .ok_or_else(|| AppError::NotFound(format!("Không tìm thấy tài khoản '{}'", id)))?;
+
+    let adapter = state
+        .queue
+        .provider_registry
+        .get(&account.provider)
+        .await
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "Không tìm thấy adapter cho provider '{}'",
+                account.provider
+            ))
+        })?;
+
+    let (ok, msg) = adapter.check_session(&account).await?;
+    let now = chrono_now();
+
+    // Cập nhật trạng thái và thời điểm kiểm tra của account
+    let mut updated_acc = account.clone();
+    updated_acc.readiness = if ok { "ready".to_string() } else { "login_required".to_string() };
+    updated_acc.last_checked_at = Some(now);
+    let _ = state.db.update_account(&updated_acc);
+
+    Ok(serde_json::json!({
+        "ok": ok,
+        "message": msg,
+        "account_id": id,
+        "readiness": updated_acc.readiness,
+        "checked_at": now
+    }))
+}
 
 // ==========================================
 // WHITEBOARD ANIMATION COMMANDS (F16)
@@ -2218,6 +2304,54 @@ pub async fn install_whiteboard_env(
 // ==========================================
 // G0: SYSTEM DIAGNOSTICS & SECRET MANAGEMENT
 // ==========================================
+
+/// Kiểm tra dự án nhiều cảnh trước khi xuất: `{ errors: [{sceneId, field, message}], warnings }`.
+#[tauri::command]
+pub async fn validate_whiteboard_project_v1(
+    project: serde_json::Value,
+    scene_ids: Option<Vec<String>>,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || wb.validate_project(project, scene_ids)).await
+}
+
+/// Xuất dự án nhiều cảnh ra MP4 bằng Python runner export_project (render từng cảnh có cache, nối, dựng audio, mux, kiểm tra).
+/// Tiến độ qua sự kiện `whiteboard-progress`; trả manifest. `scene_ids` để xuất riêng một số cảnh.
+#[tauri::command]
+pub async fn export_whiteboard_project(
+    project: serde_json::Value,
+    output_path: String,
+    scene_ids: Option<Vec<String>>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let wb = Arc::clone(&state.whiteboard);
+    whiteboard_blocking(move || {
+        wb.render_project(project, output_path, scene_ids, &|p| {
+            let _ = app.emit("whiteboard-progress", p.clone());
+        })
+    })
+    .await
+}
+
+/// Lưu dự án whiteboard format v1 (JSON, ghi nguyên tử).
+#[tauri::command]
+pub async fn save_whiteboard_project_v1(path: String, project: serde_json::Value) -> Result<(), AppError> {
+    tauri::async_runtime::spawn_blocking(move || crate::executors::whiteboard::save_project_file(Path::new(&path), &project))
+        .await
+        .map_err(|e| AppError::Other(format!("Luồng lưu dự án bị lỗi: {}", e)))?
+        .map_err(|e| AppError::Other(e.to_string()))
+}
+
+/// Mở dự án whiteboard format v1; từ chối tệp không phải dự án hoặc có schemaVersion mới hơn app.
+#[tauri::command]
+pub async fn load_whiteboard_project_v1(path: String) -> Result<serde_json::Value, AppError> {
+    tauri::async_runtime::spawn_blocking(move || crate::executors::whiteboard::load_project_file(Path::new(&path)))
+        .await
+        .map_err(|e| AppError::Other(format!("Luồng mở dự án bị lỗi: {}", e)))?
+        .map_err(|e| AppError::Other(e.to_string()))
+}
 
 #[tauri::command]
 pub fn check_system_dependencies(app: tauri::AppHandle) -> crate::diagnostics::SystemDiagnostics {

@@ -11,7 +11,7 @@ import {
   WhiteboardProject,
   WhiteboardImageAnalysis,
 } from "./types/whiteboard";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 export interface TaskItem {
   id: string;
@@ -31,6 +31,40 @@ export interface TaskItem {
   observed_model?: string | null;
   generation_key?: string | null;
   scene_revision?: number | null;
+  account_id?: string | null;
+}
+
+export interface ModelCapability {
+  model_id: string;
+  name: string;
+  operations: string[];
+  supported_ratios: string[];
+  max_duration_sec: number;
+  supports_native_audio: boolean;
+  supports_input_image: boolean;
+  supports_cancel: boolean;
+  is_verified: boolean;
+}
+
+export interface ProviderDescriptor {
+  id: string;
+  name: string;
+  connection_modes: string[];
+  models: ModelCapability[];
+  requires_proxy: boolean;
+}
+
+export interface AccountItem {
+  id: string;
+  provider: string;
+  name: string;
+  profile_path?: string | null;
+  proxy_id?: number | null;
+  readiness: "ready" | "login_required" | "captcha_required" | "cooldown" | "disabled";
+  cooldown_until?: number | null;
+  max_concurrency: number;
+  last_checked_at?: number | null;
+  created_at: number;
 }
 
 export interface ProxyItem {
@@ -145,11 +179,57 @@ export interface ScriptProjectItem {
   scenes: ScriptSceneItem[];
 }
 
+export interface WhiteboardScene {
+  id: string;
+  imagePath: string;
+  annotationPath: string;
+  durationMs: number;
+  /** Vị trí đầu cảnh trong audio toàn bài (ms). */
+  timelineStartMs?: number;
+  /** auto = theo audio toàn bài nếu có; none = im lặng; file = audio riêng; master = ép dùng audio toàn bài */
+  audio?: { mode: "auto" | "none" | "file" | "master"; path?: string };
+  enabled?: boolean;
+}
+
+export interface WhiteboardProjectV1 {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  fps: number;
+  paperColor: string;
+  hand?: string | null;
+  outputSize?: { width: number; height: number };
+  masterAudio?: { path: string } | null;
+  scenes: WhiteboardScene[];
+}
+
+export interface WhiteboardProblem {
+  sceneId: string | null;
+  field: string;
+  message: string;
+}
+
+export interface WhiteboardValidation {
+  errors: WhiteboardProblem[];
+  warnings: WhiteboardProblem[];
+}
+
+export interface WhiteboardManifest {
+  output: string;
+  fps: number;
+  size: { width: number; height: number };
+  totalFrames: number;
+  totalDurationMs: number;
+  hasAudio: boolean;
+  scenes: { id: string; durationMs: number; frames: number; cached: boolean }[];
+  warnings: string[];
+}
+
 export const api = {
   // Lấy danh sách tasks
   listTasks: () => invoke<TaskItem[]>("list_tasks"),
 
-  // Thêm task vào hàng đợi (hỗ trợ G1 generation key & deduplication)
+  // Thêm task vào hàng đợi (hỗ trợ G1 generation key & G3 account/provider)
   enqueueTask: (
     kind: TaskItem["kind"],
     prompt?: string | null,
@@ -158,6 +238,7 @@ export const api = {
     provider?: string | null,
     requestedModel?: string | null,
     sceneRevision?: number | null,
+    accountId?: string | null,
     forceNewGeneration?: boolean
   ) =>
     invoke<TaskItem>("enqueue_task", {
@@ -168,6 +249,7 @@ export const api = {
       provider: provider ?? null,
       requestedModel: requestedModel ?? null,
       sceneRevision: sceneRevision ?? null,
+      accountId: accountId ?? null,
       forceNewGeneration: forceNewGeneration ?? false,
     }),
 
@@ -317,11 +399,11 @@ export const api = {
   deleteDeadProxies: () =>
     invoke<number>("delete_dead_proxies"),
 
-  // Nối kịch bản vào hàng đợi Task (Mốc 4)
-  dispatchScriptToQueue: (scriptId: string) =>
+  // Nối kịch bản vào hàng đợi Task (Mốc 4 - G3 Provider/Account)
+  dispatchScriptToQueue: (scriptId: string, provider?: string | null, accountId?: string | null) =>
     invoke<{ ok: boolean; script_id: string; queued_count: number; task_ids: string[] }>(
       "dispatch_script_to_queue",
-      { scriptId }
+      { scriptId, provider: provider ?? null, accountId: accountId ?? null }
     ),
 
   // Hậu kỳ FFmpeg hoàn chỉnh (Mốc 5 - G2 Timeline Media Planner)
@@ -346,6 +428,12 @@ export const api = {
       directory: false,
       filters,
     });
+    return selected as string | null;
+  },
+
+  // Hộp thoại "Lưu thành" (trả đường dẫn đích hoặc null nếu hủy)
+  pickSaveFile: async (defaultPath?: string, filters?: { name: string; extensions: string[] }[]) => {
+    const selected = await save({ defaultPath, filters });
     return selected as string | null;
   },
 
@@ -484,6 +572,29 @@ export const api = {
       resume,
     }),
 
+  validateWhiteboardProjectV1: (project: WhiteboardProjectV1, sceneIds?: string[]) =>
+    invoke<WhiteboardValidation>("validate_whiteboard_project_v1", {
+      project,
+      sceneIds,
+    }),
+
+  exportWhiteboardProjectV1: (
+    project: WhiteboardProjectV1,
+    outputPath: string,
+    sceneIds?: string[]
+  ) =>
+    invoke<WhiteboardManifest>("export_whiteboard_project", {
+      project,
+      outputPath,
+      sceneIds,
+    }),
+
+  saveWhiteboardProjectV1: (path: string, project: WhiteboardProjectV1) =>
+    invoke<void>("save_whiteboard_project_v1", { path, project }),
+
+  loadWhiteboardProjectV1: (path: string) =>
+    invoke<WhiteboardProjectV1>("load_whiteboard_project_v1", { path }),
+
   /** Dừng thao tác Whiteboard đang chạy (render, ghép, cài môi trường). */
   cancelWhiteboard: () => invoke<void>("cancel_whiteboard"),
 
@@ -521,5 +632,27 @@ export const api = {
 
   hasOsSecret: (key: string) =>
     invoke<boolean>("has_os_secret", { key }),
+
+  // G3: Providers & Accounts Management
+  listProviderDescriptors: () =>
+    invoke<ProviderDescriptor[]>("list_provider_descriptors"),
+
+  listAccounts: (provider?: string | null) =>
+    invoke<AccountItem[]>("list_accounts", { provider: provider ?? null }),
+
+  saveAccount: (account: AccountItem) =>
+    invoke<void>("save_account", { account }),
+
+  deleteAccount: (id: string) =>
+    invoke<void>("delete_account", { id }),
+
+  checkAccountSession: (id: string) =>
+    invoke<{
+      ok: boolean;
+      message: string;
+      account_id: string;
+      readiness: AccountItem["readiness"];
+      checked_at: number;
+    }>("check_account_session", { id }),
 };
 

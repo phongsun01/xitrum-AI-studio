@@ -1634,7 +1634,8 @@ def transcode_h264(src: Path, dst: Path) -> Path:
       3. 两者都没有：保留原始 mp4v 编码并告警
     """
     # 路径1：系统 ffmpeg（推荐，体积最优）
-    ffmpeg = shutil.which("ffmpeg")
+    from media_utils import find_ffmpeg  # ưu tiên ffmpeg đóng gói theo app (XITRUM_FFMPEG)
+    ffmpeg = find_ffmpeg()
     if ffmpeg is not None:
         cmd = [
             ffmpeg, "-y", "-loglevel", "error",

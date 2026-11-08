@@ -136,6 +136,23 @@ pub enum WhiteboardRequest {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thumbnail_png: Option<String>,
     },
+    #[serde(rename = "validate_project")]
+    ValidateProject {
+        #[serde(default)]
+        task_id: String,
+        project: serde_json::Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scene_ids: Option<Vec<String>>,
+    },
+    #[serde(rename = "render_project")]
+    RenderProject {
+        #[serde(default)]
+        task_id: String,
+        project: serde_json::Value,
+        output_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scene_ids: Option<Vec<String>>,
+    },
     #[serde(rename = "check_env")]
     CheckEnv {
         #[serde(default)]
@@ -185,6 +202,8 @@ pub struct Timeouts {
     pub generate: Duration,
     pub render: Duration,
     pub merge: Duration,
+    /// Xuất cả dự án nhiều cảnh (render từng cảnh + nối + audio).
+    pub project: Duration,
     pub install: Duration,
 }
 
@@ -196,6 +215,7 @@ impl Default for Timeouts {
             generate: Duration::from_secs(120),
             render: Duration::from_secs(30 * 60),
             merge: Duration::from_secs(10 * 60),
+            project: Duration::from_secs(3 * 60 * 60),
             install: Duration::from_secs(20 * 60),
         }
     }
@@ -209,15 +229,46 @@ struct Proc {
     rx: Receiver<String>,
 }
 
+/// Dừng cả cây tiến trình: runner Python và các tiến trình con của nó (ffmpeg, pip...).
+/// Unix: runner chạy trong nhóm tiến trình riêng (pgid == pid) nên kill cả nhóm.
+/// Windows: `taskkill /T /F`. Chỉ kill mỗi Python sẽ để ffmpeg chạy ngầm đến khi tự xong.
+fn kill_tree(child: &mut Child) {
+    let pid = child.id();
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-KILL", "--", &format!("-{}", pid)])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        let mut c = Command::new("taskkill");
+        c.args(["/PID", &pid.to_string(), "/T", "/F"]).stdout(Stdio::null()).stderr(Stdio::null());
+        apply_no_window(&mut c);
+        let _ = c.status();
+    }
+    let _ = child.kill();
+}
+
+/// Đặt tiến trình con vào nhóm riêng để `kill_tree` dừng được cả nhóm (Unix).
+fn isolate_process_group(cmd: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = cmd;
+    }
+}
+
 impl Proc {
     fn kill(&self) {
         if let Ok(mut c) = self.child.lock() {
-            #[cfg(unix)]
-            unsafe {
-                extern "C" { fn kill(pid: i32, sig: i32) -> i32; }
-                let _ = kill(-(c.id() as i32), 9);
-            }
-            let _ = c.kill();
+            kill_tree(&mut c);
             let _ = c.wait();
         }
     }
@@ -264,10 +315,82 @@ fn apply_no_window(cmd: &mut Command) {
     }
 }
 
+/// Tìm ffmpeg đi kèm app: cạnh file thực thi (bản cài đặt: Tauri đặt externalBin ở đây, bỏ hậu tố
+/// target-triple), hoặc `src-tauri/binaries/ffmpeg-<triple>` khi chạy dev. Không thấy thì Python dùng PATH.
+fn resolve_bundled_ffmpeg() -> Option<PathBuf> {
+    let exe_name = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(d) = exe.parent() {
+            dirs.push(d.to_path_buf());
+        }
+    }
+    for d in &dirs {
+        let p = d.join(exe_name);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    let mut dev: Vec<PathBuf> = Vec::new();
+    if let Ok(m) = std::env::var("CARGO_MANIFEST_DIR") {
+        dev.push(PathBuf::from(m).join("binaries"));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        dev.push(cwd.join("binaries"));
+        dev.push(cwd.join("src-tauri").join("binaries"));
+    }
+    for d in dev {
+        if let Ok(rd) = std::fs::read_dir(&d) {
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with("ffmpeg-") && !name.ends_with(".d") && e.path().is_file() {
+                    return Some(e.path());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Ghi dự án ra tệp JSON nguyên tử (ghi tệp tạm cạnh đích rồi đổi tên) để không bao giờ để lại tệp dở.
+pub fn save_project_file(path: &Path, project: &serde_json::Value) -> Result<()> {
+    if !project.is_object() {
+        return Err(anyhow!("Dự án phải là một đối tượng JSON"));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("Không tạo được thư mục {:?}", parent))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let text = serde_json::to_string_pretty(project)?;
+    std::fs::write(&tmp, text).with_context(|| format!("Không ghi được {:?}", tmp))?;
+    std::fs::rename(&tmp, path).with_context(|| format!("Không thay được {:?}", path))?;
+    Ok(())
+}
+
+/// Đọc dự án; từ chối tệp không phải dự án hoặc có schemaVersion mới hơn bản app hiểu.
+pub fn load_project_file(path: &Path) -> Result<serde_json::Value> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("Không đọc được {:?}", path))?;
+    let v: serde_json::Value = serde_json::from_str(&text).with_context(|| format!("{:?} không phải JSON hợp lệ", path))?;
+    let ver = v.get("schemaVersion").and_then(|x| x.as_i64());
+    match ver {
+        None => Err(anyhow!("Tệp không phải dự án Whiteboard (thiếu schemaVersion)")),
+        Some(n) if n > PROJECT_SCHEMA_VERSION => Err(anyhow!(
+            "Dự án dùng schemaVersion {} mới hơn bản app này hiểu ({}); hãy cập nhật app",
+            n,
+            PROJECT_SCHEMA_VERSION
+        )),
+        Some(_) => Ok(v),
+    }
+}
+
+pub const PROJECT_SCHEMA_VERSION: i64 = 1;
+
 pub struct WhiteboardPipeline {
     runner_path: PathBuf,
     skill_dir: PathBuf,
     data_dir: Option<PathBuf>,
+    /// ffmpeg đi kèm app (externalBin) nếu tìm thấy; truyền cho runner qua XITRUM_FFMPEG.
+    ffmpeg_path: Option<PathBuf>,
     timeouts: Timeouts,
     /// Trình thông dịch ép dùng (đặt sau khi cài môi trường, hoặc trong kiểm thử).
     python_override: Mutex<Option<PathBuf>>,
@@ -325,6 +448,7 @@ impl WhiteboardPipeline {
             runner_path,
             skill_dir,
             data_dir,
+            ffmpeg_path: resolve_bundled_ffmpeg(),
             timeouts,
             python_override: Mutex::new(python),
             process: Mutex::new(None),
@@ -360,6 +484,9 @@ impl WhiteboardPipeline {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
+        if let Some(ff) = &self.ffmpeg_path {
+            cmd.env("XITRUM_FFMPEG", ff); // runner dùng đúng ffmpeg đi kèm app thay vì chỉ dựa vào PATH
+        }
         apply_no_window(&mut cmd);
 
         #[cfg(unix)]
@@ -755,6 +882,33 @@ impl WhiteboardPipeline {
         self.call(req, self.timeouts.merge, "ghép cảnh", on_progress)
     }
 
+    /// Kiểm tra dự án (thiếu tệp, annotation vượt thời lượng, audio...). Trả `{errors, warnings}`.
+    pub fn validate_project(&self, project: serde_json::Value, scene_ids: Option<Vec<String>>) -> Result<serde_json::Value> {
+        let req = WhiteboardRequest::ValidateProject {
+            task_id: uuid::Uuid::new_v4().to_string(),
+            project,
+            scene_ids,
+        };
+        self.call(req, self.timeouts.quick, "kiểm tra dự án", &|_| {})
+    }
+
+    /// Xuất dự án nhiều cảnh ra MP4 (có audio nếu dự án có). Trả manifest.
+    pub fn render_project(
+        &self,
+        project: serde_json::Value,
+        output_path: String,
+        scene_ids: Option<Vec<String>>,
+        on_progress: &dyn Fn(&serde_json::Value),
+    ) -> Result<serde_json::Value> {
+        let req = WhiteboardRequest::RenderProject {
+            task_id: uuid::Uuid::new_v4().to_string(),
+            project,
+            output_path,
+            scene_ids,
+        };
+        self.call(req, self.timeouts.project, "xuất dự án", on_progress)
+    }
+
     /// Kiểm tra môi trường Python. Không bao giờ trả lỗi: sự cố được mô tả trong `ok:false` + `error`
     /// để giao diện hiện banner hướng dẫn cài đặt.
     pub fn check_env(&self) -> serde_json::Value {
@@ -807,6 +961,7 @@ impl WhiteboardPipeline {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         apply_no_window(&mut cmd);
+        isolate_process_group(&mut cmd);
         let mut child = cmd
             .spawn()
             .context("Không chạy được Python hệ thống để cài môi trường (đã cài Python 3 và thêm vào PATH chưa?)")?;
@@ -854,12 +1009,12 @@ impl WhiteboardPipeline {
                 }
             }
             if self.cancelled.load(Ordering::SeqCst) {
-                let _ = child.kill();
+                kill_tree(&mut child);
                 let _ = child.wait();
                 return Err(anyhow!("CANCELLED: Đã hủy cài đặt môi trường"));
             }
             if Instant::now() >= deadline {
-                let _ = child.kill();
+                kill_tree(&mut child);
                 let _ = child.wait();
                 return Err(anyhow!("Cài môi trường quá {} giây; đã dừng", self.timeouts.install.as_secs()));
             }
@@ -918,6 +1073,11 @@ for line in sys.stdin:
         send({"type": "done", "task_id": tid, "action": a, "data": {"pid": os.getpid()}})
         send({"type": "done", "task_id": "tre-muon", "action": a, "data": {"stray": True}})
     elif mode == "hang": time.sleep(3600)
+    elif mode == "spawn-child":
+        import subprocess
+        ch = subprocess.Popen(["sleep", "300"])
+        with open(mark + ".child", "w") as f: f.write(str(ch.pid))
+        time.sleep(3600)
     elif mode == "die": os._exit(1)
     elif mode == "quit-after":
         send({"type": "done", "task_id": tid, "action": a, "data": {"pid": os.getpid()}}); os._exit(0)
@@ -972,7 +1132,11 @@ for line in sys.stdin:
     fn pid_alive(pid: i64) -> bool {
         #[cfg(target_os = "linux")]
         {
-            Path::new(&format!("/proc/{}", pid)).exists()
+            // Zombie (đã chết, chưa được tiến trình cha thu dọn) không tính là còn sống.
+            match std::fs::read_to_string(format!("/proc/{}/stat", pid)) {
+                Ok(s) => s.rsplit(')').next().map(|r| !r.trim_start().starts_with('Z')).unwrap_or(false),
+                Err(_) => false,
+            }
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -1033,6 +1197,78 @@ for line in sys.stdin:
         assert!(!pid_alive(pid));
         // Hủy xong vẫn dùng lại được.
         pid_of(render(&f, "ok", "t2", &|_| {}, Duration::from_secs(20)));
+    }
+
+    #[test]
+    fn cancel_kills_child_processes_of_the_runner() {
+        // Python (runner) sinh tiến trình con như ffmpeg; hủy phải dừng cả cây, không chỉ Python.
+        let f = Arc::new(fixture(quick()));
+        let f2 = Arc::clone(&f);
+        let h = std::thread::spawn(move || render(&f2, "spawn-child", "t1", &|_| {}, Duration::from_secs(60)));
+        let child_file = f.dir.join("marks.txt.child");
+        let t0 = Instant::now();
+        while !child_file.exists() && t0.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let child_pid: i64 = std::fs::read_to_string(&child_file).unwrap().trim().parse().unwrap();
+        assert!(pid_alive(child_pid), "tiến trình con phải đang chạy trước khi hủy");
+        f.pipe.cancel();
+        assert!(h.join().unwrap().unwrap_err().to_string().starts_with("CANCELLED"));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!pid_alive(child_pid), "tiến trình con (ffmpeg) của runner không được chạy ngầm sau khi hủy");
+    }
+
+    #[test]
+    fn timeout_also_kills_child_processes() {
+        let f = fixture(quick());
+        let _ = render(&f, "spawn-child", "t1", &|_| {}, Duration::from_millis(1500)).unwrap_err();
+        let child_pid: i64 = std::fs::read_to_string(f.dir.join("marks.txt.child")).unwrap().trim().parse().unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!pid_alive(child_pid));
+    }
+
+    #[test]
+    fn project_requests_have_expected_wire_shape() {
+        let v = serde_json::to_value(WhiteboardRequest::RenderProject {
+            task_id: "t".into(),
+            project: serde_json::json!({"schemaVersion": 1}),
+            output_path: "/o.mp4".into(),
+            scene_ids: Some(vec!["s2".into()]),
+        })
+        .unwrap();
+        assert_eq!(v["action"], "render_project");
+        assert_eq!(v["output_path"], "/o.mp4");
+        assert_eq!(v["scene_ids"][0], "s2");
+        let v = serde_json::to_value(WhiteboardRequest::ValidateProject {
+            task_id: "t".into(),
+            project: serde_json::json!({}),
+            scene_ids: None,
+        })
+        .unwrap();
+        assert_eq!(v["action"], "validate_project");
+        assert!(v.get("scene_ids").is_none());
+    }
+
+    #[test]
+    fn project_file_roundtrip_and_guards() {
+        let dir = std::env::temp_dir().join(format!("wb_rs_proj_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("sub").join("demo.wbproj.json");
+        let project = serde_json::json!({"schemaVersion": 1, "id": "p", "scenes": [{"id": "s1", "tên": "Cảnh đầu"}]});
+        save_project_file(&path, &project).unwrap();
+        assert!(!path.with_extension("json.tmp").exists(), "không để lại tệp tạm");
+        assert_eq!(load_project_file(&path).unwrap(), project);
+        let project2 = serde_json::json!({"schemaVersion": 1, "id": "p2", "scenes": []});
+        save_project_file(&path, &project2).unwrap();
+        assert_eq!(load_project_file(&path).unwrap()["id"], "p2");
+        std::fs::write(&path, "{\"a\":1}").unwrap();
+        assert!(load_project_file(&path).unwrap_err().to_string().contains("schemaVersion"));
+        std::fs::write(&path, "{\"schemaVersion\": 99}").unwrap();
+        assert!(load_project_file(&path).unwrap_err().to_string().contains("mới hơn"));
+        std::fs::write(&path, "khong phai json").unwrap();
+        assert!(load_project_file(&path).is_err());
+        assert!(save_project_file(&path, &serde_json::json!([1, 2])).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

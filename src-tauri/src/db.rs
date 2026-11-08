@@ -1,7 +1,7 @@
 use crate::errors::AppError;
 use crate::migrations::MigrationManager;
 use crate::models::{
-    AppConfig, AudioJobItem, AudioSegmentItem, CharacterItem, ProductItem, ProxyItem, ScriptProjectItem,
+    AccountItem, AppConfig, AudioJobItem, AudioSegmentItem, CharacterItem, ProductItem, ProxyItem, ScriptProjectItem,
     ScriptSceneItem, TaskItem, TaskKind, TaskStatus, TemplateItem,
 };
 use rusqlite::{params, Connection};
@@ -104,8 +104,8 @@ impl Database {
         let status_str = serde_json::to_string(&task.status)?;
 
         conn.execute(
-            "INSERT INTO tasks (id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            "INSERT INTO tasks (id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision, account_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 task.id,
                 kind_str.trim_matches('"'),
@@ -124,6 +124,7 @@ impl Database {
                 task.observed_model,
                 task.generation_key,
                 task.scene_revision.unwrap_or(1),
+                task.account_id,
             ],
         )?;
         Ok(())
@@ -132,7 +133,7 @@ impl Database {
     pub fn find_task_by_generation_key(&self, generation_key: &str) -> Result<Option<TaskItem>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision
+            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision, account_id
              FROM tasks WHERE generation_key = ?1 ORDER BY created_at DESC LIMIT 1",
         )?;
 
@@ -161,6 +162,7 @@ impl Database {
                 observed_model: row.get(14)?,
                 generation_key: row.get(15)?,
                 scene_revision: row.get(16)?,
+                account_id: row.get(17)?,
             }))
         } else {
             Ok(None)
@@ -170,7 +172,7 @@ impl Database {
     pub fn list_pending_tasks(&self) -> Result<Vec<TaskItem>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision
+            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision, account_id
              FROM tasks WHERE status = 'queued' ORDER BY created_at ASC",
         )?;
 
@@ -199,6 +201,7 @@ impl Database {
                 observed_model: row.get(14)?,
                 generation_key: row.get(15)?,
                 scene_revision: row.get(16)?,
+                account_id: row.get(17)?,
             })
         })?;
 
@@ -285,7 +288,7 @@ impl Database {
     pub fn list_tasks(&self) -> Result<Vec<TaskItem>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision
+            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision, account_id
              FROM tasks ORDER BY created_at DESC",
         )?;
 
@@ -314,6 +317,7 @@ impl Database {
                 observed_model: row.get(14)?,
                 generation_key: row.get(15)?,
                 scene_revision: row.get(16)?,
+                account_id: row.get(17)?,
             })
         })?;
 
@@ -327,7 +331,7 @@ impl Database {
     pub fn get_task(&self, id: &str) -> Result<TaskItem, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision
+            "SELECT id, kind, status, prompt, ratio, input_path, output_path, progress, error_msg, created_at, updated_at, provider, connection_mode, requested_model, observed_model, generation_key, scene_revision, account_id
              FROM tasks WHERE id = ?1",
         )?;
 
@@ -356,9 +360,10 @@ impl Database {
                 observed_model: row.get(14)?,
                 generation_key: row.get(15)?,
                 scene_revision: row.get(16)?,
+                account_id: row.get(17)?,
             })
         } else {
-            Err(AppError::NotFound(format!("Không tìm thấy task {}", id)))
+            Err(AppError::NotFound(format!("Task {} not found", id)))
         }
     }
 
@@ -1025,6 +1030,135 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let count = conn.execute("DELETE FROM proxies WHERE status = 'dead'", [])?;
         Ok(count)
+    }
+
+    // ==========================================
+    // G3: ACCOUNTS MANAGEMENT
+    // ==========================================
+
+    pub fn insert_account(&self, account: &AccountItem) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO accounts (id, provider, name, profile_path, proxy_id, readiness, cooldown_until, max_concurrency, last_checked_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                account.id,
+                account.provider,
+                account.name,
+                account.profile_path,
+                account.proxy_id,
+                account.readiness,
+                account.cooldown_until,
+                account.max_concurrency as i64,
+                account.last_checked_at,
+                account.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_account(&self, account: &AccountItem) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE accounts SET name = ?1, profile_path = ?2, proxy_id = ?3, readiness = ?4, cooldown_until = ?5, max_concurrency = ?6, last_checked_at = ?7
+             WHERE id = ?8",
+            params![
+                account.name,
+                account.profile_path,
+                account.proxy_id,
+                account.readiness,
+                account.cooldown_until,
+                account.max_concurrency as i64,
+                account.last_checked_at,
+                account.id,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_account(&self, id: &str) -> Result<Option<AccountItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, provider, name, profile_path, proxy_id, readiness, cooldown_until, max_concurrency, last_checked_at, created_at
+             FROM accounts WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query(params![id])?;
+        if let Some(row) = rows.next()? {
+            let max_c: i64 = row.get(7)?;
+            Ok(Some(AccountItem {
+                id: row.get(0)?,
+                provider: row.get(1)?,
+                name: row.get(2)?,
+                profile_path: row.get(3)?,
+                proxy_id: row.get(4)?,
+                readiness: row.get(5)?,
+                cooldown_until: row.get(6)?,
+                max_concurrency: max_c as usize,
+                last_checked_at: row.get(8)?,
+                created_at: row.get(9)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn list_accounts(&self, provider: Option<&str>) -> Result<Vec<AccountItem>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut list = Vec::new();
+        if let Some(p) = provider {
+            let mut stmt = conn.prepare(
+                "SELECT id, provider, name, profile_path, proxy_id, readiness, cooldown_until, max_concurrency, last_checked_at, created_at
+                 FROM accounts WHERE provider = ?1 ORDER BY created_at ASC",
+            )?;
+            let rows = stmt.query_map(params![p], |row| {
+                let max_c: i64 = row.get(7)?;
+                Ok(AccountItem {
+                    id: row.get(0)?,
+                    provider: row.get(1)?,
+                    name: row.get(2)?,
+                    profile_path: row.get(3)?,
+                    proxy_id: row.get(4)?,
+                    readiness: row.get(5)?,
+                    cooldown_until: row.get(6)?,
+                    max_concurrency: max_c as usize,
+                    last_checked_at: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            })?;
+            for r in rows {
+                list.push(r?);
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id, provider, name, profile_path, proxy_id, readiness, cooldown_until, max_concurrency, last_checked_at, created_at
+                 FROM accounts ORDER BY created_at ASC",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                let max_c: i64 = row.get(7)?;
+                Ok(AccountItem {
+                    id: row.get(0)?,
+                    provider: row.get(1)?,
+                    name: row.get(2)?,
+                    profile_path: row.get(3)?,
+                    proxy_id: row.get(4)?,
+                    readiness: row.get(5)?,
+                    cooldown_until: row.get(6)?,
+                    max_concurrency: max_c as usize,
+                    last_checked_at: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            })?;
+            for r in rows {
+                list.push(r?);
+            }
+        }
+        Ok(list)
+    }
+
+    pub fn delete_account(&self, id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM accounts WHERE id = ?1", params![id])?;
+        Ok(())
     }
 }
 

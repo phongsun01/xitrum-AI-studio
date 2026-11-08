@@ -39,6 +39,44 @@ pub struct TaskItem {
     pub observed_model: Option<String>,
     pub generation_key: Option<String>,
     pub scene_revision: Option<i64>,
+    pub account_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountItem {
+    pub id: String,
+    pub provider: String,
+    pub name: String,
+    pub profile_path: Option<String>,
+    pub proxy_id: Option<i64>,
+    pub readiness: String, // "ready", "needs_login", "captcha_required", "cooldown", "error"
+    pub cooldown_until: Option<i64>,
+    pub max_concurrency: usize,
+    pub last_checked_at: Option<i64>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelCapability {
+    pub id: String,
+    pub name: String,
+    pub supported_operations: Vec<String>, // ["text_to_video", "image_to_video", "text_to_image", "image_to_image"]
+    pub supported_ratios: Vec<String>,     // ["16:9", "9:16", "1:1"]
+    pub supported_durations_sec: Vec<f32>, // [5.0, 10.0]
+    pub max_input_images: usize,
+    pub native_audio: bool,
+    pub supports_resume: bool,
+    pub supports_cancel: bool,
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderDescriptor {
+    pub id: String,
+    pub name: String,
+    pub connection_modes: Vec<String>, // ["web_automation", "official_api"]
+    pub models: Vec<ModelCapability>,
+    pub default_model: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

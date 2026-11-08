@@ -46,9 +46,10 @@ PROGRESS_CALLBACK = None
 class _CountingWriter:
     """Bọc writer: đếm khung hình đã ghi và gọi PROGRESS_CALLBACK."""
 
-    def __init__(self, writer, total_frames: int):
+    def __init__(self, writer, total_frames: float):
         self._w = writer
-        self._total = max(1, int(total_frames))
+        # Ngân sách khung hình = round(thời lượng × fps / 1000): thời lượng cảnh là nguồn sự thật.
+        self._total = max(1, int(round(total_frames)))
         self._done = 0
 
     def is_opened(self):
@@ -60,6 +61,8 @@ class _CountingWriter:
         return self.is_opened()
 
     def write(self, frame):
+        if self._done >= self._total:
+            return  # vượt ngân sách (vùng vẽ quá dài so với thời lượng cảnh): bỏ khung thừa
         self._w.write(frame)
         self._done += 1
         cb = PROGRESS_CALLBACK
@@ -486,7 +489,7 @@ class RegionStreamRenderer:
         return samples, pen_lifts, sample_cell
 
     # ── 主渲染 ──
-    def render_to(self, final_video_path: Path, total_ms: int) -> Path:
+    def render_to(self, final_video_path: Path, total_ms: int, min_hold_ms: int = 0) -> Path:
         cfg = self.cfg
         elements = sorted(self.ann["elements"], key=lambda e: e["reveal"]["startMs"])
 
@@ -676,6 +679,8 @@ def _parse_args(argv=None):
     p.add_argument("output", help="Đường dẫn MP4 đầu ra")
     p.add_argument("hand", nargs="?", default=str(DEFAULT_HAND), help="PNG bàn tay (mặc định có sẵn)")
     p.add_argument("--total-ms", type=int, default=None, help="Tổng thời lượng; nếu bỏ trống dùng sceneDurationMs trong annotation")
+    p.add_argument("--min-hold-ms", type=int, default=0,
+                   help="Dừng tối thiểu trên hình đầy đủ sau khi vẽ xong (mặc định 0: đúng thời lượng cảnh)")
     p.add_argument("--bare-tip", action="store_true", help="Không chồng đầu bút/bàn tay")
     p.add_argument("--ink-path", default="grid", choices=["grid", "skeleton"],
                    help="Đường đi nét bút: grid lưới (mặc định); skeleton bám khung xương")
@@ -779,7 +784,7 @@ def main(argv=None) -> int:
           f"nét bút: {cfg.ink_path_mode}, tô màu: {cfg.color_fill}")
 
     # R5: Pipe trực tiếp sang FFmpeg H.264 (hoặc OpenCV fallback an toàn), không lưu mp4v trung gian
-    final = renderer.render_to(out_path, total_ms)
+    final = renderer.render_to(out_path, total_ms, getattr(args, "min_hold_ms", 0))
 
     size_mb = final.stat().st_size / (1024 * 1024) if final.exists() else 0.0
     print(f"\nVideo cuối: {final}  ({size_mb:.2f} MB)")

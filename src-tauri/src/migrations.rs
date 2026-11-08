@@ -185,6 +185,31 @@ impl MigrationManager {
                     CREATE INDEX IF NOT EXISTS idx_task_attempts_task_id ON task_attempts(task_id);
                 "#,
             },
+            Migration {
+                version: 4,
+                description: "G3 Khung accounts và provider isolation",
+                sql: r#"
+                    -- Bảng quản lý accounts theo provider với profile riêng biệt (G3)
+                    CREATE TABLE IF NOT EXISTS accounts (
+                        id TEXT PRIMARY KEY,
+                        provider TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        profile_path TEXT,
+                        proxy_id INTEGER,
+                        readiness TEXT NOT NULL DEFAULT 'ready',
+                        cooldown_until INTEGER,
+                        max_concurrency INTEGER NOT NULL DEFAULT 1,
+                        last_checked_at INTEGER,
+                        created_at INTEGER NOT NULL,
+                        FOREIGN KEY (proxy_id) REFERENCES proxies(id) ON DELETE SET NULL
+                    );
+
+                    -- Thêm cột account_id cho tasks
+                    ALTER TABLE tasks ADD COLUMN account_id TEXT;
+                    CREATE INDEX IF NOT EXISTS idx_tasks_account_id ON tasks(account_id);
+                    CREATE INDEX IF NOT EXISTS idx_accounts_provider ON accounts(provider);
+                "#,
+            },
         ]
     }
 
@@ -297,7 +322,7 @@ mod tests {
         MigrationManager::migrate(&mut conn, dummy_path).expect("First migration should succeed");
 
         let v1: i32 = conn.query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r.get(0)).unwrap();
-        assert_eq!(v1, 3);
+        assert_eq!(v1, 4);
 
         // Kiểm tra cấu trúc các bảng đã tạo
         let count: i64 = conn.query_row("SELECT count(*) FROM tasks", [], |r| r.get(0)).unwrap();
@@ -312,7 +337,7 @@ mod tests {
         MigrationManager::migrate(&mut conn, dummy_path).expect("Second migration run should be idempotent");
 
         let v2: i32 = conn.query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r.get(0)).unwrap();
-        assert_eq!(v2, 3);
+        assert_eq!(v2, 4);
 
         let count2: i64 = conn.query_row("SELECT count(*) FROM tasks", [], |r| r.get(0)).unwrap();
         assert_eq!(count2, 1);

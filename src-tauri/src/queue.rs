@@ -1,9 +1,11 @@
 use crate::db::{chrono_now, Database};
 use crate::errors::AppError;
 use crate::executors::audio::AudioPipeline;
+use crate::executors::muse_adapter::MuseAdapter;
 use crate::executors::muse_runner::MuseRunner;
+use crate::executors::provider::{ProviderRegistry, ProviderTaskParams};
 use crate::executors::rembg::RembgEngine;
-use crate::models::{AudioJobItem, AudioSegmentItem, TaskItem, TaskKind, TaskStatus};
+use crate::models::{AccountItem, AudioJobItem, AudioSegmentItem, TaskItem, TaskKind, TaskStatus};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, Semaphore};
@@ -23,7 +25,8 @@ pub struct QueueManager {
     pub cancel_tokens: Arc<Mutex<HashMap<String, CancellationToken>>>,
     #[allow(dead_code)]
     rembg_engine: Option<Arc<RembgEngine>>,
-    muse_runner: Arc<Mutex<MuseRunner>>,
+    pub provider_registry: Arc<ProviderRegistry>,
+    pub account_semaphores: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
     pub muse_semaphore: Arc<Semaphore>,
     pub local_semaphore: Arc<Semaphore>,
 }
@@ -43,6 +46,22 @@ impl QueueManager {
         let muse_sem_worker = Arc::clone(&muse_semaphore);
         let local_sem_worker = Arc::clone(&local_semaphore);
 
+        // Khởi tạo ProviderRegistry và đăng ký MuseAdapter ban đầu (G3)
+        let provider_registry = Arc::new(ProviderRegistry::new());
+        let muse_runner = Arc::new(Mutex::new(MuseRunner::with_app_handle(app_handle.clone())));
+        let muse_adapter = Arc::new(MuseAdapter::new(muse_runner, Arc::clone(&db)));
+        {
+            let reg = Arc::clone(&provider_registry);
+            tokio::spawn(async move {
+                reg.register(muse_adapter).await;
+            });
+        }
+
+        let account_semaphores: Arc<Mutex<HashMap<String, Arc<Semaphore>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let acc_sems_worker = Arc::clone(&account_semaphores);
+        let registry_worker = Arc::clone(&provider_registry);
+
         // Định vị model Rembg qua PathResolver hỗ trợ cả app đã đóng gói và dev
         let resolved_rembg_path = crate::paths::PathResolver::resolve_rembg_model(&app_handle);
 
@@ -53,9 +72,6 @@ impl QueueManager {
         };
 
         let rembg_worker = rembg_engine.clone();
-        let muse_runner = Arc::new(Mutex::new(MuseRunner::with_app_handle(app_handle.clone())));
-        let muse_worker = Arc::clone(&muse_runner);
-
         let tx_sender = tx.clone();
         let db_startup = Arc::clone(&db);
 
@@ -73,7 +89,8 @@ impl QueueManager {
                         let db_ref = Arc::clone(&db_worker);
                         let app_ref = app_worker.clone();
                         let rembg_ref = rembg_worker.clone();
-                        let muse_ref = Arc::clone(&muse_worker);
+                        let registry_ref = Arc::clone(&registry_worker);
+                        let acc_sems_ref = Arc::clone(&acc_sems_worker);
                         let muse_sem = Arc::clone(&muse_sem_worker);
                         let local_sem = Arc::clone(&local_sem_worker);
 
@@ -96,14 +113,31 @@ impl QueueManager {
                             // 2. Chờ lấy semaphore tương ứng, hỗ trợ nhận tín hiệu cancel ngay khi đang chờ permit
                             match task.kind {
                                 TaskKind::MuseVideo | TaskKind::MuseImage => {
+                                    // Kiểm tra account isolation (G3):
+                                    // Lấy account cụ thể hoặc account mặc định của provider
+                                    let account = if let Some(ref aid) = task.account_id {
+                                        db_ref.get_account(aid).ok().flatten()
+                                    } else {
+                                        db_ref.list_accounts(Some("muse")).ok().and_then(|list| list.into_iter().next())
+                                    };
+
+                                    let acc_sem = if let Some(ref acc) = account {
+                                        let mut map = acc_sems_ref.lock().await;
+                                        map.entry(acc.id.clone())
+                                            .or_insert_with(|| Arc::new(Semaphore::new(acc.max_concurrency.max(1))))
+                                            .clone()
+                                    } else {
+                                        muse_sem
+                                    };
+
                                     tokio::select! {
                                         _ = token.cancelled() => {
-                                            tracing::info!("Task {} cancelled while waiting for Muse semaphore", task_id);
+                                            tracing::info!("Task {} cancelled while waiting for provider/account semaphore", task_id);
                                             let _ = db_ref.update_task_status(&task_id, TaskStatus::Cancelled, 0, None, Some("Hủy khi đang chờ luồng"));
                                         }
-                                        permit = muse_sem.acquire() => {
+                                        permit = acc_sem.acquire() => {
                                             let _permit = permit;
-                                            run_task(task_id, db_ref, app_ref, rembg_ref, muse_ref, token).await;
+                                            run_task(task_id, db_ref, app_ref, rembg_ref, registry_ref, account, token).await;
                                         }
                                     }
                                 }
@@ -115,7 +149,7 @@ impl QueueManager {
                                         }
                                         permit = local_sem.acquire() => {
                                             let _permit = permit;
-                                            run_task(task_id, db_ref, app_ref, rembg_ref, muse_ref, token).await;
+                                            run_task(task_id, db_ref, app_ref, rembg_ref, registry_ref, None, token).await;
                                         }
                                     }
                                 }
@@ -153,7 +187,8 @@ impl QueueManager {
             tx,
             cancel_tokens,
             rembg_engine,
-            muse_runner,
+            provider_registry,
+            account_semaphores,
             muse_semaphore,
             local_semaphore,
         }
@@ -169,14 +204,25 @@ impl QueueManager {
     pub async fn check_muse_session(
         &self,
         user_data_dir: Option<String>,
-        chrome_path: Option<String>,
-        proxy: Option<crate::executors::muse_runner::ProxyConfig>,
+        _chrome_path: Option<String>,
+        _proxy: Option<crate::executors::muse_runner::ProxyConfig>,
     ) -> Result<(bool, String), AppError> {
-        let mut runner = self.muse_runner.lock().await;
-        runner
-            .check_session(user_data_dir, chrome_path, proxy)
-            .await
-            .map_err(|e| AppError::Other(e.to_string()))
+        let adapter = self.provider_registry.get("muse").await.ok_or_else(|| {
+            AppError::NotFound("Muse provider adapter not registered".to_string())
+        })?;
+        let dummy_account = AccountItem {
+            id: "default_muse".into(),
+            provider: "muse".into(),
+            name: "Default Muse".into(),
+            profile_path: user_data_dir,
+            proxy_id: None,
+            readiness: "ready".into(),
+            cooldown_until: None,
+            max_concurrency: 1,
+            last_checked_at: None,
+            created_at: 0,
+        };
+        adapter.check_session(&dummy_account).await
     }
 
     pub async fn enqueue(
@@ -200,9 +246,66 @@ impl QueueManager {
         scene_revision: Option<i64>,
         force_new_generation: bool,
     ) -> Result<TaskItem, AppError> {
+        self.enqueue_with_account(
+            kind,
+            prompt,
+            ratio,
+            input_path,
+            provider,
+            requested_model,
+            scene_revision,
+            None,
+            force_new_generation,
+        )
+        .await
+    }
+
+    pub async fn enqueue_with_account(
+        &self,
+        kind: TaskKind,
+        prompt: Option<String>,
+        ratio: Option<String>,
+        input_path: Option<String>,
+        provider: Option<String>,
+        requested_model: Option<String>,
+        scene_revision: Option<i64>,
+        account_id: Option<String>,
+        force_new_generation: bool,
+    ) -> Result<TaskItem, AppError> {
         let prov = provider.unwrap_or_else(|| "muse".to_string());
         let pr = prompt.as_deref().unwrap_or("");
         let rat = ratio.as_deref();
+
+        // Kiểm tra account nếu có để đảm bảo thuộc đúng provider
+        if let Some(ref aid) = account_id {
+            if let Ok(Some(acc)) = self.db.get_account(aid) {
+                if acc.provider != prov {
+                    return Err(AppError::Validation(format!(
+                        "Tài khoản '{}' thuộc provider '{}', không thể dùng cho provider '{}'",
+                        aid, acc.provider, prov
+                    )));
+                }
+            }
+        }
+
+        // Kiểm tra Capability Matrix trước khi dispatch
+        if let Some(adapter) = self.provider_registry.get(&prov).await {
+            let task_kind_str = match kind {
+                TaskKind::MuseImage => "text_to_image",
+                _ => "text_to_video",
+            };
+            let params = ProviderTaskParams {
+                task_id: "validation_probe".into(),
+                kind: task_kind_str.into(),
+                prompt: pr.into(),
+                ratio: ratio.clone(),
+                input_path: input_path.clone(),
+                output_dir: String::new(),
+                model: requested_model.clone(),
+                duration_sec: None,
+            };
+            adapter.validate_task_params(&params)?;
+        }
 
         // Tính generation key duy nhất
         let gen_key = crate::dedup::compute_generation_key(
@@ -245,6 +348,7 @@ impl QueueManager {
             observed_model: None,
             generation_key: Some(gen_key),
             scene_revision: Some(scene_revision.unwrap_or(1)),
+            account_id,
         };
 
         self.db.insert_task(&task)?;
@@ -296,7 +400,8 @@ async fn run_task(
     db: Arc<Database>,
     app: tauri::AppHandle,
     rembg: Option<Arc<RembgEngine>>,
-    muse_runner: Arc<Mutex<MuseRunner>>,
+    provider_registry: Arc<ProviderRegistry>,
+    account: Option<AccountItem>,
     token: CancellationToken,
 ) {
     // Đọc lại task mới nhất từ DB
@@ -330,7 +435,7 @@ async fn run_task(
         attempt_num,
         phase: "dispatching".into(),
         remote_job_id: None,
-        session_id: None,
+        session_id: account.as_ref().map(|a| a.id.clone()),
         error_code: None,
         error_msg: None,
         started_at: start_time,
@@ -548,81 +653,70 @@ async fn run_task(
                 return;
             }
 
+            let prov_name = task.provider.as_deref().unwrap_or("muse");
+            let adapter = match provider_registry.get(prov_name).await {
+                Some(a) => a,
+                None => {
+                    let err = format!("Provider '{}' không tìm thấy adapter", prov_name);
+                    let _ = db.update_task_status(&task_id, TaskStatus::Failed, 0, None, Some(&err));
+                    return;
+                }
+            };
+
             let config = db.get_config().unwrap_or_default();
             let output_dir = config.output_dir.clone();
-            let chrome_profile = config.chrome_profile_dir.clone();
-            let chrome_path = config.chrome_path.clone();
-            let proxy_config = if let Some(proxy_id) = config.active_proxy_id {
-                db.get_proxy(proxy_id).ok().flatten().map(|p| {
-                    // S4: Giải mã mật khẩu proxy trước khi đưa sang runner
-                    // Ưu tiên đọc mật khẩu từ OS Keychain / DPAPI trước
-                    let decrypted_pass = if let Ok(Some(secret)) = crate::secret_store::SecretStore::get_secret(&format!("proxy_{}", p.id)) {
-                        Some(secret)
-                    } else {
-                        // Fallback tương thích với bản cũ nếu chưa migrate
-                        p.encrypted_password.as_ref().map(|enc| {
-                            use base64::{engine::general_purpose, Engine as _};
-                            if let Ok(bytes) = general_purpose::STANDARD.decode(enc) {
-                                let salt = b"xitrum_secret_salt_2026";
-                                let mut unxored = Vec::new();
-                                for (i, b) in bytes.iter().enumerate() {
-                                    unxored.push(b ^ salt[i % salt.len()]);
-                                }
-                                String::from_utf8_lossy(&unxored).to_string()
-                            } else {
-                                enc.clone()
-                            }
-                        })
-                    };
 
-                    crate::executors::muse_runner::ProxyConfig {
-                        server: format!("{}://{}:{}", p.scheme, p.host, p.port),
-                        username: p.username,
-                        password: decrypted_pass,
-                    }
-                })
-            } else {
-                None
-            };
+            // Nếu task chưa có account gán sẵn, dùng account truyền vào hoặc tạo fallback account từ config
+            let current_account = account.unwrap_or_else(|| {
+                AccountItem {
+                    id: "default_fallback".into(),
+                    provider: prov_name.into(),
+                    name: "Default Profile".into(),
+                    profile_path: Some(config.chrome_profile_dir.clone()),
+                    proxy_id: config.active_proxy_id,
+                    readiness: "ready".into(),
+                    cooldown_until: None,
+                    max_concurrency: 1,
+                    last_checked_at: None,
+                    created_at: 0,
+                }
+            });
+
             let kind_str = match task.kind {
-                TaskKind::MuseImage => "muse_image",
-                _ => "muse_video",
+                TaskKind::MuseImage => "text_to_image",
+                _ => "text_to_video",
             };
 
-            let ratio_str = task.ratio.as_deref().unwrap_or(&config.default_ratio);
-            let input_ref = task.input_path.as_deref();
+            let params = ProviderTaskParams {
+                task_id: task_id.clone(),
+                kind: kind_str.into(),
+                prompt,
+                ratio: task.ratio.clone().or_else(|| Some(config.default_ratio)),
+                input_path: task.input_path.clone(),
+                output_dir,
+                model: task.requested_model.clone(),
+                duration_sec: None,
+            };
 
             let db_prog = Arc::clone(&db);
             let tid_prog = task_id.clone();
+            let progress_cb = Box::new(move |p, msg: Option<String>| {
+                let _ = db_prog.update_task_status(
+                    &tid_prog,
+                    TaskStatus::Running,
+                    p,
+                    None,
+                    msg.as_deref(),
+                );
+            });
 
-            let mut runner = muse_runner.lock().await;
-            let res = runner
-                .execute_task(
-                    &task_id,
-                    kind_str,
-                    &prompt,
-                    Some(ratio_str),
-                    input_ref,
-                    &output_dir,
-                    Some(&chrome_profile),
-                    chrome_path.as_deref(),
-                    proxy_config,
-                    move |p, msg| {
-                        let _ = db_prog.update_task_status(
-                            &tid_prog,
-                            TaskStatus::Running,
-                            p,
-                            None,
-                            msg.as_deref(),
-                        );
-                    },
-                    &token,
-                )
+            let res = adapter
+                .execute_task(&current_account, &params, progress_cb, &token)
                 .await;
 
             match res {
-                Ok(out_file) => {
-                    let out_str = out_file.to_string_lossy().to_string();
+                Ok(task_result) => {
+                    let out_str = task_result.output_file.to_string_lossy().to_string();
                     let finish_now = chrono_now();
 
                     // Cập nhật attempt: completed
@@ -631,10 +725,10 @@ async fn run_task(
                         task_id: task_id.clone(),
                         attempt_num,
                         phase: "completed".into(),
-                        remote_job_id: None,
-                        session_id: None,
+                        remote_job_id: task_result.remote_job_id,
+                        session_id: task_result.session_id,
                         error_code: None,
-                        error_msg: None,
+                        error_msg: task_result.verification_notes,
                         started_at: start_time,
                         finished_at: Some(finish_now),
                     });
@@ -667,14 +761,14 @@ async fn run_task(
                         attempt_num,
                         phase: phase.into(),
                         remote_job_id: None,
-                        session_id: None,
+                        session_id: Some(current_account.id.clone()),
                         error_code: if is_cancelled { Some("USER_CANCELLED".into()) } else { Some("EXECUTION_ERROR".into()) },
                         error_msg: Some(err_str.clone()),
                         started_at: start_time,
                         finished_at: Some(finish_now),
                     });
 
-                    tracing::error!("Muse execution failed: {}", err_str);
+                    tracing::error!("Provider execution failed: {}", err_str);
                     let final_status = if is_cancelled { TaskStatus::Cancelled } else { TaskStatus::Failed };
                     let _ = db.update_task_status(&task_id, final_status, 0, None, Some(&err_str));
                 }

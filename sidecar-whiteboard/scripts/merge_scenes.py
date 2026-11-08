@@ -18,6 +18,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from media_utils import find_ffmpeg  # noqa: E402
+
 
 def _escape_concat_path(path: Path) -> str:
     """Escape đường dẫn tệp an toàn cho cú pháp ffmpeg concat demuxer."""
@@ -80,7 +83,7 @@ def _normalize_concat_if_needed(inputs: list[Path], output: Path, ffmpeg: str):
 
 
 def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = find_ffmpeg()
     if ffmpeg is None:
         for candidate in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
             if Path(candidate).exists():

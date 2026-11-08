@@ -5,6 +5,7 @@ import { ToastContainer, ToastItem } from "./components/Toast";
 import { AudioTimeline } from "./components/AudioTimeline";
 import { IdeaScriptEditor } from "./components/IdeaScriptEditor";
 import { ProxyManager } from "./components/ProxyManager";
+import { AccountManager } from "./components/AccountManager";
 import { WhiteboardEditor } from "./components/WhiteboardEditor";
 import {
   Video,
@@ -33,12 +34,13 @@ import {
   Globe,
   Sparkles,
   PenTool,
+  Users,
 } from "lucide-react";
 import "./App.css";
 
 function App() {
   const [activeTab, setActiveTab] = useState<
-    "idea_script" | "whiteboard" | "video" | "proxies" | "audio" | "timeline" | "rembg" | "templates" | "settings"
+    "idea_script" | "whiteboard" | "video" | "accounts" | "proxies" | "audio" | "timeline" | "rembg" | "templates" | "settings"
   >("idea_script");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -396,6 +398,13 @@ function App() {
             <Globe size={18} /> {!sidebarCollapsed && <span>Quản Lý Proxy</span>}
           </button>
           <button
+            className={`nav-item ${activeTab === "accounts" ? "active" : ""}`}
+            onClick={() => setActiveTab("accounts")}
+            title="Tài Khoản & Provider (G3)"
+          >
+            <Users size={18} /> {!sidebarCollapsed && <span>Tài Khoản & Provider</span>}
+          </button>
+          <button
             className={`nav-item ${activeTab === "settings" ? "active" : ""}`}
             onClick={() => setActiveTab("settings")}
             title="Cài Đặt Hệ Thống"
@@ -410,7 +419,7 @@ function App() {
         <header className="top-bar">
           <div className="title-section">
             <h1>Xitrum AI Studio</h1>
-            <span className="version-badge">v0.7.7 • Rust Multi-Lane • Offline Engine</span>
+            <span className="version-badge">v0.7.8 • Rust Multi-Lane • Offline Engine</span>
           </div>
 
           {/* F14: Multi-Lane Status Indicators */}
@@ -485,6 +494,14 @@ function App() {
             onAddToast={addToast}
             config={config}
             onUpdateConfig={setConfig}
+          />
+        )}
+
+        {/* Tab Accounts: Quản Lý Provider & Tài Khoản (G3) */}
+        {activeTab === "accounts" && (
+          <AccountManager
+            onAddToast={addToast}
+            proxies={[]}
           />
         )}
 
@@ -1076,6 +1093,7 @@ function App() {
                   <tr>
                     <th>ID</th>
                     <th>Loại</th>
+                    <th>Provider / Route</th>
                     <th>Chi Tiết / Prompt</th>
                     <th>Trạng Thái</th>
                     <th>Tiến Độ</th>
@@ -1089,6 +1107,17 @@ function App() {
                       <td className="task-id">{t.id.slice(0, 8)}</td>
                       <td>
                         <span className="kind-tag">{t.kind}</span>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--primary)" }}>
+                          {t.provider || "muse"}
+                          {t.account_id ? ` (${t.account_id})` : ""}
+                        </span>
+                        {t.requested_model && (
+                          <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                            Model: {t.requested_model}
+                          </div>
+                        )}
                       </td>
                       <td className="task-detail">
                         {editingTaskId === t.id ? (
