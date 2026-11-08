@@ -58,7 +58,7 @@ class TestWbImport(unittest.TestCase):
             digest = wb_import.compute_file_sha256(srt_p)
 
             meta = {
-                "schema_version": 2,
+                "schema_version": 99,
                 "srt_sha256": digest,
                 "cues": [{"id": "c1", "index": 1, "start_ms": 0, "end_ms": 1000, "text": "Hello"}],
                 "scenes": [{"index": 1, "start_ms": 0, "end_ms": 1000, "cue_ids": ["c1"], "text": "Hello"}],
@@ -139,37 +139,18 @@ class TestWbImport(unittest.TestCase):
             self.assertTrue(any("WB_SCENE_CUE_INVALID" in e for e in res["errors"]))
             self.assertTrue(any("WB_SCENE_CUE_MISSING" in e for e in res["errors"]))
 
-    def test_voice_fallback_with_warning(self):
+    def test_unknown_voice_is_preserved_until_user_corrects_it(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            srt_p = Path(tmpdir) / "test.srt"
-            srt_p.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n", encoding="utf-8")
-            digest = wb_import.compute_file_sha256(srt_p)
-
-            meta = {
-                "schema_version": 3,
-                "srt_sha256": digest,
-                "speech": {
-                    "mode": "characters",
-                    "speakers": [{"id": "alien", "name": "Người Ngoài Hành Tinh", "voice_id": "Giọng Không Có Thật"}]
-                },
-                "cues": [{"id": "c1", "index": 1, "start_ms": 0, "end_ms": 1000, "text": "Hello", "speaker_id": "alien"}],
-                "scenes": [
-                    {"index": 1, "start_ms": 0, "end_ms": 1000, "cue_ids": ["c1"], "text": "Hello", "moment": "Người ngoài hành tinh xuất hiện"}
-                ],
-            }
-            json_p = Path(tmpdir) / "test.wb.json"
-            json_p.write_text(json.dumps(meta), encoding="utf-8")
-
-            res = wb_import.inspect_wb_bundle(str(srt_p), str(json_p))
-            self.assertTrue(res["valid"])
-            self.assertEqual(len(res["speakers"]), 1)
-            # Fallback voice
-            self.assertEqual(res["speakers"][0]["voiceId"], "Thùy Dung")
-            # Có cảnh báo
-            self.assertTrue(any("không thuộc VieNeu presets" in w for w in res.get("warnings", [])))
-            # Kiểm tra storyBasis
-            self.assertEqual(res["scenes"][0]["storyBasis"], "Người ngoài hành tinh xuất hiện")
-            self.assertEqual(res["scenes"][0]["cues"][0]["speakerName"], "Người Ngoài Hành Tinh")
+            srt = Path(tmpdir) / "story.srt"
+            srt.write_bytes((FIXTURES_DIR / "single_scene_three_cues.srt").read_bytes())
+            meta = json.loads((FIXTURES_DIR / "single_scene_three_cues.wb.json").read_text())
+            meta["speech"]["speakers"][0]["voice_id"] = "Giọng Không Có Thật"
+            target = srt.with_suffix(".wb.json")
+            target.write_text(json.dumps(meta))
+            result = wb_import.inspect_wb_bundle(str(srt))
+            self.assertTrue(result["valid"], result["errors"])
+            self.assertEqual(result["speakers"][0]["voiceId"], "Giọng Không Có Thật")
+            self.assertTrue(any("chọn lại" in w for w in result["warnings"]))
 
 
 if __name__ == "__main__":

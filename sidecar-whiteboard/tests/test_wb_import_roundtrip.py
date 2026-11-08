@@ -156,8 +156,10 @@ class TestWbImportRoundtrip(unittest.TestCase):
 
                 # 4. Kiểm tra phân vai và giọng đọc thực tế
                 # Danh sách voice đã gọi phải chứa các giọng của nhân vật:
-                # Thầy giáo: Hải Đăng, An: Thanh Long, Mai: Thu Hà, Người dẫn chuyện: Thùy Dung
+                # Thầy giáo: Hải Đăng, An: Thái Sơn, Mai: Trúc Ly, Người dẫn chuyện: Thùy Dung
                 called_set = set(self.mock_tts.called_voices)
+                self.assertIn("Thái Sơn", called_set)
+                self.assertIn("Trúc Ly", called_set)
                 self.assertIn("Hải Đăng", called_set)
                 self.assertIn("Thùy Dung", called_set)
 

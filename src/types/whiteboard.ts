@@ -231,11 +231,46 @@ export interface WhiteboardThumbnailDraft {
 }
 
 export interface WhiteboardThumbnail extends WhiteboardThumbnailDraft {
+  mode?: "generated" | "imported";
   penType: WhiteboardPenType;
   pngDataUrl: string;
   layout?: "full-bleed-top";
   typographyVersion?: number;
   aspectRatio?: "16:9" | "9:16";
+}
+
+export interface WhiteboardFolderImageItem {
+  path: string;
+  filename: string;
+  stem: string;
+  extension: string;
+  width?: number;
+  height?: number;
+  aspectRatio?: string;
+  fileSize: number;
+  fingerprint: string;
+  error?: string;
+}
+
+export interface WhiteboardSceneImageMapping {
+  sceneIndex: number;
+  sceneId: string;
+  currentImagePath?: string;
+  matchedImage?: WhiteboardFolderImageItem;
+  candidateImages: WhiteboardFolderImageItem[];
+  status: "ready" | "missing" | "duplicate" | "error";
+  error?: string;
+}
+
+export interface WhiteboardFolderScanResult {
+  folderPath: string;
+  totalFilesScanned: number;
+  matchedScenesCount: number;
+  mappings: WhiteboardSceneImageMapping[];
+  thumbnailCandidates: WhiteboardFolderImageItem[];
+  excessImages: WhiteboardFolderImageItem[];
+  ignoredFiles: string[];
+  errors: string[];
 }
 
 export interface WhiteboardProject {
@@ -336,6 +371,8 @@ export interface WhiteboardWbMeta {
 }
 
 export interface WhiteboardWbInspectResult {
+  wbJsonPath?: string;
+  bundleFingerprint?: string;
   valid: boolean;
   schemaVersion: number;
   srtSha256Matches: boolean;

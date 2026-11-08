@@ -13,6 +13,7 @@ import {
   WhiteboardSpeaker,
   WhiteboardSrtCue,
   WhiteboardWbInspectResult,
+  WhiteboardFolderScanResult,
 } from "../types/whiteboard";
 import {
   PenTool,
@@ -39,11 +40,14 @@ import {
   Image as ImageIcon,
   Sparkles,
   BookOpen,
+  FolderDown,
+  Wand2,
+  StopCircle,
 } from "lucide-react";
 
 import { applyAlignedTiming } from "../lib/whiteboardTiming";
 import { COVER_LAYOUT, COVER_TYPOGRAPHY_VERSION, createWhiteboardThumbnail } from "../lib/whiteboardThumbnail";
-import { buildProjectFromWbImport } from "../utils/whiteboardWbAdapter";
+import { buildProjectFromWbImport, revalidateWbImport, describeWbImportErrors } from "../utils/whiteboardWbAdapter";
 
 import { THUMBNAIL_FONTS, loadCoverFont, resolveCoverFont, normalizeCoverFontChoice } from "../lib/whiteboardFonts";
 
@@ -145,18 +149,56 @@ export function WhiteboardEditor() {
     srtPath: string;
   } | null>(null);
 
+  const [wbReplaceConfirmed, setWbReplaceConfirmed] = useState(false);
+  const wbImportApplying = useRef(false);
+  const wbEditorSnapshot = useRef("");
+  wbEditorSnapshot.current = JSON.stringify([projectId, projectRevision, scenes, srtPath,
+    selectedVoice, speechMode, speakers, autoTiming, masterAudioPath, outputVideoPath]);
+  useEffect(() => setWbReplaceConfirmed(false), [wbImportModalData]);
+
+  const wbImportError = describeWbImportErrors(wbImportModalData?.inspect.errors || []);
   const activeScene = scenes[selectedSceneIndex] || null;
   const coverSource = thumbnailImagePath || scenes.find((scene) => scene.imagePath)?.imagePath || "";
   const coverFont = resolveCoverFont(penType, thumbnailFontChoice);
+  const isImportedThumbnail = thumbnail?.mode === "imported";
   const thumbnailReady = Boolean(
-    thumbnail &&
-      thumbnail.title === thumbnailTitle.trim() &&
-      thumbnail.imagePath === coverSource &&
-      thumbnail.penType === penType &&
-      thumbnail.layout === COVER_LAYOUT &&
-      thumbnail.typographyVersion === COVER_TYPOGRAPHY_VERSION &&
-      (thumbnail.fontChoice ?? "auto") === thumbnailFontChoice
+    thumbnail && (
+      isImportedThumbnail
+        ? Boolean(thumbnail.pngDataUrl)
+        : (
+            thumbnail.title === thumbnailTitle.trim() &&
+            thumbnail.imagePath === coverSource &&
+            thumbnail.penType === penType &&
+            thumbnail.layout === COVER_LAYOUT &&
+            thumbnail.typographyVersion === COVER_TYPOGRAPHY_VERSION &&
+            (thumbnail.fontChoice ?? "auto") === thumbnailFontChoice
+          )
+    )
   );
+
+  // State cho nạp ảnh phân cảnh hàng loạt từ thư mục
+  const [batchScanModalOpen, setBatchScanModalOpen] = useState(false);
+  const [batchScanResult, setBatchScanResult] = useState<WhiteboardFolderScanResult | null>(null);
+  const [batchOverwriteExisting, setBatchOverwriteExisting] = useState(false);
+  const [batchSelectedRows, setBatchSelectedRows] = useState<Record<number, boolean>>({});
+  const [batchChosenDuplicates, setBatchChosenDuplicates] = useState<Record<number, string>>({});
+  const [batchChosenThumbnail, setBatchChosenThumbnail] = useState<string | null>(null);
+  const [batchThumbnailMode, setBatchThumbnailMode] = useState<"imported" | "generated" | "none">("imported");
+
+  // State cho tạo mẫu annotation hàng loạt
+  const [batchAnnoModalOpen, setBatchAnnoModalOpen] = useState(false);
+  const [batchAnnoMode, setBatchAnnoMode] = useState<"missing" | "all">("missing");
+  const [isBatchAnnotating, setIsBatchAnnotating] = useState(false);
+  const [batchAnnoProgress, setBatchAnnoProgress] = useState<{
+    current: number;
+    total: number;
+    success: number;
+    skipped: number;
+    error: number;
+    currentSceneId: string;
+    errors: { sceneId: string; error: string }[];
+  } | null>(null);
+  const batchAnnoCancelRequested = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -200,10 +242,300 @@ export function WhiteboardEditor() {
 
   const handlePickCoverImage = async () => {
     try {
-      const path = await api.pickFile([{ name: "Ảnh bìa", extensions: ["png", "jpg", "jpeg"] }]);
+      const path = await api.pickFile([{ name: "Ảnh bìa", extensions: ["png", "jpg", "jpeg", "webp"] }]);
       if (path) setThumbnailImagePath(path);
     } catch (e) {
       setStatusMsg({ text: `Lỗi chọn ảnh bìa: ${errText(e)}`, ok: false });
+    }
+  };
+
+  const handlePickCompleteThumbnail = async () => {
+    try {
+      const path = await api.pickFile([{ name: "Ảnh bìa hoàn chỉnh", extensions: ["png", "jpg", "jpeg", "webp"] }]);
+      if (path) {
+        setLoading(true);
+        setStatusMsg(null);
+        try {
+          const imported = await api.importWhiteboardCompleteThumbnail(path, thumbnailTitle.trim() || undefined);
+          setThumbnail(imported);
+          setThumbnailImagePath(path);
+          setStatusMsg({
+            text: `Đã nạp thành công ảnh bìa hoàn chỉnh (${imported.aspectRatio}): ${path.split(/[/\\]/).pop()}`,
+            ok: true,
+          });
+        } finally {
+          setLoading(false);
+        }
+      }
+    } catch (e: any) {
+      setStatusMsg({ text: `Lỗi nạp ảnh bìa hoàn chỉnh: ${errText(e)}`, ok: false });
+    }
+  };
+
+  const handleOpenBatchImageModal = async () => {
+    if (scenes.length === 0) {
+      setStatusMsg({ text: "Dự án chưa có phân cảnh nào. Vui lòng tạo cảnh hoặc nhập phụ đề SRT trước.", ok: false });
+      return;
+    }
+    try {
+      const folder = await api.pickDirectory();
+      if (!folder) return;
+
+      setLoading(true);
+      setStatusMsg({ text: `Đang quét thư mục ảnh: ${folder}...`, ok: true });
+      try {
+        const res = await api.scanWhiteboardFolderImages(
+          folder,
+          scenes.length,
+          scenes.map((s) => s.id),
+          scenes.map((s) => s.imagePath || null)
+        );
+        setBatchScanResult(res);
+        setBatchOverwriteExisting(false);
+
+        const initialSelected: Record<number, boolean> = {};
+        const initialDuplicates: Record<number, string> = {};
+
+        res.mappings.forEach((m) => {
+          const hasImg = Boolean(m.matchedImage || (m.candidateImages && m.candidateImages.length > 0));
+          const sceneAlreadyHasImg = Boolean(scenes[m.sceneIndex]?.imagePath);
+          initialSelected[m.sceneIndex] = hasImg && !sceneAlreadyHasImg;
+
+          if (m.matchedImage) {
+            initialDuplicates[m.sceneIndex] = m.matchedImage.path;
+          } else if (m.candidateImages && m.candidateImages.length > 0) {
+            initialDuplicates[m.sceneIndex] = m.candidateImages[0].path;
+          }
+        });
+
+        setBatchSelectedRows(initialSelected);
+        setBatchChosenDuplicates(initialDuplicates);
+
+        if (res.thumbnailCandidates && res.thumbnailCandidates.length > 0) {
+          setBatchChosenThumbnail(res.thumbnailCandidates[0].path);
+          setBatchThumbnailMode("imported");
+        } else {
+          setBatchChosenThumbnail(null);
+          setBatchThumbnailMode("none");
+        }
+
+        setBatchScanModalOpen(true);
+      } finally {
+        setLoading(false);
+      }
+    } catch (e: any) {
+      setStatusMsg({ text: `Lỗi khi quét thư mục ảnh: ${errText(e)}`, ok: false });
+    }
+  };
+
+  const handleToggleBatchOverwrite = (nextOverwrite: boolean) => {
+    setBatchOverwriteExisting(nextOverwrite);
+    if (!batchScanResult) return;
+    setBatchSelectedRows((prev) => {
+      const next = { ...prev };
+      batchScanResult.mappings.forEach((m) => {
+        const hasImg = Boolean(m.matchedImage || (m.candidateImages && m.candidateImages.length > 0));
+        const sceneAlreadyHasImg = Boolean(scenes[m.sceneIndex]?.imagePath);
+        if (hasImg) {
+          next[m.sceneIndex] = nextOverwrite ? true : !sceneAlreadyHasImg;
+        }
+      });
+      return next;
+    });
+  };
+
+  const handleApplyBatchImages = async () => {
+    if (!batchScanResult) return;
+
+    if (scenes.length !== batchScanResult.mappings.length) {
+      setStatusMsg({
+        text: "Cấu trúc danh sách cảnh đã thay đổi so với lúc quét. Vui lòng quét lại thư mục ảnh.",
+        ok: false,
+      });
+      setBatchScanModalOpen(false);
+      return;
+    }
+
+    let appliedCount = 0;
+    const updatedScenes = scenes.map((scene, idx) => {
+      const isSelected = batchSelectedRows[idx];
+      const mapping = batchScanResult.mappings[idx];
+      if (!isSelected || !mapping) return scene;
+
+      const chosenPath = batchChosenDuplicates[idx] || mapping.matchedImage?.path;
+      if (!chosenPath) return scene;
+
+      appliedCount++;
+      return {
+        ...scene,
+        imagePath: chosenPath,
+        annotationPath: "",
+        elements: undefined,
+        outputPath: "",
+        status: "idle" as const,
+        revision: (scene.revision || 1) + 1,
+      };
+    });
+
+    setScenes(updatedScenes);
+    if (appliedCount > 0) {
+      setOutputVideoPath("");
+    }
+
+    let thumbMsg = "";
+    if (batchChosenThumbnail && batchThumbnailMode !== "none") {
+      try {
+        if (batchThumbnailMode === "imported") {
+          const importedThumb = await api.importWhiteboardCompleteThumbnail(
+            batchChosenThumbnail,
+            thumbnailTitle.trim() || undefined
+          );
+          setThumbnail(importedThumb);
+          setThumbnailImagePath(batchChosenThumbnail);
+          thumbMsg = " Đã nạp ảnh bìa hoàn chỉnh.";
+        } else if (batchThumbnailMode === "generated") {
+          setThumbnailImagePath(batchChosenThumbnail);
+          thumbMsg = " Đã đặt ảnh minh họa bìa.";
+        }
+      } catch (err: any) {
+        thumbMsg = ` (Lỗi nạp ảnh bìa: ${errText(err)})`;
+      }
+    }
+
+    setBatchScanModalOpen(false);
+    setStatusMsg({
+      text: `Đã áp dụng nạp ảnh thành công cho ${appliedCount} cảnh.${thumbMsg}`,
+      ok: true,
+    });
+  };
+
+  const handleStartBatchAnnotation = async () => {
+    try {
+      await annotationSaveQueue.current;
+    } catch (e) {
+      setStatusMsg({ text: `Lỗi lưu annotation hiện tại: ${errText(e)}`, ok: false });
+      return;
+    }
+
+    const targetIndices: number[] = [];
+    scenes.forEach((s, idx) => {
+      if (!s.imagePath) return;
+      if (batchAnnoMode === "missing") {
+        if (!s.annotationPath || !s.elements || s.elements.length === 0) {
+          targetIndices.push(idx);
+        }
+      } else {
+        targetIndices.push(idx);
+      }
+    });
+
+    if (targetIndices.length === 0) {
+      setStatusMsg({
+        text:
+          batchAnnoMode === "missing"
+            ? "Tất cả các cảnh có ảnh đã có annotation hợp lệ. Không có cảnh nào cần tạo mẫu."
+            : "Không có cảnh nào có ảnh minh họa để tạo mẫu.",
+        ok: true,
+      });
+      setBatchAnnoModalOpen(false);
+      return;
+    }
+
+    setIsBatchAnnotating(true);
+    batchAnnoCancelRequested.current = false;
+
+    let successCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+    const errorsList: { sceneId: string; error: string }[] = [];
+
+    setBatchAnnoProgress({
+      current: 1,
+      total: targetIndices.length,
+      success: 0,
+      skipped: 0,
+      error: 0,
+      currentSceneId: scenes[targetIndices[0]].id,
+      errors: [],
+    });
+
+    for (let i = 0; i < targetIndices.length; i++) {
+      if (batchAnnoCancelRequested.current) {
+        break;
+      }
+      const idx = targetIndices[i];
+      const scene = scenes[idx];
+
+      setBatchAnnoProgress({
+        current: i + 1,
+        total: targetIndices.length,
+        success: successCount,
+        skipped: skippedCount,
+        error: errorCount,
+        currentSceneId: scene.id,
+        errors: [...errorsList],
+      });
+
+      try {
+        const targetPath =
+          scene.annotationPath ||
+          scene.imagePath.replace(/\.[^/.]+$/, "") + `.${scene.id}.annotation.json`;
+
+        const relativeCues = scene.cues.map((c) => ({
+          ...c,
+          startMs: c.startMs - scene.timelineStartMs,
+          endMs: c.endMs - scene.timelineStartMs,
+          speechEndMs:
+            c.speechEndMs === undefined ? undefined : c.speechEndMs - scene.timelineStartMs,
+        }));
+
+        const res = await api.generateWhiteboardAnnotation(
+          scene.imagePath,
+          scene.id,
+          "Hoạt hình phân cảnh",
+          scene.durationMs,
+          relativeCues,
+          targetPath,
+          true
+        );
+
+        setScenes((prevScenes) => {
+          const next = [...prevScenes];
+          if (next[idx] && next[idx].id === scene.id) {
+            next[idx] = {
+              ...next[idx],
+              annotationPath: res.savedTo || targetPath,
+              elements: (res.elements as any) || undefined,
+              outputPath: "",
+            };
+          }
+          return next;
+        });
+
+        successCount++;
+      } catch (err: any) {
+        errorCount++;
+        errorsList.push({ sceneId: scene.id, error: errText(err) });
+      }
+    }
+
+    const wasCancelled = batchAnnoCancelRequested.current;
+    setIsBatchAnnotating(false);
+    setBatchAnnoProgress(null);
+    setBatchAnnoModalOpen(false);
+
+    if (wasCancelled) {
+      setStatusMsg({
+        text: `Đã dừng tạo mẫu sau cảnh hiện tại. Kết quả: ${successCount} thành công, ${errorCount} lỗi.`,
+        ok: errorCount === 0,
+      });
+    } else {
+      setStatusMsg({
+        text: `Hoàn tất tạo mẫu hàng loạt: ${successCount} cảnh thành công${
+          errorCount > 0 ? `, ${errorCount} cảnh lỗi` : ""
+        }.`,
+        ok: errorCount === 0,
+      });
     }
   };
 
@@ -307,9 +639,6 @@ export function WhiteboardEditor() {
     try {
       const path = await api.pickFile([{ name: "SRT Subtitle", extensions: ["srt"] }]);
       if (path) {
-        setSrtPath(path);
-        await autoDetectMasterAudio(path);
-
         // Tự động kiểm tra kịch bản .wb.json đi kèm
         try {
           const inspect = await api.inspectWhiteboardWbImport(path);
@@ -324,6 +653,8 @@ export function WhiteboardEditor() {
           console.warn("Lỗi kiểm tra .wb.json:", wbErr);
         }
 
+        setSrtPath(path);
+        await autoDetectMasterAudio(path);
         setStatusMsg({ text: `Đã chọn tệp SRT: ${path}`, ok: true });
       }
     } catch (e: any) {
@@ -348,42 +679,62 @@ export function WhiteboardEditor() {
     }
   };
 
-  const handleApplyWbImport = (data: { inspect: WhiteboardWbInspectResult; srtPath: string }) => {
-    const currentProject: WhiteboardProject = {
-      id: projectId,
-      schemaVersion: 1,
-      revision: projectRevision,
-      title: thumbnailTitle || "Dự án Whiteboard",
-      fps,
-      paperColor,
-      handPath: resolveHandFilename(penType),
-      scenes,
-      speechConfig: {
-        mode: speechMode,
-        defaultVoiceId: selectedVoice,
-        timingMode: autoTiming ? "auto" : "fixed",
-        speakers,
-      },
-    };
+  const handleApplyWbImport = async (data: { inspect: WhiteboardWbInspectResult; srtPath: string }) => {
+    if (loading || generatingTts || wbImportApplying.current || (scenes.length > 0 && !wbReplaceConfirmed)) return;
+    wbImportApplying.current = true;
+    setLoading(true);
+    const snapshot = wbEditorSnapshot.current;
+    try {
+      await annotationSaveQueue.current;
+      const fresh = await revalidateWbImport(data.inspect, data.srtPath, api.inspectWhiteboardWbImport);
+      if (wbEditorSnapshot.current !== snapshot) throw new Error("Dự án đã thay đổi khi kiểm tra bộ WB. Hãy xem trước lại.");
+      const currentProject: WhiteboardProject = {
+        id: projectId,
+        schemaVersion: 1,
+        revision: projectRevision,
+        title: thumbnailTitle || "Dự án Whiteboard",
+        fps,
+        paperColor,
+        handPath: resolveHandFilename(penType),
+        scenes,
+        speechConfig: {
+          mode: speechMode,
+          defaultVoiceId: selectedVoice,
+          timingMode: autoTiming ? "auto" : "fixed",
+          speakers,
+        },
+      };
 
-    const proj = buildProjectFromWbImport(data.inspect, data.srtPath, currentProject);
-    if (proj.title) setThumbnailTitle(proj.title);
-    setScenes(proj.scenes);
-    if (proj.speechConfig) {
-      setSpeechMode(proj.speechConfig.mode);
-      setSpeakers(proj.speechConfig.speakers);
-      setSelectedVoice(proj.speechConfig.defaultVoiceId);
+      const proj = buildProjectFromWbImport(fresh, data.srtPath, currentProject);
+      setProjectRevision(proj.revision);
+      setOutputVideoPath("");
+      setAudioFingerprint(null);
+      setThumbnail(undefined);
+      setThumbnailImagePath("");
+      if (proj.title) setThumbnailTitle(proj.title);
+      setScenes(proj.scenes);
+      if (proj.speechConfig) {
+        setSpeechMode(proj.speechConfig.mode);
+        setSpeakers(proj.speechConfig.speakers);
+        setSelectedVoice(proj.speechConfig.defaultVoiceId);
+        setAutoTiming(proj.speechConfig.timingMode === "auto");
+      }
+      setSrtPath(data.srtPath);
+      setMasterAudioPath("");
+      setTtsSuccess(false);
+      setSelectedSceneIndex(0);
+      setWbImportModalData(null);
+
+      setStatusMsg({
+        text: `Đã nhập kịch bản Whiteboard thành công: ${proj.scenes.length} phân cảnh, ${fresh.cuesCount} câu thoại, ${fresh.speakers.length} nhân vật!`,
+        ok: true,
+      });
+    } catch (e) {
+      setStatusMsg({ text: `Không thể nhập bộ WB: ${errText(e)}`, ok: false });
+    } finally {
+      wbImportApplying.current = false;
+      setLoading(false);
     }
-    setSrtPath(data.srtPath);
-    setMasterAudioPath("");
-    setTtsSuccess(false);
-    setSelectedSceneIndex(0);
-    setWbImportModalData(null);
-
-    setStatusMsg({
-      text: `Đã nhập kịch bản Whiteboard thành công: ${proj.scenes.length} phân cảnh, ${data.inspect.cuesCount} câu thoại, ${data.inspect.speakers.length} nhân vật!`,
-      ok: true,
-    });
   };
 
   const handlePickMasterAudio = async () => {
@@ -398,15 +749,15 @@ export function WhiteboardEditor() {
     }
   };
 
-  const handleParseSrt = async () => {
-    if (!srtPath) {
+  const handleParseSrt = async (targetPath = srtPath) => {
+    if (!targetPath) {
       setStatusMsg({ text: "Vui lòng chọn tệp SRT trước.", ok: false });
       return;
     }
     setLoading(true);
     setStatusMsg(null);
     try {
-      const res = await api.parseWhiteboardSrt(srtPath, exactCues);
+      const res = await api.parseWhiteboardSrt(targetPath, exactCues);
 
       // Tự động lập danh sách nhân vật (Character Bible của Whiteboard) từ nhãn SRT
       const detectedNames = new Set<string>();
@@ -463,6 +814,12 @@ export function WhiteboardEditor() {
         inkPath: "grid",
       }));
       setScenes(initialScenes);
+      setSrtPath(targetPath);
+      setMasterAudioPath("");
+      setOutputVideoPath("");
+      setAudioFingerprint(null);
+      setTtsSuccess(false);
+      setProjectRevision(v => v + 1);
       setSelectedSceneIndex(0);
 
       setStatusMsg({
@@ -1282,9 +1639,36 @@ export function WhiteboardEditor() {
               <Layers size={16} color="var(--primary)" />
               <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600 }}>Phân Cảnh ({scenes.length})</h4>
             </div>
-            <button className="secondary-btn" onClick={handleAddScene} style={{ padding: "4px 8px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
-              <Plus size={12} /> Thêm Cảnh
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={handleOpenBatchImageModal}
+                disabled={loading || scenes.length === 0}
+                title="Quét thư mục nạp ảnh hàng loạt cho các phân cảnh (1.png, 2.jpg...)"
+                style={{ padding: "4px 8px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}
+              >
+                <FolderDown size={13} /> Nạp ảnh thư mục
+              </button>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => setBatchAnnoModalOpen(true)}
+                disabled={loading || scenes.length === 0}
+                title="Tạo mẫu nét vẽ hoạt hình cho tất cả hoặc các cảnh còn thiếu"
+                style={{ padding: "4px 8px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}
+              >
+                <Wand2 size={13} /> Tạo mẫu tất cả
+              </button>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={handleAddScene}
+                style={{ padding: "4px 8px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}
+              >
+                <Plus size={12} /> Thêm Cảnh
+              </button>
+            </div>
           </div>
 
           {/* Chọn Loại bút vẽ chung cho toàn bộ dự án & thumbnail */}
@@ -1324,10 +1708,10 @@ export function WhiteboardEditor() {
                 value={srtPath ? srtPath.split("/").pop() : ""}
                 style={{ flex: 1, minWidth: 0, padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
               />
-              <button className="secondary-btn" onClick={handlePickSrt} style={{ padding: "4px 8px", fontSize: "12px", flexShrink: 0 }}>
+              <button className="secondary-btn" disabled={loading || generatingTts} onClick={handlePickSrt} style={{ padding: "4px 8px", fontSize: "12px", flexShrink: 0 }}>
                 Chọn
               </button>
-              <button className="secondary-btn" onClick={handleParseSrt} disabled={!srtPath || loading} style={{ padding: "4px 8px", fontSize: "12px", flexShrink: 0 }}>
+              <button className="secondary-btn" onClick={() => handleParseSrt()} disabled={!srtPath || loading} style={{ padding: "4px 8px", fontSize: "12px", flexShrink: 0 }}>
                 Chia Cảnh
               </button>
               <button
@@ -2090,7 +2474,24 @@ export function WhiteboardEditor() {
           </div>
           {thumbnail && (
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              {thumbnailReady ? (
+              {isImportedThumbnail ? (
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: "#166534",
+                    background: "#f0fdf4",
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    border: "1px solid #bbf7d0",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <CheckCircle2 size={12} /> Bìa hoàn chỉnh (Imported)
+                </span>
+              ) : thumbnailReady ? (
                 <span
                   style={{
                     fontSize: "11px",
@@ -2211,9 +2612,39 @@ export function WhiteboardEditor() {
                   >
                     Cảnh đầu
                   </button>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={handlePickCompleteThumbnail}
+                    title="Nhập ảnh bìa hoàn chỉnh (16:9 hoặc 9:16) mà không cần ghép chữ lại"
+                    style={{ flex: 1.2, padding: "5px 8px", fontSize: "11px", justifyContent: "center", whiteSpace: "nowrap" }}
+                  >
+                    Nhập bìa hoàn chỉnh
+                  </button>
                 </div>
               </div>
             </div>
+
+            {isImportedThumbnail && (
+              <div
+                style={{
+                  fontSize: "12px",
+                  color: "#166534",
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: "6px",
+                  padding: "6px 10px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <CheckCircle2 size={14} />
+                <span>
+                  Đang dùng ảnh bìa hoàn chỉnh (Imported). Khi xuất video, ảnh này được chèn trực tiếp 2 giây đầu mà không cần ghép thêm chữ.
+                </span>
+              </div>
+            )}
 
             <div
               style={{
@@ -2581,6 +3012,13 @@ export function WhiteboardEditor() {
               overflowY: "auto",
             }}
           >
+            {scenes.length > 0 && (
+              <label style={{ display: "flex", gap: "8px", color: "#92400e", fontSize: "13px" }}>
+                <input type="checkbox" checked={wbReplaceConfirmed} disabled={loading}
+                  onChange={e => setWbReplaceConfirmed(e.target.checked)} />
+                Tôi đồng ý thay toàn bộ cảnh hiện tại. Hãy lưu dự án trước nếu cần giữ ảnh và chỉnh sửa cũ.
+              </label>
+            )}
             {wbImportModalData.inspect.valid ? (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#0284c7" }}>
@@ -2590,7 +3028,7 @@ export function WhiteboardEditor() {
                       Phát hiện kịch bản Whiteboard đồng bộ (.wb.json)
                     </h3>
                     <div style={{ fontSize: "12px", color: "#64748b" }}>
-                      Khớp mã băm SHA-256 với tệp phụ đề {wbImportModalData.srtPath.split("/").pop()}
+                      Schema {wbImportModalData.inspect.schemaVersion} · {wbImportModalData.inspect.scenesCount} cảnh · {wbImportModalData.inspect.speechMode === "single" ? "Một giọng" : "Nhiều giọng"} · Khớp SHA-256 với {wbImportModalData.srtPath.split("/").pop()}
                     </div>
                   </div>
                 </div>
@@ -2704,17 +3142,23 @@ export function WhiteboardEditor() {
                 >
                   <button
                     className="secondary-btn"
+                    disabled={loading || (scenes.length > 0 && !wbReplaceConfirmed)}
                     onClick={() => {
+                      if (loading || (scenes.length > 0 && !wbReplaceConfirmed)) return;
+                      const path = wbImportModalData.srtPath;
                       setWbImportModalData(null);
-                      handleParseSrt();
+                      void handleParseSrt(path);
                     }}
                     style={{ padding: "8px 14px", fontSize: "13px" }}
                   >
                     Chỉ chia cảnh theo SRT
                   </button>
+                  <button className="secondary-btn" disabled={loading}
+                    onClick={() => setWbImportModalData(null)}>Hủy nhập</button>
                   <button
                     className="primary-btn"
-                    onClick={() => handleApplyWbImport(wbImportModalData)}
+                    disabled={loading || generatingTts || (scenes.length > 0 && !wbReplaceConfirmed)}
+                    onClick={() => void handleApplyWbImport(wbImportModalData)}
                     style={{
                       padding: "8px 16px",
                       fontSize: "13px",
@@ -2732,10 +3176,10 @@ export function WhiteboardEditor() {
                   <AlertCircle size={24} />
                   <div>
                     <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>
-                      Kịch bản Whiteboard (.wb.json) không khớp
+                      {wbImportError.title}
                     </h3>
                     <div style={{ fontSize: "12px", color: "#64748b" }}>
-                      Phát hiện tệp kịch bản nhưng không thể sử dụng trực tiếp
+                      Không thể nhập bộ WB theo metadata hiện tại
                     </div>
                   </div>
                 </div>
@@ -2759,7 +3203,7 @@ export function WhiteboardEditor() {
                 </div>
 
                 <p style={{ margin: 0, fontSize: "13px", color: "#475569", lineHeight: 1.5 }}>
-                  Tệp phụ đề có thể đã bị chỉnh sửa lệch khỏi kịch bản gốc. Bạn có thể bỏ qua kịch bản và chỉ dùng phụ đề để tự động chia cảnh, hoặc hủy bỏ để kiểm tra lại tệp nguồn.
+                  {wbImportError.description}
                 </p>
 
                 <div
@@ -2774,6 +3218,7 @@ export function WhiteboardEditor() {
                 >
                   <button
                     className="secondary-btn"
+                    disabled={loading}
                     onClick={() => setWbImportModalData(null)}
                     style={{ padding: "8px 14px", fontSize: "13px" }}
                   >
@@ -2781,9 +3226,12 @@ export function WhiteboardEditor() {
                   </button>
                   <button
                     className="primary-btn"
+                    disabled={loading || (scenes.length > 0 && !wbReplaceConfirmed)}
                     onClick={() => {
+                      if (loading || (scenes.length > 0 && !wbReplaceConfirmed)) return;
+                      const path = wbImportModalData.srtPath;
                       setWbImportModalData(null);
-                      handleParseSrt();
+                      void handleParseSrt(path);
                     }}
                     style={{
                       padding: "8px 16px",
@@ -2796,6 +3244,524 @@ export function WhiteboardEditor() {
                   </button>
                 </div>
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal 5: Nạp ảnh phân cảnh hàng loạt từ thư mục */}
+      {batchScanModalOpen && batchScanResult && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.65)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "16px",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "12px",
+              padding: "20px 24px",
+              maxWidth: "850px",
+              width: "100%",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "14px",
+              maxHeight: "90vh",
+              overflowY: "auto",
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", borderBottom: "1px solid #e2e8f0", paddingBottom: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--primary)" }}>
+                <FolderDown size={24} />
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--text-main)" }}>
+                    Nạp ảnh phân cảnh hàng loạt từ thư mục
+                  </h3>
+                  <div style={{ fontSize: "12px", color: "#64748b", fontFamily: "monospace", marginTop: "2px" }}>
+                    {batchScanResult.folderPath}
+                  </div>
+                </div>
+              </div>
+              <button
+                className="icon-btn"
+                onClick={() => setBatchScanModalOpen(false)}
+                title="Đóng"
+                style={{ padding: "4px" }}
+              >
+                <XCircle size={18} />
+              </button>
+            </div>
+
+            {/* Options & Stats bar */}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "10px",
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: "8px",
+                padding: "10px 14px",
+              }}
+            >
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={batchOverwriteExisting}
+                  onChange={(e) => handleToggleBatchOverwrite(e.target.checked)}
+                />
+                Thay ảnh các cảnh đã có ảnh minh họa
+              </label>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" }}>
+                <span style={{ background: "#dcfce7", color: "#166534", padding: "2px 8px", borderRadius: "4px", fontWeight: 600 }}>
+                  Khớp: {batchScanResult.matchedScenesCount}/{batchScanResult.mappings.length} cảnh
+                </span>
+                {batchScanResult.excessImages.length > 0 && (
+                  <span style={{ background: "#fef3c7", color: "#92400e", padding: "2px 8px", borderRadius: "4px" }}>
+                    {batchScanResult.excessImages.length} ảnh dư
+                  </span>
+                )}
+                {batchScanResult.ignoredFiles.length > 0 && (
+                  <span style={{ background: "#f1f5f9", color: "#475569", padding: "2px 8px", borderRadius: "4px" }}>
+                    {batchScanResult.ignoredFiles.length} file bỏ qua
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Mappings Table */}
+            <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", overflow: "hidden", maxHeight: "320px", overflowY: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
+                <thead style={{ background: "#f1f5f9", position: "sticky", top: 0, zIndex: 1 }}>
+                  <tr>
+                    <th style={{ padding: "8px 10px", width: "40px", textAlign: "center" }}>
+                      <input
+                        type="checkbox"
+                        checked={
+                          batchScanResult.mappings.length > 0 &&
+                          batchScanResult.mappings.every((m) => {
+                            const hasValid = Boolean(m.matchedImage || (m.candidateImages && m.candidateImages.length > 0));
+                            return !hasValid || batchSelectedRows[m.sceneIndex];
+                          })
+                        }
+                        onChange={(e) => {
+                          const checkAll = e.target.checked;
+                          setBatchSelectedRows((prev) => {
+                            const next = { ...prev };
+                            batchScanResult.mappings.forEach((m) => {
+                              const hasValid = Boolean(m.matchedImage || (m.candidateImages && m.candidateImages.length > 0));
+                              if (hasValid) next[m.sceneIndex] = checkAll;
+                            });
+                            return next;
+                          });
+                        }}
+                      />
+                    </th>
+                    <th style={{ padding: "8px 10px" }}>Cảnh</th>
+                    <th style={{ padding: "8px 10px" }}>Ảnh đang dùng</th>
+                    <th style={{ padding: "8px 10px" }}>Ảnh mới phát hiện</th>
+                    <th style={{ padding: "8px 10px", width: "130px" }}>Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batchScanResult.mappings.map((mapping) => {
+                    const scene = scenes[mapping.sceneIndex];
+                    const isSelected = Boolean(batchSelectedRows[mapping.sceneIndex]);
+                    const hasCandidates = mapping.candidateImages && mapping.candidateImages.length > 0;
+                    const canSelect = Boolean(mapping.matchedImage || hasCandidates);
+
+                    return (
+                      <tr
+                        key={mapping.sceneIndex}
+                        style={{
+                          borderTop: "1px solid #f1f5f9",
+                          background: isSelected ? "#f0fdf4" : "transparent",
+                        }}
+                      >
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            disabled={!canSelect}
+                            checked={isSelected}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setBatchSelectedRows((prev) => ({
+                                ...prev,
+                                [mapping.sceneIndex]: checked,
+                              }));
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: "8px 10px", fontWeight: 600 }}>
+                          #{mapping.sceneIndex + 1}
+                          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400, marginLeft: "4px" }}>
+                            ({scene ? (scene.durationMs / 1000).toFixed(1) + "s" : ""})
+                          </span>
+                        </td>
+                        <td style={{ padding: "8px 10px", color: mapping.currentImagePath ? "#1e293b" : "#94a3b8" }}>
+                          {mapping.currentImagePath ? mapping.currentImagePath.split(/[/\\]/).pop() : "(Chưa có)"}
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
+                          {mapping.status === "duplicate" && hasCandidates ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                              <select
+                                value={batchChosenDuplicates[mapping.sceneIndex] || mapping.candidateImages[0].path}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setBatchChosenDuplicates((prev) => ({
+                                    ...prev,
+                                    [mapping.sceneIndex]: val,
+                                  }));
+                                }}
+                                style={{
+                                  padding: "4px 6px",
+                                  fontSize: "12px",
+                                  borderRadius: "4px",
+                                  border: "1px solid #cbd5e1",
+                                  maxWidth: "260px",
+                                }}
+                              >
+                                {mapping.candidateImages.map((c) => (
+                                  <option key={c.path} value={c.path}>
+                                    {c.filename} {c.width && c.height ? `(${c.width}x${c.height})` : ""}
+                                  </option>
+                                ))}
+                              </select>
+                              <span style={{ fontSize: "11px", color: "#b45309" }}>
+                                Trùng số thứ tự: vui lòng chọn 1 ảnh để gán
+                              </span>
+                            </div>
+                          ) : mapping.matchedImage ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <span style={{ fontFamily: "monospace", fontWeight: 600 }}>
+                                {mapping.matchedImage.filename}
+                              </span>
+                              {mapping.matchedImage.width && mapping.matchedImage.height && (
+                                <span style={{ fontSize: "11px", color: "#64748b" }}>
+                                  ({mapping.matchedImage.width}×{mapping.matchedImage.height})
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span style={{ color: "#94a3b8", fontStyle: "italic" }}>
+                              (Không có ảnh khớp)
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
+                          {mapping.status === "ready" && (
+                            <span style={{ background: "#dcfce7", color: "#166534", padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: 600 }}>
+                              Sẵn sàng
+                            </span>
+                          )}
+                          {mapping.status === "duplicate" && (
+                            <span style={{ background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: 600 }}>
+                              Trùng tên
+                            </span>
+                          )}
+                          {mapping.status === "missing" && (
+                            <span style={{ background: "#f1f5f9", color: "#64748b", padding: "2px 6px", borderRadius: "4px", fontSize: "11px" }}>
+                              Thiếu ảnh
+                            </span>
+                          )}
+                          {mapping.status === "error" && (
+                            <span style={{ background: "#fee2e2", color: "#991b1b", padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: 600 }} title={mapping.error}>
+                              Lỗi ảnh
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Thumbnail Candidate Selection */}
+            {batchScanResult.thumbnailCandidates.length > 0 && (
+              <div
+                style={{
+                  background: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: "8px",
+                  padding: "10px 14px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 600, fontSize: "13px", color: "#1e40af" }}>
+                  <ImageIcon size={16} /> Phát hiện ảnh bìa (Thumbnail):
+                </div>
+
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "14px", fontSize: "12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ color: "#475569" }}>Chọn file:</span>
+                    <select
+                      value={batchChosenThumbnail || ""}
+                      onChange={(e) => setBatchChosenThumbnail(e.target.value || null)}
+                      style={{ padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                    >
+                      {batchScanResult.thumbnailCandidates.map((c) => (
+                        <option key={c.path} value={c.path}>
+                          {c.filename} {c.width && c.height ? `(${c.width}×${c.height} · ${c.aspectRatio || ""})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+                      <input
+                        type="radio"
+                        name="batchThumbnailMode"
+                        value="imported"
+                        checked={batchThumbnailMode === "imported"}
+                        onChange={() => setBatchThumbnailMode("imported")}
+                      />
+                      <span>Bìa hoàn chỉnh (không phủ chữ)</span>
+                    </label>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+                      <input
+                        type="radio"
+                        name="batchThumbnailMode"
+                        value="generated"
+                        checked={batchThumbnailMode === "generated"}
+                        onChange={() => setBatchThumbnailMode("generated")}
+                      />
+                      <span>Ảnh minh họa (ghép chữ trong app)</span>
+                    </label>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+                      <input
+                        type="radio"
+                        name="batchThumbnailMode"
+                        value="none"
+                        checked={batchThumbnailMode === "none"}
+                        onChange={() => setBatchThumbnailMode("none")}
+                      />
+                      <span>Không dùng</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Extra files info */}
+            {(batchScanResult.excessImages.length > 0 || batchScanResult.ignoredFiles.length > 0) && (
+              <div style={{ fontSize: "11px", color: "#64748b", display: "flex", flexDirection: "column", gap: "2px" }}>
+                {batchScanResult.excessImages.length > 0 && (
+                  <div>
+                    • <strong>Ảnh vượt quá số cảnh:</strong>{" "}
+                    {batchScanResult.excessImages.map((e) => e.filename).join(", ")}
+                  </div>
+                )}
+                {batchScanResult.ignoredFiles.length > 0 && (
+                  <div>
+                    • <strong>File bỏ qua (không theo quy tắc tên số):</strong>{" "}
+                    {batchScanResult.ignoredFiles.join(", ")}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Footer Buttons */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", borderTop: "1px solid #e2e8f0", paddingTop: "12px" }}>
+              <button
+                className="secondary-btn"
+                onClick={() => setBatchScanModalOpen(false)}
+                style={{ padding: "7px 14px", fontSize: "13px" }}
+              >
+                Hủy
+              </button>
+              <button
+                className="primary-btn"
+                onClick={handleApplyBatchImages}
+                disabled={Object.values(batchSelectedRows).filter(Boolean).length === 0}
+                style={{ padding: "7px 16px", fontSize: "13px" }}
+              >
+                Áp dụng cho {Object.values(batchSelectedRows).filter(Boolean).length} cảnh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 6: Tạo mẫu nét vẽ hoạt hình hàng loạt */}
+      {batchAnnoModalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.65)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "16px",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "12px",
+              padding: "20px 24px",
+              maxWidth: "540px",
+              width: "100%",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "14px",
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--primary)", borderBottom: "1px solid #e2e8f0", paddingBottom: "10px" }}>
+              <Wand2 size={24} />
+              <div>
+                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--text-main)" }}>
+                  Tạo mẫu nét vẽ hoạt hình hàng loạt
+                </h3>
+                <div style={{ fontSize: "12px", color: "#64748b" }}>
+                  Tự động phân tích ảnh và sinh lịch vẽ annotation theo thời gian thoại
+                </div>
+              </div>
+            </div>
+
+            {!isBatchAnnotating ? (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px", fontSize: "13px" }}>
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="batchAnnoMode"
+                      value="missing"
+                      checked={batchAnnoMode === "missing"}
+                      onChange={() => setBatchAnnoMode("missing")}
+                      style={{ marginTop: "3px" }}
+                    />
+                    <div>
+                      <strong>Chỉ tạo mẫu cho các cảnh còn thiếu (Khuyến nghị)</strong>
+                      <div style={{ fontSize: "12px", color: "#64748b" }}>
+                        Bỏ qua các cảnh đã có annotation để bảo toàn các chỉnh sửa vùng vẽ trước đó.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="batchAnnoMode"
+                      value="all"
+                      checked={batchAnnoMode === "all"}
+                      onChange={() => setBatchAnnoMode("all")}
+                      style={{ marginTop: "3px" }}
+                    />
+                    <div>
+                      <strong>Tạo lại toàn bộ các cảnh đã có ảnh minh họa</strong>
+                      <div style={{ fontSize: "12px", color: "#b45309" }}>
+                        Lưu ý: Sẽ tính toán lại nét vẽ và ghi đè toàn bộ các vùng vẽ đã chỉnh sửa thủ công.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                <div
+                  style={{
+                    backgroundColor: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "8px",
+                    padding: "10px 14px",
+                    fontSize: "12px",
+                    color: "#475569",
+                  }}
+                >
+                  <div>
+                    • Tổng số cảnh có ảnh: <strong>{scenes.filter((s) => Boolean(s.imagePath)).length}/{scenes.length}</strong>
+                  </div>
+                  <div>
+                    • Cảnh chưa có annotation:{" "}
+                    <strong>{scenes.filter((s) => Boolean(s.imagePath) && (!s.annotationPath || !s.elements || s.elements.length === 0)).length}</strong>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", borderTop: "1px solid #e2e8f0", paddingTop: "12px" }}>
+                  <button
+                    className="secondary-btn"
+                    onClick={() => setBatchAnnoModalOpen(false)}
+                    style={{ padding: "7px 14px", fontSize: "13px" }}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    className="primary-btn"
+                    onClick={handleStartBatchAnnotation}
+                    style={{ padding: "7px 16px", fontSize: "13px" }}
+                  >
+                    Bắt đầu tạo mẫu
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)" }}>
+                  Đang tạo mẫu cảnh {batchAnnoProgress?.current}/{batchAnnoProgress?.total} ({batchAnnoProgress?.currentSceneId})...
+                </div>
+
+                <div style={{ width: "100%", height: "8px", borderRadius: "4px", background: "#e2e8f0", overflow: "hidden" }}>
+                  <div
+                    style={{
+                      width: `${batchAnnoProgress ? (batchAnnoProgress.current / batchAnnoProgress.total) * 100 : 0}%`,
+                      height: "100%",
+                      background: "var(--primary)",
+                      transition: "width 0.2s",
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#64748b" }}>
+                  <span>Thành công: <strong style={{ color: "#166534" }}>{batchAnnoProgress?.success || 0}</strong></span>
+                  <span>Lỗi: <strong style={{ color: "#991b1b" }}>{batchAnnoProgress?.error || 0}</strong></span>
+                </div>
+
+                {batchAnnoProgress && batchAnnoProgress.errors.length > 0 && (
+                  <div style={{ maxHeight: "100px", overflowY: "auto", fontSize: "11px", color: "#991b1b", background: "#fef2f2", padding: "6px 8px", borderRadius: "4px" }}>
+                    {batchAnnoProgress.errors.map((e, idx) => (
+                      <div key={idx}>• {e.sceneId}: {e.error}</div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "6px" }}>
+                  <button
+                    className="secondary-btn"
+                    onClick={() => {
+                      batchAnnoCancelRequested.current = true;
+                    }}
+                    style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px", fontSize: "12px", color: "#b91c1c" }}
+                  >
+                    <StopCircle size={14} /> Dừng sau cảnh hiện tại
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>

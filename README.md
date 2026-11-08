@@ -5,7 +5,29 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.8.0 (Whiteboard Character Bible & WB Schema 3 Import)
+## 📦 Phiên Bản Hiện Tại: v0.8.1 (Whiteboard Batch Image Import & Batch Annotation)
+
+Bản cập nhật lớn nâng cấp quy trình làm việc Whiteboard, giảm thao tác lặp từ nạp từng ảnh và tạo mẫu từng cảnh thành các thao tác hàng loạt thông minh:
+
+### 🖼️ 1. Nạp Ảnh Phân Cảnh Hàng Loạt Từ Thư Mục (Batch Image Import)
+- **Quét & Khớp Thứ Tự Tự Động**: Quét thư mục ảnh và khớp theo số nguyên dương stem (`1.png`, `02.jpg`, `10.png`... tương ứng với cảnh #1, #2, #10).
+- **Hộp Thoại Preview & Xử Lý Trùng/Thiếu**: Bảng xem trước trực quan hiển thị kích thước, định dạng, trạng thái sẵn sàng / thiếu / trùng; cho phép người dùng chọn ảnh khi có nhiều file cùng số thứ tự (ví dụ `1.png` và `01.jpg`).
+- **Lựa Chọn Ghi Đè Linh Hoạt**: Mặc định chỉ điền các cảnh chưa có ảnh minh họa, hoặc tùy chọn thay thế ảnh các cảnh đã có.
+- **Hỗ Trợ Định Dạng Mở Rộng**: Đầy đủ hỗ trợ `.png`, `.jpg`, `.jpeg`, `.webp` trên toàn bộ các tầng Rust Backend, Tauri IPC, sidecar và Fabric.js.
+
+### ✨ 2. Tạo Mẫu Nét Vẽ Hoạt Hình Hàng Loạt (Batch Annotation Generation)
+- **Nút "Tạo Mẫu Tất Cả"**: Xử lý tuần tự sinh nét vẽ cho toàn bộ dự án dựa trên thời gian thoại thực tế.
+- **Bảo Toàn Mẫu Đã Chỉnh Sửa**: Tùy chọn "Chỉ tạo mẫu còn thiếu" giúp giữ nguyên các cảnh đã tinh chỉnh vùng vẽ thủ công.
+- **Timing Tương Đối Theo Cảnh**: Chuẩn hóa độ lệch thời gian cue tương đối theo mốc bắt đầu của cảnh (`cue.startMs - scene.timelineStartMs`), bảo đảm hiển thị nét vẽ đồng bộ tuyệt đối với giọng đọc.
+- **Quản Lý Tiến Độ & Nút Dừng**: Theo dõi tiến độ chi tiết, tổng kết số cảnh thành công/lỗi, hỗ trợ nút "Dừng sau cảnh hiện tại" an toàn.
+
+### 🎨 3. Hỗ Trợ Ảnh Bìa Hoàn Chỉnh (Imported Complete Thumbnail)
+- **Nhận Diện Ứng Viên Bìa Tự Động**: Tự động phát hiện các file `thumb.png`, `thumbnail-9x16.png`, v.v. trong thư mục ảnh mà không đưa vào danh sách cảnh.
+- **Chế Độ Imported Không Phủ Chữ**: Cho phép nhập trực tiếp ảnh bìa đã thiết kế sẵn (16:9 hoặc 9:16) và chèn nguyên bản 2 giây đầu khi xuất video mà không cần ghép chữ đè lên.
+
+---
+
+## 📦 Phiên Bản Trước: v0.8.0 (Whiteboard Character Bible & WB Schema 3 Import)
 
 Bản cập nhật lớn hoàn thiện hệ thống **Đa giọng đọc đối thoại (Character Bible)** và **Nhập kịch bản đồng bộ Whiteboard Schema 3 (.wb.json & .srt)**:
 

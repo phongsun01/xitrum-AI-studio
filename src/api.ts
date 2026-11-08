@@ -12,6 +12,8 @@ import {
   WhiteboardProject,
   WhiteboardImageAnalysis,
   WhiteboardWbInspectResult,
+  WhiteboardThumbnail,
+  WhiteboardFolderScanResult,
 } from "./types/whiteboard";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
@@ -476,6 +478,25 @@ export const api = {
 
   inspectWhiteboardWbImport: (srtPath: string, wbJsonPath?: string | null) =>
     invoke<WhiteboardWbInspectResult>("inspect_whiteboard_wb_import", { srtPath, wbJsonPath: wbJsonPath ?? null }),
+
+  scanWhiteboardFolderImages: (
+    folderPath: string,
+    scenesCount: number,
+    sceneIds: string[],
+    currentImagePaths?: (string | null | undefined)[]
+  ) =>
+    invoke<WhiteboardFolderScanResult>("scan_whiteboard_folder_images", {
+      folderPath,
+      scenesCount,
+      sceneIds,
+      currentImagePaths: currentImagePaths ?? null,
+    }),
+
+  importWhiteboardCompleteThumbnail: (imagePath: string, title?: string | null) =>
+    invoke<WhiteboardThumbnail>("import_whiteboard_complete_thumbnail", {
+      imagePath,
+      title: title ?? null,
+    }),
 
   generateWhiteboardAnnotation: (
     imagePath: string,

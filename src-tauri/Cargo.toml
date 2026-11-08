@@ -1,6 +1,6 @@
 [package]
 name = "xitrum-ai-studio"
-version = "0.8.0"
+version = "0.8.1"
 description = "Xitrum AI Studio desktop app on Tauri v2"
 authors = ["you"]
 edition = "2021"
@@ -41,7 +41,7 @@ tracing-appender = "0.2"
 # Rembg (ONNX Runtime)
 ort = "2.0.0-rc.15"
 ndarray = "0.17"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 # System opener
 opener = "0.7"

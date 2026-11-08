@@ -131,6 +131,8 @@ pub fn run() {
             render_whiteboard_preview,
             merge_whiteboard_scenes,
             read_whiteboard_cover_image,
+            scan_whiteboard_folder_images,
+            import_whiteboard_complete_thumbnail,
             save_whiteboard_project,
             save_whiteboard_annotation,
             load_whiteboard_project,

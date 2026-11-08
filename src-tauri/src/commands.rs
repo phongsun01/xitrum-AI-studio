@@ -1896,9 +1896,11 @@ pub struct WhiteboardThumbnailDraft {
     pub image_path: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WhiteboardThumbnail {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_choice: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1915,7 +1917,10 @@ pub struct WhiteboardThumbnail {
 
 fn thumbnail_png(thumbnail: &WhiteboardThumbnail) -> anyhow::Result<String> {
     use base64::{engine::general_purpose, Engine as _};
-    anyhow::ensure!(!thumbnail.title.trim().is_empty(), "Thumbnail thiếu tiêu đề");
+    let is_imported = thumbnail.mode.as_deref() == Some("imported");
+    if !is_imported {
+        anyhow::ensure!(!thumbnail.title.trim().is_empty(), "Thumbnail thiếu tiêu đề");
+    }
     let encoded = thumbnail.png_data_url.strip_prefix("data:image/png;base64,")
         .ok_or_else(|| anyhow::anyhow!("Thumbnail phải là PNG"))?;
     anyhow::ensure!(encoded.len() <= 24 * 1024 * 1024, "Thumbnail quá lớn");
@@ -1953,6 +1958,247 @@ pub async fn read_whiteboard_cover_image(image_path: String, app: tauri::AppHand
         let mut png = std::io::Cursor::new(Vec::new());
         image.write_to(&mut png, image::ImageFormat::Png)?;
         Ok(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(png.into_inner())))
+    }).await
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhiteboardFolderImageItem {
+    pub path: String,
+    pub filename: String,
+    pub stem: String,
+    pub extension: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<String>,
+    pub file_size: u64,
+    pub fingerprint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhiteboardSceneImageMapping {
+    pub scene_index: usize,
+    pub scene_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_image_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_image: Option<WhiteboardFolderImageItem>,
+    pub candidate_images: Vec<WhiteboardFolderImageItem>,
+    pub status: String, // "ready" | "missing" | "duplicate" | "error"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhiteboardFolderScanResult {
+    pub folder_path: String,
+    pub total_files_scanned: usize,
+    pub matched_scenes_count: usize,
+    pub mappings: Vec<WhiteboardSceneImageMapping>,
+    pub thumbnail_candidates: Vec<WhiteboardFolderImageItem>,
+    pub excess_images: Vec<WhiteboardFolderImageItem>,
+    pub ignored_files: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn scan_whiteboard_folder_images(
+    folder_path: String,
+    scenes_count: usize,
+    scene_ids: Vec<String>,
+    current_image_paths: Option<Vec<Option<String>>>,
+) -> Result<WhiteboardFolderScanResult, AppError> {
+    whiteboard_blocking(move || {
+        use std::path::Path;
+        let p = Path::new(&folder_path);
+        anyhow::ensure!(p.is_dir(), "Đường dẫn không phải thư mục: {}", folder_path);
+
+        let errors = Vec::new();
+        let mut ignored_files = Vec::new();
+        let mut thumbnail_candidates = Vec::new();
+        let mut excess_images = Vec::new();
+        let mut numbered_images: std::collections::BTreeMap<usize, Vec<WhiteboardFolderImageItem>> = std::collections::BTreeMap::new();
+        let mut total_files = 0;
+
+        let entries = std::fs::read_dir(p)?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            total_files += 1;
+            let filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let ext = path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
+            let stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+            let stem_lower = stem.to_lowercase();
+
+            if !matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") {
+                ignored_files.push(filename);
+                continue;
+            }
+
+            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let mut width = None;
+            let mut height = None;
+            let mut aspect_ratio = None;
+            let mut item_error = None;
+
+            match image::ImageReader::open(&path)
+                .map_err(|e| anyhow::anyhow!(e))
+                .and_then(|r| r.with_guessed_format().map_err(|e| anyhow::anyhow!(e)))
+                .and_then(|r| r.into_dimensions().map_err(|e| anyhow::anyhow!(e)))
+            {
+                Ok((w, h)) => {
+                    width = Some(w);
+                    height = Some(h);
+                    let ar = if h > w { "9:16" } else { "16:9" };
+                    aspect_ratio = Some(ar.to_string());
+                }
+                Err(e) => {
+                    item_error = Some(format!("Không thể đọc kích thước ảnh: {e}"));
+                }
+            }
+
+            let fingerprint = if file_size <= 64 * 1024 * 1024 {
+                use sha2::{Digest, Sha256};
+                std::fs::read(&path).map(|b| format!("{:x}", Sha256::digest(&b))).unwrap_or_default()
+            } else {
+                format!("size-{}", file_size)
+            };
+
+            let item = WhiteboardFolderImageItem {
+                path: path.to_string_lossy().to_string(),
+                filename: filename.clone(),
+                stem: stem.clone(),
+                extension: ext.clone(),
+                width,
+                height,
+                aspect_ratio,
+                file_size,
+                fingerprint,
+                error: item_error,
+            };
+
+            if stem_lower == "thumb" || stem_lower == "thumbnail" || stem_lower == "cover"
+                || stem_lower.starts_with("thumb-") || stem_lower.starts_with("thumb_")
+                || stem_lower.starts_with("thumbnail-") || stem_lower.starts_with("thumbnail_") {
+                thumbnail_candidates.push(item);
+                continue;
+            }
+
+            if !stem.is_empty() && stem.chars().all(|c| c.is_ascii_digit()) {
+                if let Ok(num) = stem.parse::<usize>() {
+                    if num > 0 {
+                        if num <= scenes_count {
+                            numbered_images.entry(num).or_default().push(item);
+                        } else {
+                            excess_images.push(item);
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            ignored_files.push(filename);
+        }
+
+        let mut mappings = Vec::new();
+        let mut matched_count = 0;
+        let curr_paths = current_image_paths.unwrap_or_default();
+
+        for i in 1..=scenes_count {
+            let scene_id = scene_ids.get(i - 1).cloned().unwrap_or_else(|| format!("scene-{:02}", i));
+            let current_image_path = curr_paths.get(i - 1).and_then(|opt| opt.clone());
+
+            let candidates = numbered_images.remove(&i).unwrap_or_default();
+            let (status, matched, error) = if candidates.is_empty() {
+                ("missing".to_string(), None, None)
+            } else if candidates.len() == 1 {
+                let first = candidates[0].clone();
+                if first.error.is_some() {
+                    ("error".to_string(), Some(first), Some("Tệp ảnh không hợp lệ hoặc bị lỗi".to_string()))
+                } else {
+                    matched_count += 1;
+                    ("ready".to_string(), Some(first), None)
+                }
+            } else {
+                ("duplicate".to_string(), None, Some(format!("Trùng lặp: tìm thấy {} ảnh cho cảnh {}", candidates.len(), i)))
+            };
+
+            mappings.push(WhiteboardSceneImageMapping {
+                scene_index: i,
+                scene_id,
+                current_image_path,
+                matched_image: matched,
+                candidate_images: candidates,
+                status,
+                error,
+            });
+        }
+
+        Ok(WhiteboardFolderScanResult {
+            folder_path,
+            total_files_scanned: total_files,
+            matched_scenes_count: matched_count,
+            mappings,
+            thumbnail_candidates,
+            excess_images,
+            ignored_files,
+            errors,
+        })
+    }).await
+}
+
+#[tauri::command]
+pub async fn import_whiteboard_complete_thumbnail(
+    image_path: String,
+    title: Option<String>,
+) -> Result<WhiteboardThumbnail, AppError> {
+    whiteboard_blocking(move || {
+        use base64::{engine::general_purpose, Engine as _};
+        use std::path::Path;
+        let p = Path::new(&image_path);
+        anyhow::ensure!(p.is_file(), "Tệp ảnh không tồn tại: {}", image_path);
+
+        let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let mut reader = image::ImageReader::open(p)?.with_guessed_format()?;
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(16384);
+        limits.max_image_height = Some(16384);
+        limits.max_alloc = Some(256 * 1024 * 1024);
+        reader.limits(limits);
+
+        let decoded = reader.decode()?;
+        let (w, h) = (decoded.width(), decoded.height());
+        let (target_w, target_h, aspect_ratio) = if h > w {
+            (720u32, 1280u32, "9:16")
+        } else {
+            (1280u32, 720u32, "16:9")
+        };
+
+        let resized = decoded.resize_to_fill(target_w, target_h, image::imageops::FilterType::Lanczos3);
+        let mut png = std::io::Cursor::new(Vec::new());
+        resized.write_to(&mut png, image::ImageFormat::Png)?;
+        let png_data_url = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(png.into_inner()));
+
+        Ok(WhiteboardThumbnail {
+            mode: Some("imported".to_string()),
+            font_choice: None,
+            typography_version: None,
+            title: title.unwrap_or_else(|| stem),
+            image_path: image_path.clone(),
+            pen_type: "pen".to_string(),
+            png_data_url,
+            layout: Some("full-bleed-top".to_string()),
+            aspect_ratio: Some(aspect_ratio.to_string()),
+        })
     }).await
 }
 
@@ -2451,6 +2697,7 @@ mod whiteboard_review_regression_tests {
         image::DynamicImage::new_rgb8(1280, 720).write_to(&mut png, image::ImageFormat::Png).unwrap();
         let encoded = general_purpose::STANDARD.encode(png.into_inner());
         p.thumbnail = Some(WhiteboardThumbnail {
+            mode: Some("generated".into()),
             font_choice: Some("grenzegotisch".into()), typography_version: Some(1),
             title: "Tam Anh Chiến Lữ Bố".into(), image_path: "cover.png".into(),
             layout: Some("full-bleed-top".into()),
@@ -2524,6 +2771,41 @@ mod whiteboard_review_regression_tests {
     }
 
     #[test]
+    fn whiteboard_single_voice_three_scenes_roundtrip() {
+        let mut p = project();
+        let mut scenes = Vec::new();
+        for i in 0..3 {
+            let mut scene = serde_json::to_value(&p.scenes[0]).unwrap();
+            scene["id"] = serde_json::json!(format!("scene-{}", i + 1));
+            scene["order"] = serde_json::json!(i + 1);
+            scene["timelineStartMs"] = serde_json::json!(i * 1000);
+            scene["timelineEndMs"] = serde_json::json!((i + 1) * 1000);
+            scene["cues"] = serde_json::json!([{
+                "id": format!("cue-{}", i + 1), "index": i + 1,
+                "startMs": i * 1000, "endMs": (i + 1) * 1000, "durMs": 1000,
+                "text": "Lời kể", "spokenText": "Lời kể", "speakerId": null
+            }]);
+            scenes.push(serde_json::from_value(scene).unwrap());
+        }
+        p.scenes = scenes;
+        p.speech_config = Some(WhiteboardSpeechConfig {
+            mode: "single".into(), default_voice_id: "Thái Sơn".into(), timing_mode: "fixed".into(),
+            speakers: vec![], audio_fingerprint: None,
+        });
+        let path = std::env::temp_dir().join(format!("wb-single-{}.json", uuid::Uuid::new_v4()));
+        let name = path.to_string_lossy().to_string();
+        tauri::async_runtime::block_on(save_whiteboard_project(name.clone(), p)).unwrap();
+        let reopened = tauri::async_runtime::block_on(load_whiteboard_project(name)).unwrap();
+        let config = reopened.speech_config.unwrap();
+        assert_eq!(config.mode, "single");
+        assert_eq!(config.default_voice_id, "Thái Sơn");
+        assert!(config.speakers.is_empty());
+        assert_eq!(reopened.scenes.len(), 3);
+        assert!(reopened.scenes.iter().all(|s| s.cues.len() == 1 && s.cues[0]["speakerId"].is_null()));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn whiteboard_master_timeline_rejects_reorder_and_retime() {
         let mut p = project();
         assert!(validate_whiteboard_project_timeline(&p).is_ok());
@@ -2584,6 +2866,118 @@ mod whiteboard_review_regression_tests {
         publish_whiteboard_scene(&part, &final_path).unwrap();
         assert!(!std::path::Path::new(&format!("{}.manifest.json",final_path)).exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn whiteboard_scan_folder_mapping_rules_test() {
+        let dir = std::env::temp_dir().join(format!("wb-scan-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let save_dummy_image = |filename: &str, w: u32, h: u32| {
+            let path = dir.join(filename);
+            let img = image::RgbImage::new(w, h);
+            img.save(&path).unwrap();
+        };
+
+        save_dummy_image("1.png", 100, 100);
+        save_dummy_image("01.jpg", 100, 100); // duplicate with 1.png
+        save_dummy_image("02.png", 200, 100); // scene 2
+        save_dummy_image("10.png", 100, 100); // excess for 3 scenes
+        save_dummy_image("thumb.png", 1280, 720); // thumbnail candidate
+        save_dummy_image("thumbnail-9x16.png", 720, 1280); // thumbnail candidate
+        std::fs::write(dir.join("notes.txt"), b"ignore this").unwrap();
+
+        let scene_ids = vec!["s1".into(), "s2".into(), "s3".into()];
+        let res = tauri::async_runtime::block_on(scan_whiteboard_folder_images(
+            dir.to_string_lossy().to_string(),
+            3,
+            scene_ids,
+            None,
+        )).unwrap();
+
+        assert_eq!(res.total_files_scanned, 7);
+        assert_eq!(res.mappings.len(), 3);
+
+        // Scene 1: duplicate (1.png & 01.jpg)
+        assert_eq!(res.mappings[0].scene_index, 1);
+        assert_eq!(res.mappings[0].status, "duplicate");
+        assert_eq!(res.mappings[0].candidate_images.len(), 2);
+
+        // Scene 2: ready (02.png)
+        assert_eq!(res.mappings[1].scene_index, 2);
+        assert_eq!(res.mappings[1].status, "ready");
+        assert!(res.mappings[1].matched_image.is_some());
+        assert_eq!(res.mappings[1].matched_image.as_ref().unwrap().filename, "02.png");
+
+        // Scene 3: missing
+        assert_eq!(res.mappings[2].scene_index, 3);
+        assert_eq!(res.mappings[2].status, "missing");
+
+        // Thumbnail candidates: 2 files
+        assert_eq!(res.thumbnail_candidates.len(), 2);
+        let thumb_names: Vec<_> = res.thumbnail_candidates.iter().map(|t| t.filename.as_str()).collect();
+        assert!(thumb_names.contains(&"thumb.png"));
+        assert!(thumb_names.contains(&"thumbnail-9x16.png"));
+
+        // Excess images: 10.png
+        assert_eq!(res.excess_images.len(), 1);
+        assert_eq!(res.excess_images[0].filename, "10.png");
+
+        // Ignored files: notes.txt
+        assert!(res.ignored_files.contains(&"notes.txt".to_string()));
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn whiteboard_imported_complete_thumbnail_test() {
+        let dir = std::env::temp_dir().join(format!("wb-thumb-import-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("thumbnail-9x16.png");
+        image::RgbImage::new(1080, 1920).save(&path).unwrap();
+
+        let thumb = tauri::async_runtime::block_on(import_whiteboard_complete_thumbnail(
+            path.to_string_lossy().to_string(),
+            Some("Đổng Trác Uống Trà".into()),
+        )).unwrap();
+
+        assert_eq!(thumb.mode.as_deref(), Some("imported"));
+        assert_eq!(thumb.aspect_ratio.as_deref(), Some("9:16"));
+        assert_eq!(thumb.title, "Đổng Trác Uống Trà");
+
+        let png_bytes = thumbnail_png(&thumb).unwrap();
+        assert!(!png_bytes.is_empty());
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn whiteboard_scan_dong_trac_real_project_folder_test() {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let proj_dir = manifest_dir.parent().unwrap().join("wb-projects").join("04. Dong Trac uong tra");
+        if !proj_dir.exists() {
+            return;
+        }
+
+        let scene_ids = vec!["scene-01".into(), "scene-02".into(), "scene-03".into()];
+        let res = tauri::async_runtime::block_on(scan_whiteboard_folder_images(
+            proj_dir.to_string_lossy().to_string(),
+            3,
+            scene_ids,
+            None,
+        )).unwrap();
+
+        assert_eq!(res.matched_scenes_count, 3);
+        assert_eq!(res.mappings[0].status, "ready");
+        assert_eq!(res.mappings[0].matched_image.as_ref().unwrap().filename, "1.png");
+        assert_eq!(res.mappings[1].status, "ready");
+        assert_eq!(res.mappings[1].matched_image.as_ref().unwrap().filename, "2.png");
+        assert_eq!(res.mappings[2].status, "ready");
+        assert_eq!(res.mappings[2].matched_image.as_ref().unwrap().filename, "3.png");
+
+        assert_eq!(res.thumbnail_candidates.len(), 1);
+        assert_eq!(res.thumbnail_candidates[0].filename, "thumbnail-9x16.png");
+        assert_eq!(res.thumbnail_candidates[0].aspect_ratio.as_deref(), Some("9:16"));
     }
 }
 

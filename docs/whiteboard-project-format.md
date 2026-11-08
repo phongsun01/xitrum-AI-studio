@@ -64,9 +64,19 @@ Dự án hỗ trợ lưu bảng phân vai giọng đọc (`speechConfig`) theo m
   - `speakerName`: Tên nhân vật bóc tách từ nhãn hoặc null nếu là người dẫn chuyện.
   - `speakerId`: ID nhân vật phân vai trong `speechConfig.speakers` (hoặc null nếu dùng giọng mặc định/người dẫn chuyện).
 
-## Định dạng Nhập bộ Whiteboard Schema 3 (`.wb.json` & `.srt`)
+## Định dạng nhập bộ Whiteboard schema 2/3 (`.wb.json` & `.srt`)
 
-Hệ thống hỗ trợ nhập đồng bộ dự án từ công cụ tạo kịch bản Whiteboard (skill `/wb`), bao gồm tệp kịch bản `.wb.json` (Schema 3) và tệp phụ đề `<slug>.srt`.
+Hệ thống hỗ trợ bộ `<slug>.wb.json` và `<slug>.srt` từ skill `/wb`: schema 2 một giọng hoặc schema 3 nhiều giọng. Đây là metadata nhập, không phải project `.whiteboard.json`.
+
+### Schema 2 — một giọng
+
+- `schema_version: 2`; `options.speech` là `single` (được thiếu ở bộ cũ).
+- `scenes` là danh sách `{index, start_ms, end_ms, text, ...}`; không yêu cầu `cues` hoặc `speech.speakers`.
+- Mỗi scene tương ứng một cue SRT và một cảnh trong editor. Hash, số scene/cue, nội dung và timestamp phải khớp SRT; thời gian liên tục từ 0.
+- Import chuyển đổi trong bộ nhớ, không sửa SRT/JSON gốc. Mỗi cue có ID ổn định, lời nguyên vẹn và `speakerId: null`; thư viện nhân vật tạo hình không trở thành bảng giọng.
+- Editor dùng `speechConfig.mode: single`, giữ giọng mặc định và lựa chọn timing đang dùng; bảng phân vai không tự mở.
+
+Schema chưa hỗ trợ trả `WB_SCHEMA_MISMATCH`; cấu trúc JSON sai trả `WB_INVALID_METADATA`/`WB_INVALID_JSON`; hash/nội dung/timestamp lệch SRT trả các lỗi mismatch tương ứng. UI giải thích riêng từng nhóm, không kết luận SRT đã bị sửa khi chỉ gặp lỗi schema.
 
 ### 1. Cấu trúc tệp `<slug>.wb.json` (Schema 3)
 ```json

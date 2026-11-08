@@ -422,7 +422,42 @@ Thực hiện **I1 → I2 → I3 → I4 → I5 → I6**. I1–I2 có thể hoàn
   2. **Tổng kết hoàn thành toàn bộ Kế hoạch**:
      - Hoàn thành đầy đủ 4 mốc nền tảng (M1 $\rightarrow$ M4): Parse nhãn SRT, Character Bible UI, TTS Runner đa giọng, Xuất/Mở dự án với `speechConfig` và bảo vệ audio fingerprint.
      - Hoàn thành đầy đủ 6 mốc bổ sung (I1 $\rightarrow$ I6): Chuẩn bị mẫu Schema 3, Parser & Validator SHA-256, Adapter cấu trúc dữ liệu, UI Modal preview & import, Test suite liên thông toàn trình 100% passed, Tài liệu hóa hoàn chỉnh.
-     - Toàn bộ hệ thống sẵn sàng phát hành chính thức phiên bản `v0.8.0`.
+     - Báo cáo tại thời điểm triển khai ghi nhận hệ thống sẵn sàng phát hành `v0.8.0`; kết quả kiểm tra và bản sửa bổ sung bên dưới cập nhật các giới hạn của kết luận này.
+
+## Khắc phục các lỗi phát hiện khi kiểm tra độc lập — 09/11/2026
+
+Đã sửa lần lượt các lỗi import WB được tái hiện:
+
+1. `voice_id: null` không còn gây exception. Backend giữ trạng thái chưa chọn; adapter dùng giọng mặc định hiện tại của dự án và preview có cảnh báo. Giọng được chỉ định nhưng không tồn tại được giữ nguyên kèm cảnh báo chọn lại, không tự thay sang giọng khác; TTS nghiêm ngặt tiếp tục từ chối giọng sai.
+2. Validator đối chiếu nội dung, timestamp và lời sạch từng cue với SRT; kiểm tra nhãn/người nói, ID trùng, thứ tự/coverage nhóm cảnh, scene index và cửa sổ thời gian. Metadata sai kiểu trả lỗi có cấu trúc. Không tự kéo cảnh ngắn lên một giây; giữ lời nhiều dòng của cùng người nói.
+3. Apply import đọc lại cả SRT và JSON, so fingerprint của hai file với preview; từ chối kết quả nếu file hoặc dự án thay đổi. UI yêu cầu xác nhận thay cảnh, có nút hủy, không đổi SRT/audio khi chỉ mở preview. Khi nhập thành công, tăng revision, áp dụng timing và reset audio fingerprint, master audio, video và thumbnail cũ.
+4. Tìm metadata giữ nguyên stem có nhiều dấu chấm: `story.v2.srt` → `story.v2.wb.json`.
+5. Giọng dẫn chuyện và lựa chọn fixed/auto kế thừa cấu hình dự án; không lấy giọng của nhân vật đầu tiên làm giọng dẫn chuyện.
+
+Kiểm tra đã thực hiện:
+
+- Frontend build đạt; còn cảnh báo Vite về static/dynamic import của plugin dialog đã tồn tại trước bản sửa.
+- Rust: 26 test đạt. JavaScript adapter/timing: 8 test đạt.
+- Python import/roundtrip/regression mới nhất: 17 test đạt, gồm gọi sidecar thật với giọng null.
+- Bộ Python mở rộng: 119 test đã chạy; một test dùng `ps` bị sandbox chặn, chạy lại riêng ngoài sandbox đạt. Sau lần chạy toàn bộ đã thêm một ca lời nhiều dòng và chạy lại nhóm import 17 test đạt.
+- Chrome headless với IPC Tauri giả lập: một test xuyên UI đạt, kiểm tra xác nhận thay cảnh, hủy giữ nguyên project cũ, từ chối file đổi sau preview và lưu đủ trạng thái sau import.
+- Fixture nhiều cảnh đã đổi hai giọng không có trong preset sang Thái Sơn/Trúc Ly; roundtrip kiểm tra các giọng này được gọi, không còn dựa vào fallback để báo đạt.
+
+Chưa dùng VieNeu thật để đánh giá chất lượng giọng và chưa nghiệm thu bản cài đặt native xuyên toàn luồng. Test UI dùng IPC giả lập không thay thế các bước đó; không coi bản sửa này là bằng chứng hoàn thành toàn bộ I6 hoặc phát hành production.
+
+## Bổ sung tương thích schema 2 một giọng — 09/11/2026
+
+Đã thực hiện 5 mục để bộ một giọng của skill không bị từ chối nhầm:
+
+1. Importer đọc schema 2 từ `scenes`, chuyển mỗi scene thành một cảnh chứa một cue trong bộ nhớ, không đổi file nguồn. Không yêu cầu trường `cues` hoặc `speech.speakers` của schema 3.
+2. Schema 2 kiểm tra riêng lựa chọn một giọng, hash, số cảnh/cue, lời và timestamp; dùng chung kiểm tra timeline sau chuẩn hóa. Schema 3 vẫn kiểm tra nhãn và nhóm nhiều cue như trước; phiên bản khác có thông báo chưa hỗ trợ.
+3. Preview ghi schema, số cảnh và chế độ đọc; nhập schema 2 giữ giọng mặc định/timing hiện tại, chuyển về `single`, xóa bảng phân vai cũ. Nhân vật tạo hình không được suy thành người nói.
+4. UI phân biệt định dạng chưa hỗ trợ, cấu trúc metadata sai và SRT/metadata không khớp. Không gợi ý SRT đã bị sửa khi chỉ gặp lỗi schema hoặc kiểu dữ liệu.
+5. Bổ sung test một giọng, lỗi metadata, TTS fixed/auto với engine giả lập, lưu/mở project qua command Rust và chuyển nhiều giọng → một giọng trên Chrome.
+
+Kết quả: frontend build đạt (còn cảnh báo import dialog cũ); 27 test Rust, 22 test Python nhóm import, 10 test JavaScript adapter/timing và một test UI mở rộng đều đạt. Test UI dùng IPC giả lập, không thay thế kiểm tra native/VieNeu thật.
+
+Đã kiểm tra trực tiếp bộ `wb-projects/04. Dong Trac uong tra/dong-trac-lo-chuyen-uong-tra.srt` cùng metadata: hợp lệ, schema 2, chế độ một giọng, **3 cảnh / 3 cue / 94.000 ms**. Nội dung, hash và file nguồn giữ nguyên. Thay đổi nằm trong mã nguồn; cần chạy lại bản dev hoặc build lại ứng dụng để sử dụng.
 
 
 

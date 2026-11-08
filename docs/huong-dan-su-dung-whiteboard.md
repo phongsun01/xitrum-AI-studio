@@ -165,8 +165,14 @@ Bấm **Tạo lại thumbnail** sau khi đổi tiêu đề, font, mẫu bút ho�
   - Có nút **"Nghe"** để nghe thử từng giọng đọc trực tiếp.
   - Có thể thay đổi người nói cho từng câu cụ thể trong danh sách câu thoại của cảnh.
 
-### 6.2. Nhập bộ Kịch bản Whiteboard Schema 3 (`.wb.json` & `.srt`)
+### 6.2. Nhập bộ kịch bản Whiteboard một/nhiều giọng (`.wb.json` & `.srt`)
 Khi bạn sử dụng công cụ tạo kịch bản Whiteboard (`skill /wb`), hệ thống sẽ sinh ra 2 tệp đồng bộ: `<slug>.srt` và `<slug>.wb.json`.
+
+- **Một giọng (schema 2):** mỗi mục SRT là một cảnh/ảnh. Chọn SRT rồi dùng **Nhập theo phân cảnh từ WB**; preview hiện số cảnh và **Một giọng**, giữ giọng bạn đã chọn. Không cần đổi schema hoặc bổ sung bảng nhân vật vào JSON.
+- **Nhiều giọng (schema 3):** một cảnh có thể chứa nhiều lượt nói; import giữ nhóm cue và bảng phân vai từ JSON.
+- Ví dụ bộ “Đổng Trác uống trà” schema 2 được nhập thành **3 cảnh, 3 cue, 94 giây**; gán `1.png`, `2.png`, `3.png` cho ba cảnh rồi tạo TTS bằng một giọng chung. Thời lượng sau tự căn có thể thay đổi theo audio thực.
+- Preview không thay nội dung dự án. Nếu đã có cảnh, cần đánh dấu đồng ý thay cảnh; hãy lưu trước nếu muốn giữ chỉnh sửa. Khi áp dụng, ứng dụng kiểm tra lại cả hai file; import thành công xóa audio/video cũ cần tạo lại.
+- Nếu không nhập được, thông báo phân biệt **định dạng chưa hỗ trợ**, **cấu trúc metadata sai** và **SRT/metadata không khớp**. Chỉ đổi số `schema_version` không chuyển đổi được định dạng file.
 
 1. **Tự động nhận diện khi chọn file SRT**:
    - Khi bạn bấm **"Chọn"** và chọn tệp `.srt`, nếu có tệp `.wb.json` cùng tên ở cùng thư mục, ứng dụng sẽ tự động mở hộp thoại **"Phát hiện kịch bản Whiteboard đồng bộ (.wb.json)"**.
@@ -176,5 +182,31 @@ Khi bạn sử dụng công cụ tạo kịch bản Whiteboard (`skill /wb`), h�
    - Khác với nút "Chia Cảnh" tự động cắt phụ đề theo thời gian 25–35 giây, tùy chọn **"Nhập theo phân cảnh từ WB (Khuyên dùng)"** sẽ giữ nguyên cấu trúc cảnh kịch bản đã định nghĩa: **Một cảnh duy nhất (dùng 1 bức tranh vẽ) có thể chứa 2–3 câu thoại đối đáp qua lại giữa các nhân vật**.
 4. **Kiểm tra tính toàn vẹn (SHA-256)**:
    - Hệ thống tự động so khớp mã băm SHA-256 của tệp phụ đề với bản ghi trong kịch bản. Nếu tệp phụ đề bị sửa lệch bên ngoài, ứng dụng sẽ cảnh báo rõ ràng để tránh sai lệch đồng bộ audio và hình ảnh.
+
+### 6.3. Nạp ảnh từ thư mục và tạo mẫu annotation hàng loạt
+
+Từ phiên bản v0.8.1, bạn không còn phải chọn từng ảnh và tạo mẫu nét vẽ thủ công từng cảnh một:
+
+1. **Nạp ảnh thư mục (`1.png`, `2.jpg`, `3.png`...)**:
+   - Bấm nút **"Nạp ảnh thư mục"** ở thanh công cụ danh sách phân cảnh.
+   - Chọn thư mục chứa ảnh. Ứng dụng tự động quét và map tên file theo số nguyên dương của stem (`1`, `2`, `10`... khớp đúng cảnh #1, #2, #10).
+   - Tự động phát hiện ảnh bìa ứng viên (`thumb.png`, `thumbnail-9x16.png`...).
+   - Bảng xem trước cho phép:
+     - Chọn chỉ điền cảnh chưa có ảnh (mặc định) hoặc thay ảnh cả cảnh đã có.
+     - Chọn giải quyết ảnh bị trùng số thứ tự (ví dụ có cả `1.png` và `01.jpg`).
+     - Tùy chọn sử dụng ảnh bìa hoàn chỉnh (Imported - không phủ chữ) hoặc làm ảnh minh họa để ghép chữ.
+   - Bấm **"Áp dụng"**: toàn bộ ảnh được gán vào đúng các cảnh trong một thao tác duy nhất.
+
+2. **Tạo mẫu tất cả (Batch Annotation)**:
+   - Sau khi tạo TTS và tự căn timing, bấm **"Tạo mẫu tất cả"**.
+   - Tùy chọn:
+     - **Chỉ tạo mẫu còn thiếu** (Khuyến nghị): Chỉ sinh nét vẽ cho các cảnh chưa có annotation, giữ nguyên các cảnh bạn đã tinh chỉnh vùng vẽ thủ công.
+     - **Tạo lại toàn bộ các cảnh có ảnh**: Tính toán lại nét vẽ cho mọi cảnh.
+   - Hệ thống xử lý tuần tự từng cảnh với mốc thời gian cue tương đối chính xác, hiển thị tiến độ và có nút **"Dừng sau cảnh hiện tại"**.
+
+3. **Chế độ ảnh bìa hoàn chỉnh (Imported Thumbnail)**:
+   - Với những ảnh bìa đã thiết kế đồ họa hoàn chỉnh kèm chữ (ví dụ xuất từ Canva, Photoshop), bạn có thể nạp trực tiếp qua tính năng nạp thư mục hoặc nút **"Nhập bìa hoàn chỉnh"** trong tab Thumbnail.
+   - Ứng dụng tự động chuẩn hóa tỷ lệ 16:9 (1280×720) hoặc 9:16 (720×1280) và chèn nguyên bản vào 2 giây đầu của video khi xuất mà không cần phủ đè thêm tiêu đề Fabric.js.
+
 
 
