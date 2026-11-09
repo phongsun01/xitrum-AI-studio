@@ -4,6 +4,7 @@ use std::process::Command;
 pub struct SecretStore;
 
 impl SecretStore {
+    #[allow(dead_code)]
     const SERVICE_NAME: &'static str = "xitrum-ai-studio";
 
     /// Lưu mật khẩu / secret vào kho bảo mật OS (Keychain trên macOS, DPAPI/PowerShell trên Windows)
