@@ -153,7 +153,9 @@ pub fn run() {
             list_accounts,
             save_account,
             delete_account,
-            check_account_session
+            check_account_session,
+            burn_video_subtitles,
+            extract_audio_for_subtitles
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

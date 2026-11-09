@@ -689,5 +689,47 @@ export const api = {
       readiness: AccountItem["readiness"];
       checked_at: number;
     }>("check_account_session", { id }),
+
+  // Subtitle Hardsub (F17)
+  burnVideoSubtitles: (
+    videoPath: string,
+    srtPath: string,
+    outputPath: string,
+    preset?: SubtitlePreset | null,
+    customStyle?: SubtitleStyleConfig | null,
+    isPortrait?: boolean | null
+  ) =>
+    invoke<SubtitleBurnResult>("burn_video_subtitles", {
+      videoPath,
+      srtPath,
+      outputPath,
+      preset: preset ?? null,
+      customStyle: customStyle ?? null,
+      isPortrait: isPortrait ?? null,
+    }),
+
+  extractAudioForSubtitles: (videoPath: string, outputWavPath: string) =>
+    invoke<string>("extract_audio_for_subtitles", { videoPath, outputWavPath }),
 };
 
+
+export type SubtitlePreset = "tiktok_neon" | "classic_cinema" | "notion_whiteboard" | "custom";
+
+export interface SubtitleStyleConfig {
+  font_name?: string;
+  font_size?: number;
+  primary_color?: string;
+  outline_color?: string;
+  border_style?: number;
+  outline_width?: number;
+  shadow_depth?: number;
+  alignment?: number;
+  margin_v?: number;
+}
+
+export interface SubtitleBurnResult {
+  ok: boolean;
+  output_path: string;
+  file_size: number;
+  message: string;
+}

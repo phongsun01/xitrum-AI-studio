@@ -3015,3 +3015,152 @@ mod audio_timing_regression_tests {
         assert!(result.unwrap_err().to_string().contains("Thời lượng TTS"));
     }
 }
+
+
+// ==========================================
+// SUBTITLE HARDSUB COMMANDS (F17)
+// ==========================================
+use tauri_plugin_shell::ShellExt;
+
+#[derive(serde::Serialize)]
+pub struct SubtitleBurnResult {
+    pub ok: bool,
+    pub output_path: String,
+    pub file_size: u64,
+    pub message: String,
+}
+
+/// Đóng dấu phụ đề cứng (Hardsub) trực tiếp lên video bằng FFmpeg
+#[tauri::command]
+pub async fn burn_video_subtitles(
+    video_path: String,
+    srt_path: String,
+    output_path: String,
+    preset: Option<crate::models::SubtitlePreset>,
+    custom_style: Option<crate::models::SubtitleStyleConfig>,
+    is_portrait: Option<bool>,
+    app_handle: tauri::AppHandle,
+) -> Result<SubtitleBurnResult, AppError> {
+    let video_p = Path::new(&video_path);
+    let srt_p = Path::new(&srt_path);
+
+    if !video_p.exists() {
+        return Err(AppError::NotFound(format!("Không tìm thấy video đầu vào: {}", video_path)));
+    }
+    if !srt_p.exists() {
+        return Err(AppError::NotFound(format!("Không tìm thấy tệp phụ đề: {}", srt_path)));
+    }
+
+    let out_p = Path::new(&output_path);
+    if let Some(parent) = out_p.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    // 1. Xác định cấu hình style
+    let portrait = is_portrait.unwrap_or(false);
+    let style = if let Some(cs) = custom_style {
+        cs
+    } else {
+        let p = preset.unwrap_or(crate::models::SubtitlePreset::TiktokNeon);
+        crate::models::SubtitleStyleConfig::from_preset(p, portrait)
+    };
+
+    let force_style = style.to_force_style_string();
+
+    // 2. Escape đường dẫn file SRT cho bộ lọc FFmpeg subtitles
+    // Trên Windows: D:\path\sub.srt -> D\:/path/sub.srt và escape dấu nháy đơn
+    let srt_escaped = srt_path
+        .replace('\\', "/")
+        .replace(':', "\\:")
+        .replace('\'', "'\\''");
+
+    let filter_arg = format!("subtitles='{}':force_style='{}'", srt_escaped, force_style);
+
+    // 3. Thực thi FFmpeg sidecar
+    let sidecar_cmd = app_handle
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|e| AppError::Other(format!("Lỗi khởi tạo FFmpeg sidecar: {}", e)))?;
+
+    let output = sidecar_cmd
+        .args([
+            "-y",
+            "-i",
+            &video_path,
+            "-vf",
+            &filter_arg,
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "copy", // Giữ nguyên audio track không nén lại
+            &output_path,
+        ])
+        .output()
+        .await
+        .map_err(|e| AppError::Other(format!("Lỗi thực thi lệnh in phụ đề: {}", e)))?;
+
+    if !output.status.success() {
+        let err_log = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::Other(format!("FFmpeg in phụ đề thất bại: {}", err_log)));
+    }
+
+    let file_size = std::fs::metadata(&output_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    Ok(SubtitleBurnResult {
+        ok: true,
+        output_path,
+        file_size,
+        message: "In phụ đề lên video thành công!".to_string(),
+    })
+}
+
+/// Trích xuất audio nhanh từ video thành PCM WAV 16 kHz Mono để phục vụ bóc phụ đề Whisper
+#[tauri::command]
+pub async fn extract_audio_for_subtitles(
+    video_path: String,
+    output_wav_path: String,
+    app_handle: tauri::AppHandle,
+) -> Result<String, AppError> {
+    let video_p = Path::new(&video_path);
+    if !video_p.exists() {
+        return Err(AppError::NotFound(format!("Không tìm thấy video: {}", video_path)));
+    }
+
+    if let Some(parent) = Path::new(&output_wav_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let sidecar_cmd = app_handle
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|e| AppError::Other(format!("Lỗi khởi tạo FFmpeg: {}", e)))?;
+
+    let output = sidecar_cmd
+        .args([
+            "-y",
+            "-i",
+            &video_path,
+            "-vn",
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            &output_wav_path,
+        ])
+        .output()
+        .await
+        .map_err(|e| AppError::Other(format!("Lỗi trích xuất audio: {}", e)))?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::Other(format!("Không thể tách audio: {}", err)));
+    }
+
+    Ok(output_wav_path)
+}

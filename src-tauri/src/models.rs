@@ -259,3 +259,125 @@ impl Default for AppConfig {
     }
 }
 
+
+
+// ==========================================
+// SUBTITLE HARDSUB CONFIGURATION
+// ==========================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubtitlePreset {
+    TiktokNeon,
+    ClassicCinema,
+    NotionWhiteboard,
+    Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubtitleStyleConfig {
+    #[serde(default = "default_font_name")]
+    pub font_name: String,
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
+    #[serde(default = "default_primary_color")]
+    pub primary_color: String, // Màu chữ (ví dụ: &H0000FFFF - vàng)
+    #[serde(default = "default_outline_color")]
+    pub outline_color: String, // Màu viền (ví dụ: &H00000000 - đen)
+    #[serde(default = "default_border_style")]
+    pub border_style: u32, // 1: Outline + Shadow, 3: Opaque box
+    #[serde(default = "default_outline_width")]
+    pub outline_width: f32,
+    #[serde(default = "default_shadow_depth")]
+    pub shadow_depth: f32,
+    #[serde(default = "default_alignment")]
+    pub alignment: u32, // 2: Bottom Center, 6: Top Center, 10: Middle Center
+    #[serde(default = "default_margin_v")]
+    pub margin_v: u32, // Khoảng cách tới lề dọc (safe area)
+}
+
+fn default_font_name() -> String { "Arial".to_string() }
+fn default_font_size() -> u32 { 22 }
+fn default_primary_color() -> String { "&H00FFFFFF".to_string() } // Trắng
+fn default_outline_color() -> String { "&H00000000".to_string() } // Đen
+fn default_border_style() -> u32 { 1 }
+fn default_outline_width() -> f32 { 2.0 }
+fn default_shadow_depth() -> f32 { 1.0 }
+fn default_alignment() -> u32 { 2 } // Bottom center
+fn default_margin_v() -> u32 { 30 }
+
+impl SubtitleStyleConfig {
+    pub fn from_preset(preset: SubtitlePreset, is_portrait: bool) -> Self {
+        let margin_v = if is_portrait { 120 } else { 30 }; // 9:16 safe area tránh UI TikTok
+        match preset {
+            SubtitlePreset::TiktokNeon => Self {
+                font_name: "Arial".to_string(),
+                font_size: if is_portrait { 26 } else { 22 },
+                primary_color: "&H0000FFFF".to_string(), // Vàng chanh rực rỡ
+                outline_color: "&H00000000".to_string(),
+                border_style: 3, // Opaque box nền mờ dễ đọc
+                outline_width: 2.0,
+                shadow_depth: 0.0,
+                alignment: 2,
+                margin_v,
+            },
+            SubtitlePreset::ClassicCinema => Self {
+                font_name: "Arial".to_string(),
+                font_size: if is_portrait { 22 } else { 20 },
+                primary_color: "&H00FFFFFF".to_string(), // Trắng tinh
+                outline_color: "&H00000000".to_string(),
+                border_style: 1, // Viền đen thanh mảnh
+                outline_width: 2.0,
+                shadow_depth: 1.5,
+                alignment: 2,
+                margin_v: if is_portrait { 90 } else { 25 },
+            },
+            SubtitlePreset::NotionWhiteboard => Self {
+                font_name: "Arial".to_string(),
+                font_size: if is_portrait { 22 } else { 20 },
+                primary_color: "&H00222222".to_string(), // Đen xám than
+                outline_color: "&H00FFFFFF".to_string(), // Viền trắng
+                border_style: 1,
+                outline_width: 2.0,
+                shadow_depth: 0.0,
+                alignment: 2,
+                margin_v: if is_portrait { 80 } else { 25 },
+            },
+            SubtitlePreset::Custom => Self {
+                margin_v,
+                ..Default::default()
+            },
+        }
+    }
+
+    pub fn to_force_style_string(&self) -> String {
+        format!(
+            "FontName={},FontSize={},PrimaryColour={},OutlineColour={},BorderStyle={},Outline={},Shadow={},Alignment={},MarginV={}",
+            self.font_name,
+            self.font_size,
+            self.primary_color,
+            self.outline_color,
+            self.border_style,
+            self.outline_width,
+            self.shadow_depth,
+            self.alignment,
+            self.margin_v
+        )
+    }
+}
+
+impl Default for SubtitleStyleConfig {
+    fn default() -> Self {
+        Self {
+            font_name: default_font_name(),
+            font_size: default_font_size(),
+            primary_color: default_primary_color(),
+            outline_color: default_outline_color(),
+            border_style: default_border_style(),
+            outline_width: default_outline_width(),
+            shadow_depth: default_shadow_depth(),
+            alignment: default_alignment(),
+            margin_v: default_margin_v(),
+        }
+    }
+}
