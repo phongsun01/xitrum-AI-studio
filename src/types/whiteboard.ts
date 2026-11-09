@@ -287,6 +287,8 @@ export interface WhiteboardProject {
   scenes: WhiteboardSceneItem[];
   sourceSrtPath?: string;
   masterAudioPath?: string;
+  /** Lật trang phải → trái giữa các cảnh (ms); 0/undefined = tắt. */
+  pageTurnMs?: number;
   outputVideoPath?: string;
 }
 

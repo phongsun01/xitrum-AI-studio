@@ -52,10 +52,14 @@ def _probe_clips(inputs: list[Path]) -> list[dict]:
     return clips
 
 
-def _concat_video_only(clips: list[dict], output: Path, ffmpeg: str) -> None:
-    """Ghép phần hình (bỏ audio). Clip tương thích → -c copy; khác nhau → chuẩn hóa kích thước/fps và mã hóa lại."""
+def _concat_video_only(clips: list[dict], output: Path, ffmpeg: str, transitions: dict | None = None) -> None:
+    """Ghép phần hình (bỏ audio). Clip tương thích → -c copy; khác nhau → chuẩn hóa kích thước/fps và mã hóa lại.
+
+    transitions: {chỉ số clip: (số khung thay ở cuối clip, đường dẫn mp4 khung chuyển cảnh)}. Có chuyển cảnh thì
+    luôn đi đường mã hóa lại; tổng số khung hình giữ nguyên vì chỉ thay khung chứ không chồng lấp."""
+    transitions = transitions or {}
     inputs = [c["path"] for c in clips]
-    if all(c["signature"] == clips[0]["signature"] for c in clips):
+    if not transitions and all(c["signature"] == clips[0]["signature"] for c in clips):
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
             for c in clips:
                 f.write(f"file '{_escape_concat_path(c['path'])}'\n")
@@ -80,14 +84,27 @@ def _concat_video_only(clips: list[dict], output: Path, ffmpeg: str) -> None:
     cmd = [ffmpeg, "-y", "-v", "error"]
     for path in inputs:
         cmd += ["-i", str(path)]
-    filters = [f"[{i}:v:0]scale={width}:{height}:force_original_aspect_ratio=decrease,"
-               f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS,fps={fps},"
-               f"tpad=stop_mode=clone:stop_duration={1 / float(fps):.9f},"
-               f"trim=end_frame={frame_counts[i]},setpts=PTS-STARTPTS[v{i}]"
-               for i in range(len(clips))]
-    filters.append("".join(f"[v{i}]" for i in range(len(clips))) + f"concat=n={len(clips)}:v=1:a=0[v]")
+    trans_input: dict[int, int] = {}
+    for i in sorted(transitions):
+        trans_input[i] = len(inputs) + len(trans_input)
+        cmd += ["-i", str(transitions[i][1])]
+    filters = []
+    labels = []
+    for i in range(len(clips)):
+        keep = frame_counts[i] - (transitions[i][0] if i in transitions else 0)
+        filters.append(f"[{i}:v:0]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                       f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS,fps={fps},"
+                       f"tpad=stop_mode=clone:stop_duration={1 / float(fps):.9f},"
+                       f"trim=end_frame={keep},setpts=PTS-STARTPTS[v{i}]")
+        labels.append(f"[v{i}]")
+        if i in transitions:
+            n_frames = transitions[i][0]
+            filters.append(f"[{trans_input[i]}:v:0]setsar=1,setpts=PTS-STARTPTS,fps={fps},"
+                           f"trim=end_frame={n_frames},setpts=PTS-STARTPTS[t{i}]")
+            labels.append(f"[t{i}]")
+    filters.append("".join(labels) + f"concat=n={len(labels)}:v=1:a=0[v]")
     cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-an",
-            "-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p", str(output)]
+            "-c:v", "libx264", "-crf", "18" if transitions else "20", "-pix_fmt", "yuv420p", str(output)]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode:
         raise RuntimeError(f"Chuẩn hóa/ghép video thất bại: {res.stderr[-2000:]}")
@@ -133,7 +150,45 @@ def _build_pcm_track(clips: list[dict], raw_path: Path, ffmpeg: str, tmp_dir: Pa
             total_samples += want
 
 
-def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
+def _write_transition_clip(frames: list, fps: float, dest: Path, ffmpeg: str) -> None:
+    """Mã hóa các khung (BGR) thành mp4 chất lượng cao để đưa vào bước ghép."""
+    h, w = frames[0].shape[:2]
+    cmd = [ffmpeg, "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}",
+           "-r", f"{fps:.6f}", "-i", "-", "-an", "-c:v", "libx264", "-crf", "12", "-preset", "veryfast",
+           "-pix_fmt", "yuv420p", str(dest)]
+    res = subprocess.run(cmd, input=b"".join(f.tobytes() for f in frames), capture_output=True)
+    if res.returncode:
+        raise RuntimeError(f"Dựng đoạn lật trang thất bại: {res.stderr.decode(errors='replace')[-500:]}")
+
+
+def _plan_page_turns(clips: list[dict], page_turn_ms: int, ffmpeg: str, tmp: Path) -> dict:
+    """Dựng đoạn lật trang (phải → trái) cho từng ranh giới cảnh nếu đoạn cuối cảnh trước đủ tĩnh."""
+    import page_turn
+    transitions: dict = {}
+    for i in range(len(clips) - 1):
+        a, b = clips[i], clips[i + 1]
+        fps = a["video"]["fps"]
+        if a["video"]["width"] % 2 or a["video"]["height"] % 2:
+            continue
+        want = int(round(page_turn_ms / 1000.0 * fps))
+        if want < page_turn.MIN_FRAMES:
+            continue
+        tail, _, _ = page_turn.read_tail_and_first(str(a["path"]), want)
+        _, first_b, _ = page_turn.read_tail_and_first(str(b["path"]), 1)
+        if not tail or first_b is None:
+            continue
+        n = page_turn.plan_static_tail(tail, want)
+        if n < page_turn.MIN_FRAMES:
+            print(f"  [info] Bỏ lật trang sau cảnh {i + 1}: đoạn giữ hình cuối cảnh quá ngắn ({n} khung).")
+            continue
+        frames = page_turn.build_transition_frames(tail, first_b, n)
+        dest = tmp / f"turn{i}.mp4"
+        _write_transition_clip(frames, fps, dest, ffmpeg)
+        transitions[i] = (n, dest)
+    return transitions
+
+
+def _ffmpeg_concat_copy(inputs: list[Path], output: Path, page_turn_ms: int = 0) -> bool:
     ffmpeg = find_ffmpeg()
     if ffmpeg is None:
         return False
@@ -141,12 +196,13 @@ def _ffmpeg_concat_copy(inputs: list[Path], output: Path) -> bool:
     has_audio = any(c["audio"] for c in clips)
     with tempfile.TemporaryDirectory(prefix="wb_merge_") as td:
         tmp = Path(td)
+        transitions = _plan_page_turns(clips, page_turn_ms, ffmpeg, tmp) if page_turn_ms > 0 and len(clips) > 1 else {}
         if not has_audio:
-            _concat_video_only(clips, output, ffmpeg)
+            _concat_video_only(clips, output, ffmpeg, transitions)
             print(f"  Ghép video xong: {output}")
             return True
         video_only = tmp / "video.mp4"
-        _concat_video_only(clips, video_only, ffmpeg)
+        _concat_video_only(clips, video_only, ffmpeg, transitions)
         raw = tmp / "audio.raw"
         _build_pcm_track(clips, raw, ffmpeg, tmp)
         res = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(video_only),
@@ -210,7 +266,12 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Ghép các cảnh hoạt hình bảng trắng MP4 theo thứ tự")
     p.add_argument("--inputs", nargs="+", required=True, help="Danh sách MP4 theo thứ tự phát")
     p.add_argument("--output", required=True, help="Đường dẫn tệp ghép đầu ra")
+    p.add_argument("--page-turn-ms", type=int, default=0,
+                   help="Thời lượng lật trang (phải→trái) giữa các cảnh, ms; 0 = tắt. Không đổi tổng thời lượng.")
     args = p.parse_args(argv)
+    if args.page_turn_ms < 0 or args.page_turn_ms > 3000:
+        print("[err] --page-turn-ms phải trong khoảng 0–3000", file=sys.stderr)
+        return 1
 
     inputs = [Path(x) for x in args.inputs]
     missing = [str(x) for x in inputs if not x.exists()]
@@ -220,7 +281,7 @@ def main(argv=None) -> int:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    if _ffmpeg_concat_copy(inputs, output) or _pyav_concat(inputs, output):
+    if _ffmpeg_concat_copy(inputs, output, args.page_turn_ms) or _pyav_concat(inputs, output):
         print(f"OUTPUT={output.resolve()}")
         return 0
     print("[err] Ghép thất bại: hệ thống không có ffmpeg và PyAV không dùng được", file=sys.stderr)

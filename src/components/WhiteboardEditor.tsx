@@ -68,6 +68,7 @@ export function WhiteboardEditor() {
 
   const [fps, setFps] = useState(30);
   const [paperColor, setPaperColor] = useState("#F5EBD7");
+  const [pageTurnMs, setPageTurnMs] = useState(0);
   const [thumbnailTitle, setThumbnailTitle] = useState("");
   const [thumbnailImagePath, setThumbnailImagePath] = useState("");
   const [thumbnailFontChoice, setThumbnailFontChoice] = useState<WhiteboardFontChoice>("auto");
@@ -1354,6 +1355,7 @@ export function WhiteboardEditor() {
       scenes,
       sourceSrtPath: srtPath || undefined,
       masterAudioPath: masterAudioPath || undefined,
+      pageTurnMs: pageTurnMs || undefined,
       outputVideoPath,
     };
     try {
@@ -1376,6 +1378,7 @@ export function WhiteboardEditor() {
       if (proj.revision) setProjectRevision(proj.revision);
       setFps(proj.fps || 30);
       setPaperColor(proj.paperColor || "#F5EBD7");
+      setPageTurnMs(proj.pageTurnMs || 0);
       setPenType(resolvePenTypeFromPath(proj.handPath));
       setThumbnail(proj.thumbnail);
       setThumbnailFontChoice(normalizeCoverFontChoice(proj.thumbnailDraft?.fontChoice ?? proj.thumbnail?.fontChoice));
@@ -1436,6 +1439,7 @@ export function WhiteboardEditor() {
       scenes: exportWithoutAudio.current ? scenes.map((scene) => ({ ...scene, audioPath: undefined })) : scenes,
       sourceSrtPath: srtPath || undefined,
       masterAudioPath: exportWithoutAudio.current ? undefined : masterAudioPath || undefined,
+      pageTurnMs: pageTurnMs || undefined,
       outputVideoPath: targetOut,
     };
 
@@ -2372,6 +2376,19 @@ export function WhiteboardEditor() {
                   onChange={(e) => setPaperColor(e.target.value)}
                   style={{ width: "100%", padding: "6px 10px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#ffffff" }}
                 />
+              </div>
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: 600, display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={pageTurnMs > 0}
+                    onChange={(e) => setPageTurnMs(e.target.checked ? 800 : 0)}
+                  />
+                  Lật trang giữa các cảnh (phải → trái)
+                </label>
+                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "4px" }}>
+                  Dùng đoạn giữ hình cuối mỗi cảnh, không đổi tổng thời lượng; cảnh nào giữ hình quá ngắn sẽ tự bỏ qua.
+                </div>
               </div>
             </div>
 

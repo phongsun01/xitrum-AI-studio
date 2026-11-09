@@ -568,12 +568,14 @@ export const api = {
   mergeWhiteboardScenes: (
     videoPaths: string[],
     outputPath: string,
-    masterAudioPath?: string
+    masterAudioPath?: string,
+    pageTurnMs?: number
   ) =>
     invoke<WhiteboardMergeResponse>("merge_whiteboard_scenes", {
       videoPaths,
       outputPath,
       masterAudioPath,
+      pageTurnMs,
     }),
 
   readWhiteboardCoverImage: (imagePath: string) =>

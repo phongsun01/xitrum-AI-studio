@@ -537,6 +537,9 @@ def handle_merge_scenes(req):
     with tempfile.TemporaryDirectory(prefix="wb-merge-", dir=os.path.dirname(os.path.abspath(output_path))) as tmp:
         concat_out = os.path.join(tmp, "concat.mp4")
         cmd_args = ["--inputs", *video_paths, "--output", concat_out]
+        page_turn_ms = int(req.get("page_turn_ms") or 0)
+        if page_turn_ms:
+            cmd_args += ["--page-turn-ms", str(page_turn_ms)]
         ret_code = merge_scenes.main(cmd_args)
         if ret_code != 0:
             raise RuntimeError(f"Ghép các phân cảnh thất bại, exit code: {ret_code}")

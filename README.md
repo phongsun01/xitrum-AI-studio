@@ -5,7 +5,7 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.8.1 (Whiteboard Batch Image Import & Batch Annotation)
+## 📦 Phiên Bản Hiện Tại: v0.8.2 (Whiteboard Batch Image Import & Batch Annotation)
 
 Bản cập nhật lớn nâng cấp quy trình làm việc Whiteboard, giảm thao tác lặp từ nạp từng ảnh và tạo mẫu từng cảnh thành các thao tác hàng loạt thông minh:
 

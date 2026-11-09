@@ -143,6 +143,9 @@ pub enum WhiteboardRequest {
         master_audio_path: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thumbnail_png: Option<String>,
+        /// Lật trang phải → trái giữa các cảnh (ms); None/0 = tắt. Không đổi tổng thời lượng.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page_turn_ms: Option<u32>,
     },
     #[serde(rename = "validate_project")]
     ValidateProject {
@@ -887,6 +890,7 @@ impl WhiteboardPipeline {
         output_path: String,
         master_audio_path: Option<String>,
         thumbnail_png: Option<String>,
+        page_turn_ms: Option<u32>,
         on_progress: &dyn Fn(&serde_json::Value),
     ) -> Result<serde_json::Value> {
         let req = WhiteboardRequest::MergeScenes {
@@ -895,6 +899,7 @@ impl WhiteboardPipeline {
             output_path,
             master_audio_path,
             thumbnail_png,
+            page_turn_ms: page_turn_ms.filter(|ms| *ms > 0).map(|ms| ms.min(3000)),
         };
         self.call(req, self.timeouts.merge, "ghép cảnh", on_progress)
     }
@@ -1242,6 +1247,21 @@ for line in sys.stdin:
         let child_pid: i64 = std::fs::read_to_string(f.dir.join("marks.txt.child")).unwrap().trim().parse().unwrap();
         std::thread::sleep(Duration::from_millis(300));
         assert!(!pid_alive(child_pid));
+    }
+
+    #[test]
+    fn merge_request_carries_page_turn_only_when_enabled() {
+        let mk = |ms| serde_json::to_value(WhiteboardRequest::MergeScenes {
+            task_id: "t".into(),
+            video_paths: vec!["a.mp4".into()],
+            output_path: "o.mp4".into(),
+            master_audio_path: None,
+            thumbnail_png: None,
+            page_turn_ms: ms,
+        })
+        .unwrap();
+        assert_eq!(mk(Some(800))["page_turn_ms"], 800);
+        assert!(mk(None).get("page_turn_ms").is_none());
     }
 
     #[test]

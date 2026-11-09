@@ -1822,12 +1822,13 @@ pub async fn merge_whiteboard_scenes(
     video_paths: Vec<String>,
     output_path: String,
     master_audio_path: Option<String>,
+    page_turn_ms: Option<u32>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, AppError> {
     let wb = Arc::clone(&state.whiteboard);
     whiteboard_blocking(move || {
-        wb.merge_scenes(video_paths, output_path, master_audio_path, None, &|p| {
+        wb.merge_scenes(video_paths, output_path, master_audio_path, None, page_turn_ms, &|p| {
             let _ = app.emit("whiteboard-progress", p.clone());
         })
     })
@@ -2247,6 +2248,8 @@ pub struct WhiteboardProject {
     pub source_srt_path: Option<String>,
     #[serde(rename = "masterAudioPath", skip_serializing_if = "Option::is_none")]
     pub master_audio_path: Option<String>,
+    #[serde(rename = "pageTurnMs", default, skip_serializing_if = "Option::is_none")]
+    pub page_turn_ms: Option<u32>,
     #[serde(rename = "outputVideoPath", skip_serializing_if = "Option::is_none")]
     pub output_video_path: Option<String>,
 }
@@ -2532,6 +2535,7 @@ pub async fn render_whiteboard_project(
             final_tmp_out.clone(),
             project.master_audio_path.clone(),
             Some(cover_png),
+            project.page_turn_ms,
             &|p| {
                 let _ = app.emit("whiteboard-progress", p.clone());
             },
@@ -2729,6 +2733,19 @@ mod whiteboard_review_regression_tests {
         cover.png_data_url = "data:image/png;base64,broken".into();
         assert!(thumbnail_png(cover).is_err());
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn whiteboard_page_turn_roundtrip_and_old_projects() {
+        let mut p = project();
+        assert!(p.page_turn_ms.is_none()); // Dự án cũ không có trường này vẫn mở được.
+        let json = serde_json::to_value(&p).unwrap();
+        assert!(json.get("pageTurnMs").is_none());
+        p.page_turn_ms = Some(800);
+        let json = serde_json::to_value(&p).unwrap();
+        assert_eq!(json["pageTurnMs"], 800);
+        let back: WhiteboardProject = serde_json::from_value(json).unwrap();
+        assert_eq!(back.page_turn_ms, Some(800));
     }
 
     #[test]
