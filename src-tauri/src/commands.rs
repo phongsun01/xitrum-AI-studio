@@ -2051,20 +2051,27 @@ pub async fn scan_whiteboard_folder_images(
             let mut aspect_ratio = None;
             let mut item_error = None;
 
-            match image::ImageReader::open(&path)
-                .map_err(|e| anyhow::anyhow!(e))
-                .and_then(|r| r.with_guessed_format().map_err(|e| anyhow::anyhow!(e)))
-                .and_then(|r| r.into_dimensions().map_err(|e| anyhow::anyhow!(e)))
-            {
-                Ok((w, h)) => {
+            let decoded = (|| -> anyhow::Result<image::DynamicImage> {
+                anyhow::ensure!(file_size <= 64 * 1024 * 1024, "Ảnh vượt 64 MB");
+                let mut reader = image::ImageReader::open(&path)?.with_guessed_format()?;
+                let mut limits = image::Limits::default();
+                limits.max_image_width = Some(16384);
+                limits.max_image_height = Some(16384);
+                limits.max_alloc = Some(256 * 1024 * 1024);
+                reader.limits(limits);
+                Ok(reader.decode()?)
+            })();
+            match decoded {
+                Ok(img) => {
+                    let (w, h) = (img.width(), img.height());
                     width = Some(w);
                     height = Some(h);
-                    let ar = if h > w { "9:16" } else { "16:9" };
-                    aspect_ratio = Some(ar.to_string());
+                    let mut a = w;
+                    let mut b = h;
+                    while b != 0 { let remainder = a % b; a = b; b = remainder; }
+                    aspect_ratio = Some(format!("{}:{}", w / a, h / a));
                 }
-                Err(e) => {
-                    item_error = Some(format!("Không thể đọc kích thước ảnh: {e}"));
-                }
+                Err(e) => item_error = Some(format!("Không thể đọc ảnh: {e}")),
             }
 
             let fingerprint = if file_size <= 64 * 1024 * 1024 {
@@ -2114,11 +2121,12 @@ pub async fn scan_whiteboard_folder_images(
         let mut matched_count = 0;
         let curr_paths = current_image_paths.unwrap_or_default();
 
-        for i in 1..=scenes_count {
-            let scene_id = scene_ids.get(i - 1).cloned().unwrap_or_else(|| format!("scene-{:02}", i));
-            let current_image_path = curr_paths.get(i - 1).and_then(|opt| opt.clone());
+        for idx in 0..scenes_count {
+            let scene_number = idx + 1;
+            let scene_id = scene_ids.get(idx).cloned().unwrap_or_else(|| format!("scene-{:02}", scene_number));
+            let current_image_path = curr_paths.get(idx).and_then(|opt| opt.clone());
 
-            let candidates = numbered_images.remove(&i).unwrap_or_default();
+            let candidates = numbered_images.remove(&scene_number).unwrap_or_default();
             let (status, matched, error) = if candidates.is_empty() {
                 ("missing".to_string(), None, None)
             } else if candidates.len() == 1 {
@@ -2130,11 +2138,11 @@ pub async fn scan_whiteboard_folder_images(
                     ("ready".to_string(), Some(first), None)
                 }
             } else {
-                ("duplicate".to_string(), None, Some(format!("Trùng lặp: tìm thấy {} ảnh cho cảnh {}", candidates.len(), i)))
+                ("duplicate".to_string(), None, Some(format!("Trùng lặp: tìm thấy {} ảnh cho cảnh {}", candidates.len(), scene_number)))
             };
 
             mappings.push(WhiteboardSceneImageMapping {
-                scene_index: i,
+                scene_index: idx,
                 scene_id,
                 current_image_path,
                 matched_image: matched,
@@ -2184,9 +2192,14 @@ pub async fn import_whiteboard_complete_thumbnail(
             (1280u32, 720u32, "16:9")
         };
 
-        let resized = decoded.resize_to_fill(target_w, target_h, image::imageops::FilterType::Lanczos3);
+        // Fit the entire artwork, including edge text, into the cover canvas.
+        let resized = decoded.resize(target_w, target_h, image::imageops::FilterType::Lanczos3).to_rgba8();
+        let mut canvas = image::RgbaImage::from_pixel(target_w, target_h, image::Rgba([245, 235, 215, 255]));
+        let x = (target_w - resized.width()) / 2;
+        let y = (target_h - resized.height()) / 2;
+        image::imageops::overlay(&mut canvas, &resized, i64::from(x), i64::from(y));
         let mut png = std::io::Cursor::new(Vec::new());
-        resized.write_to(&mut png, image::ImageFormat::Png)?;
+        canvas.write_to(&mut png, image::ImageFormat::Png)?;
         let png_data_url = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(png.into_inner()));
 
         Ok(WhiteboardThumbnail {
@@ -2227,6 +2240,9 @@ pub struct WhiteboardSpeechConfig {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WhiteboardProject {
+    /// Transient import marker; editor saves migrated projects to a new file.
+    #[serde(rename = "importedLegacyV1", default, skip_serializing_if = "Option::is_none")]
+    pub imported_legacy_v1: Option<bool>,
     pub id: String,
     #[serde(rename = "schemaVersion")]
     pub schema_version: i32,
@@ -2272,7 +2288,10 @@ fn validate_whiteboard_project_timeline(project: &WhiteboardProject) -> anyhow::
 }
 
 fn publish_whiteboard_scene(part: &str, output: &str) -> anyhow::Result<()> {
-    std::fs::rename(part, output)?;
+    std::fs::rename(part, output).map_err(|e| {
+        tracing::error!(part, output, error = %e, "Không thể lưu video cảnh");
+        anyhow::anyhow!("Không thể chuyển '{}' thành '{}': {}", part, output, e)
+    })?;
     let manifest_part = format!("{}.manifest.json", part);
     let manifest_out = format!("{}.manifest.json", output);
     // Never leave an older final manifest next to a newly published video.
@@ -2283,6 +2302,19 @@ fn publish_whiteboard_scene(part: &str, output: &str) -> anyhow::Result<()> {
         std::fs::rename(manifest_part, manifest_out)?;
     }
     Ok(())
+}
+
+fn whiteboard_scene_output_path(
+    out_dir: &Path,
+    scene: &WhiteboardSceneItem,
+    scene_num: usize,
+) -> std::path::PathBuf {
+    // New/imported scenes use an empty string until their first render.
+    let path = scene.output_path.as_deref()
+        .filter(|p| !p.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| format!("scene_{:02}_{}.mp4", scene_num, scene.id).into());
+    if path.is_absolute() { path } else { out_dir.join(path) }
 }
 
 #[tauri::command]
@@ -2386,8 +2418,8 @@ pub async fn load_whiteboard_project(
 ) -> Result<WhiteboardProject, AppError> {
     let content = std::fs::read_to_string(&file_path)
         .map_err(|e| AppError::Other(format!("Lỗi đọc tệp dự án {}: {}", file_path, e)))?;
-    let project: WhiteboardProject = serde_json::from_str(&content)
-        .map_err(|e| AppError::Other(format!("Lỗi phân tích cú pháp dự án {}: {}", file_path, e)))?;
+    let project = crate::whiteboard_project_compat::decode_project(&content)
+        .map_err(|e| AppError::Other(format!("Lỗi mở dự án {}: {}", file_path, e)))?;
     Ok(project)
 }
 
@@ -2410,10 +2442,15 @@ pub async fn render_whiteboard_project(
         let cover = project.thumbnail.as_ref()
             .ok_or_else(|| anyhow::anyhow!("Hãy tạo thumbnail và xem trước trước khi xuất dự án"))?;
         let cover_png = thumbnail_png(cover)?;
+        anyhow::ensure!(!output_video_path.trim().is_empty(), "Chưa chọn đường dẫn xuất video dự án");
+        // Send absolute paths to Python so rendering and publication share the same location.
+        let output_video_path = std::path::absolute(&output_video_path)?
+            .to_string_lossy().to_string();
         let out_dir = std::path::Path::new(&output_video_path)
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."));
-        let _ = std::fs::create_dir_all(out_dir);
+        std::fs::create_dir_all(out_dir)
+            .map_err(|e| anyhow::anyhow!("Không thể tạo thư mục xuất '{}': {}", out_dir.display(), e))?;
 
         let mut rendered_videos: Vec<String> = Vec::new();
         let total_scenes = project.scenes.len();
@@ -2436,9 +2473,9 @@ pub async fn render_whiteboard_project(
                 ));
             }
 
-            let scene_out = scene.output_path.clone().unwrap_or_else(|| {
-                out_dir.join(format!("scene_{:02}_{}.mp4", scene_num, scene.id)).to_string_lossy().to_string()
-            });
+            let scene_out = whiteboard_scene_output_path(out_dir, scene, scene_num)
+                .to_string_lossy().to_string();
+            tracing::info!(scene_id = %scene.id, output = %scene_out, "Xuất video cảnh");
 
             // R1: Kiểm tra Resume xác thực bằng Fingerprint & Manifest complete
             if should_resume && std::path::Path::new(&scene_out).exists() {
@@ -2867,6 +2904,29 @@ mod whiteboard_review_regression_tests {
     }
 
     #[test]
+    fn whiteboard_export_blank_scene_output_uses_project_directory() {
+        let dir = std::env::temp_dir().join(format!("wb-export-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut p = project();
+        for (idx, stored_path) in [None, Some(""), Some("  ")].into_iter().enumerate() {
+            p.scenes[0].output_path = stored_path.map(String::from);
+            let output = whiteboard_scene_output_path(&dir, &p.scenes[0], idx + 1);
+            assert_eq!(output, dir.join(format!("scene_{:02}_a.mp4", idx + 1)));
+            // Reproduce the render -> publish boundary that failed for outputPath: "".
+            let part = format!("{}.part.mp4", output.display());
+            std::fs::write(&part, b"rendered-scene").unwrap();
+            publish_whiteboard_scene(&part, output.to_str().unwrap()).unwrap();
+            assert_eq!(std::fs::read(&output).unwrap(), b"rendered-scene");
+        }
+        p.scenes[0].output_path = Some("cached/scene.mp4".into());
+        assert_eq!(whiteboard_scene_output_path(&dir, &p.scenes[0], 1), dir.join("cached/scene.mp4"));
+        let absolute = dir.join("existing.mp4");
+        p.scenes[0].output_path = Some(absolute.to_string_lossy().into_owned());
+        assert_eq!(whiteboard_scene_output_path(&dir, &p.scenes[0], 1), absolute);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn whiteboard_publish_moves_manifest_and_invalidates_old_metadata() {
         let dir = std::env::temp_dir().join(format!("wb-publish-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -2916,18 +2976,18 @@ mod whiteboard_review_regression_tests {
         assert_eq!(res.mappings.len(), 3);
 
         // Scene 1: duplicate (1.png & 01.jpg)
-        assert_eq!(res.mappings[0].scene_index, 1);
+        assert_eq!(res.mappings[0].scene_index, 0);
         assert_eq!(res.mappings[0].status, "duplicate");
         assert_eq!(res.mappings[0].candidate_images.len(), 2);
 
         // Scene 2: ready (02.png)
-        assert_eq!(res.mappings[1].scene_index, 2);
+        assert_eq!(res.mappings[1].scene_index, 1);
         assert_eq!(res.mappings[1].status, "ready");
         assert!(res.mappings[1].matched_image.is_some());
         assert_eq!(res.mappings[1].matched_image.as_ref().unwrap().filename, "02.png");
 
         // Scene 3: missing
-        assert_eq!(res.mappings[2].scene_index, 3);
+        assert_eq!(res.mappings[2].scene_index, 2);
         assert_eq!(res.mappings[2].status, "missing");
 
         // Thumbnail candidates: 2 files
@@ -2943,6 +3003,47 @@ mod whiteboard_review_regression_tests {
         // Ignored files: notes.txt
         assert!(res.ignored_files.contains(&"notes.txt".to_string()));
 
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn whiteboard_scan_rejects_truncated_image_even_with_valid_dimensions() {
+        let dir = std::env::temp_dir().join(format!("wb-broken-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("1.png");
+        image::RgbImage::new(100, 100).save(&path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::write(&path, &bytes[..40]).unwrap();
+        let scan = tauri::async_runtime::block_on(scan_whiteboard_folder_images(
+            dir.to_string_lossy().to_string(), 1, vec!["s1".into()], None,
+        )).unwrap();
+        assert_eq!(scan.matched_scenes_count, 0);
+        assert_eq!(scan.mappings[0].status, "error");
+        assert!(scan.mappings[0].matched_image.as_ref().unwrap().error.is_some());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn whiteboard_imported_thumbnail_preserves_edge_artwork_with_padding() {
+        use base64::{engine::general_purpose, Engine as _};
+        let dir = std::env::temp_dir().join(format!("wb-pad-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("square.png");
+        let mut img = image::RgbImage::from_pixel(100, 100, image::Rgb([255, 255, 255]));
+        for x in 0..100 {
+            for y in 0..10 { img.put_pixel(x, y, image::Rgb([0, 255, 0])); }
+            for y in 90..100 { img.put_pixel(x, y, image::Rgb([0, 0, 255])); }
+        }
+        img.save(&path).unwrap();
+        let thumb = tauri::async_runtime::block_on(import_whiteboard_complete_thumbnail(
+            path.to_string_lossy().to_string(), Some("Square".into()),
+        )).unwrap();
+        let bytes = general_purpose::STANDARD.decode(thumbnail_png(&thumb).unwrap()).unwrap();
+        let out = image::load_from_memory(&bytes).unwrap().to_rgb8();
+        assert_eq!(out.dimensions(), (1280, 720));
+        assert_eq!(out.get_pixel(640, 0).0, [0, 255, 0]);
+        assert_eq!(out.get_pixel(640, 719).0, [0, 0, 255]);
+        assert_eq!(out.get_pixel(0, 360).0, [245, 235, 215]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2993,8 +3094,16 @@ mod whiteboard_review_regression_tests {
         assert_eq!(res.mappings[2].matched_image.as_ref().unwrap().filename, "3.png");
 
         assert_eq!(res.thumbnail_candidates.len(), 1);
-        assert_eq!(res.thumbnail_candidates[0].filename, "thumbnail-9x16.png");
-        assert_eq!(res.thumbnail_candidates[0].aspect_ratio.as_deref(), Some("9:16"));
+        assert!(
+            res.thumbnail_candidates[0].filename == "thumbnail-9x16.png"
+                || res.thumbnail_candidates[0].filename == "thumbnail.png"
+        );
+        let cover = &res.thumbnail_candidates[0];
+        let (rw, rh) = cover.aspect_ratio.as_ref().unwrap().split_once(':').unwrap();
+        let rw: u64 = rw.parse().unwrap();
+        let rh: u64 = rh.parse().unwrap();
+        assert_eq!(u64::from(cover.width.unwrap()) * rh, u64::from(cover.height.unwrap()) * rw);
+        assert!(cover.height.unwrap() > cover.width.unwrap());
     }
 }
 
@@ -3047,6 +3156,12 @@ pub struct SubtitleBurnResult {
     pub message: String,
 }
 
+fn ffmpeg_has_subtitle_filters(filters: &str) -> bool {
+    ["subtitles", "ass"].iter().all(|name| {
+        filters.lines().any(|line| line.split_whitespace().nth(1) == Some(*name))
+    })
+}
+
 /// Đóng dấu phụ đề cứng (Hardsub) trực tiếp lên video bằng FFmpeg
 #[tauri::command]
 pub async fn burn_video_subtitles(
@@ -3057,21 +3172,23 @@ pub async fn burn_video_subtitles(
     custom_style: Option<crate::models::SubtitleStyleConfig>,
     is_portrait: Option<bool>,
     kinetic_highlight: Option<bool>,
+    subtitle_offset_ms: Option<u64>,
     app_handle: tauri::AppHandle,
 ) -> Result<SubtitleBurnResult, AppError> {
-    let video_p = Path::new(&video_path);
+    let export = crate::subtitle_export::SubtitleExport::new(&video_path, &srt_path, &output_path)?;
+    let video_path = export.video_path.to_string_lossy().into_owned();
+    let srt_path = export.srt_path.to_string_lossy().into_owned();
     let srt_p = Path::new(&srt_path);
 
-    if !video_p.exists() {
-        return Err(AppError::NotFound(format!("Không tìm thấy video đầu vào: {}", video_path)));
-    }
-    if !srt_p.exists() {
-        return Err(AppError::NotFound(format!("Không tìm thấy tệp phụ đề: {}", srt_path)));
-    }
-
-    let out_p = Path::new(&output_path);
-    if let Some(parent) = out_p.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    let filters = app_handle.shell().sidecar("ffmpeg")
+        .map_err(|e| AppError::Other(format!("Lỗi khởi tạo FFmpeg: {}", e)))?
+        .args(["-hide_banner", "-filters"]).output().await
+        .map_err(|e| AppError::Other(format!("Không thể kiểm tra FFmpeg: {}", e)))?;
+    if !filters.status.success() || !ffmpeg_has_subtitle_filters(&String::from_utf8_lossy(&filters.stdout)) {
+        tracing::error!("FFmpeg sidecar thiếu bộ lọc subtitles/ass (libass)");
+        return Err(AppError::Other(
+            "FFmpeg đi kèm thiếu libass (bộ lọc subtitles/ass). Hãy cài lại FFmpeg sidecar có --enable-libass; xem scripts/setup_ffmpeg.py.".into()
+        ));
     }
 
     // 1. Xác định cấu hình style
@@ -3083,42 +3200,29 @@ pub async fn burn_video_subtitles(
         crate::models::SubtitleStyleConfig::from_preset(p, portrait)
     };
 
-    // 2. Xử lý Kinetic Typography nếu được bật (Cinecode punch keywords & chunks)
+    // 2. Kinetic uses short chunks and one active word; never silently fall back to full sentences.
     let enable_kinetic = kinetic_highlight.unwrap_or(false);
+    let offset = subtitle_offset_ms.unwrap_or(0);
     let filter_arg = if enable_kinetic {
-        let (width, height) = if portrait { (1080, 1920) } else { (1920, 1080) };
-        let highlight_col = if style.primary_color == "&H0000FFFF" { "&H0000FF00" } else { "&H0000FFFF" };
-        match crate::kinetic_subtitles::KineticGenerator::convert_srt_to_kinetic_ass(
-            srt_p,
-            &style,
-            highlight_col,
-            width,
-            height,
-        ) {
-            Ok(ass_path) => {
-                let ass_escaped = ass_path
-                    .to_string_lossy()
-                    .replace('\\', "/")
-                    .replace(':', "\\:")
-                    .replace('\'', "'\\''");
-                format!("ass='{}'", ass_escaped)
-            }
-            Err(_) => {
-                let force_style = style.to_force_style_string();
-                let srt_escaped = srt_path
-                    .replace('\\', "/")
-                    .replace(':', "\\:")
-                    .replace('\'', "'\\''");
-                format!("subtitles='{}':force_style='{}'", srt_escaped, force_style)
-            }
-        }
+        let probe = app_handle.shell().sidecar("ffmpeg")
+            .map_err(|e| AppError::Other(e.to_string()))?
+            .args(["-hide_banner", "-i", &video_path, "-map", "0:v:0", "-frames:v", "1",
+                   "-vf", "showinfo", "-f", "null", "-"])
+            .output().await.map_err(|e| AppError::Other(e.to_string()))?;
+        let dimensions = String::from_utf8_lossy(&probe.stderr);
+        let (width, height) = dimensions.lines().filter(|l| l.contains("showinfo")).find_map(|line| {
+            line.split_whitespace().find_map(|token| {
+                let (w, h) = token.strip_prefix("s:")?.split_once('x')?;
+                Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?))
+            })
+        }).filter(|(w,h)| *w > 0 && *h > 0)
+            .ok_or_else(|| AppError::Other("Không thể đọc kích thước video để tạo phụ đề Kinetic".into()))?;
+        crate::kinetic_subtitles::KineticGenerator::convert_srt_to_kinetic_ass_to(
+            srt_p, &export.work_dir.join("sub.ass"), &style, "&H0000FFFF", width, height, offset,
+        )?;
+        "ass=sub.ass".to_string()
     } else {
-        let force_style = style.to_force_style_string();
-        let srt_escaped = srt_path
-            .replace('\\', "/")
-            .replace(':', "\\:")
-            .replace('\'', "'\\''");
-        format!("subtitles='{}':force_style='{}'", srt_escaped, force_style)
+        export.srt_filter(&style.to_force_style_string(), offset)?
     };
 
     // 3. Thực thi FFmpeg sidecar
@@ -3128,6 +3232,7 @@ pub async fn burn_video_subtitles(
         .map_err(|e| AppError::Other(format!("Lỗi khởi tạo FFmpeg sidecar: {}", e)))?;
 
     let output = sidecar_cmd
+        .current_dir(&export.work_dir)
         .args([
             "-y",
             "-i",
@@ -3140,7 +3245,7 @@ pub async fn burn_video_subtitles(
             "yuv420p",
             "-c:a",
             "copy", // Giữ nguyên audio track không nén lại
-            &output_path,
+            &export.staged_video.to_string_lossy(),
         ])
         .output()
         .await
@@ -3148,12 +3253,12 @@ pub async fn burn_video_subtitles(
 
     if !output.status.success() {
         let err_log = String::from_utf8_lossy(&output.stderr);
+        tracing::error!(video = %video_path, subtitles = %srt_path, error = %err_log, "FFmpeg in phụ đề thất bại");
         return Err(AppError::Other(format!("FFmpeg in phụ đề thất bại: {}", err_log)));
     }
 
-    let file_size = std::fs::metadata(&output_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let file_size = export.publish()?;
+    let output_path = export.output_path.to_string_lossy().into_owned();
 
     Ok(SubtitleBurnResult {
         ok: true,
@@ -3161,6 +3266,18 @@ pub async fn burn_video_subtitles(
         file_size,
         message: "In phụ đề lên video thành công!".to_string(),
     })
+}
+
+#[cfg(test)]
+mod subtitle_filter_tests {
+    use super::ffmpeg_has_subtitle_filters;
+
+    #[test]
+    fn requires_both_libass_filters_not_just_a_version_or_description() {
+        assert!(!ffmpeg_has_subtitle_filters("ffmpeg version 9.0.2\n --enable-libass"));
+        assert!(!ffmpeg_has_subtitle_filters(" .. subtitles V->V Render text subtitles"));
+        assert!(ffmpeg_has_subtitle_filters(" .. subtitles V->V Render text subtitles\n .. ass V->V Render ASS"));
+    }
 }
 
 /// Trích xuất audio nhanh từ video thành PCM WAV 16 kHz Mono để phục vụ bóc phụ đề Whisper

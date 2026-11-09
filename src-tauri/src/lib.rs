@@ -1,4 +1,6 @@
 pub mod commands;
+mod subtitle_export;
+mod whiteboard_project_compat;
 pub mod db;
 pub mod dedup;
 pub mod diagnostics;

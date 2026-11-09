@@ -399,10 +399,10 @@ export function SubtitleTool() {
           <div style={{ padding: "10px 12px", background: "rgba(0, 229, 255, 0.08)", border: "1px solid rgba(0, 229, 255, 0.25)", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
               <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#00e5ff", display: "flex", alignItems: "center", gap: "6px" }}>
-                <Sparkles size={14} /> Chữ Động Kinetic (Học từ Cinecode)
+                <Sparkles size={14} /> Tô vàng từng từ (TikTok)
               </span>
               <span style={{ fontSize: "0.75rem", opacity: 0.75 }}>
-                Tự động ngắt cụm 3-4 từ, phóng to và đổi màu làm nổi bật các từ khóa cảm xúc/số liệu.
+                Cụm tối đa 4 từ; tô vàng lần lượt, nhấn nhẹ từ khóa. Nhịp từng từ ước lượng theo mốc câu SRT.
               </span>
             </div>
             <input

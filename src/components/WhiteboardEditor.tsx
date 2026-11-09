@@ -45,6 +45,7 @@ import {
   StopCircle,
 } from "lucide-react";
 
+import { nextAnnotationPath, selectedBatchImage, validBatchImage } from "../utils/whiteboardBatch";
 import { applyAlignedTiming } from "../lib/whiteboardTiming";
 import { COVER_LAYOUT, COVER_TYPOGRAPHY_VERSION, createWhiteboardThumbnail } from "../lib/whiteboardThumbnail";
 import { buildProjectFromWbImport, revalidateWbImport, describeWbImportErrors } from "../utils/whiteboardWbAdapter";
@@ -65,6 +66,7 @@ export function WhiteboardEditor() {
   const [masterAudioPath, setMasterAudioPath] = useState("");
   const [audioExists, setAudioExists] = useState(false);
   const [autoBurnSubtitles, setAutoBurnSubtitles] = useState(false);
+  const [kineticSubtitles, setKineticSubtitles] = useState(true);
 
   const [fps, setFps] = useState(30);
   const [paperColor, setPaperColor] = useState("#F5EBD7");
@@ -190,6 +192,7 @@ export function WhiteboardEditor() {
   // State cho tạo mẫu annotation hàng loạt
   const [batchAnnoModalOpen, setBatchAnnoModalOpen] = useState(false);
   const [batchAnnoMode, setBatchAnnoMode] = useState<"missing" | "all">("missing");
+  const [batchAnnoMissingCount, setBatchAnnoMissingCount] = useState<number | null>(null);
   const [isBatchAnnotating, setIsBatchAnnotating] = useState(false);
   const [batchAnnoProgress, setBatchAnnoProgress] = useState<{
     current: number;
@@ -299,14 +302,12 @@ export function WhiteboardEditor() {
         const initialDuplicates: Record<number, string> = {};
 
         res.mappings.forEach((m) => {
-          const hasImg = Boolean(m.matchedImage || (m.candidateImages && m.candidateImages.length > 0));
+          const hasImg = Boolean(selectedBatchImage(m));
           const sceneAlreadyHasImg = Boolean(scenes[m.sceneIndex]?.imagePath);
           initialSelected[m.sceneIndex] = hasImg && !sceneAlreadyHasImg;
 
-          if (m.matchedImage) {
+          if (m.status === "ready" && validBatchImage(m.matchedImage)) {
             initialDuplicates[m.sceneIndex] = m.matchedImage.path;
-          } else if (m.candidateImages && m.candidateImages.length > 0) {
-            initialDuplicates[m.sceneIndex] = m.candidateImages[0].path;
           }
         });
 
@@ -314,7 +315,8 @@ export function WhiteboardEditor() {
         setBatchChosenDuplicates(initialDuplicates);
 
         if (res.thumbnailCandidates && res.thumbnailCandidates.length > 0) {
-          setBatchChosenThumbnail(res.thumbnailCandidates[0].path);
+          const validThumbs = res.thumbnailCandidates.filter(validBatchImage);
+          setBatchChosenThumbnail(validThumbs.length === 1 ? validThumbs[0].path : null);
           setBatchThumbnailMode("imported");
         } else {
           setBatchChosenThumbnail(null);
@@ -336,7 +338,7 @@ export function WhiteboardEditor() {
     setBatchSelectedRows((prev) => {
       const next = { ...prev };
       batchScanResult.mappings.forEach((m) => {
-        const hasImg = Boolean(m.matchedImage || (m.candidateImages && m.candidateImages.length > 0));
+        const hasImg = Boolean(selectedBatchImage(m, batchChosenDuplicates[m.sceneIndex]));
         const sceneAlreadyHasImg = Boolean(scenes[m.sceneIndex]?.imagePath);
         if (hasImg) {
           next[m.sceneIndex] = nextOverwrite ? true : !sceneAlreadyHasImg;
@@ -364,8 +366,9 @@ export function WhiteboardEditor() {
       const mapping = batchScanResult.mappings[idx];
       if (!isSelected || !mapping) return scene;
 
-      const chosenPath = batchChosenDuplicates[idx] || mapping.matchedImage?.path;
-      if (!chosenPath) return scene;
+      const image = selectedBatchImage(mapping, batchChosenDuplicates[idx]);
+      if (!image || (scene.imagePath && !batchOverwriteExisting)) return scene;
+      const chosenPath = image.path;
 
       appliedCount++;
       return {
@@ -411,6 +414,25 @@ export function WhiteboardEditor() {
     });
   };
 
+  const handleOpenBatchAnnoModal = async () => {
+    setBatchAnnoModalOpen(true);
+    let missing = 0;
+    for (const s of scenes) {
+      if (!s.imagePath) continue;
+      if (!s.annotationPath || !s.elements || s.elements.length === 0) {
+        missing++;
+      } else {
+        try {
+          const exists = await api.checkFileExists(s.annotationPath);
+          if (!exists) missing++;
+        } catch {
+          missing++;
+        }
+      }
+    }
+    setBatchAnnoMissingCount(missing);
+  };
+
   const handleStartBatchAnnotation = async () => {
     try {
       await annotationSaveQueue.current;
@@ -420,22 +442,32 @@ export function WhiteboardEditor() {
     }
 
     const targetIndices: number[] = [];
-    scenes.forEach((s, idx) => {
-      if (!s.imagePath) return;
+    for (let idx = 0; idx < scenes.length; idx++) {
+      const s = scenes[idx];
+      if (!s.imagePath) continue;
       if (batchAnnoMode === "missing") {
         if (!s.annotationPath || !s.elements || s.elements.length === 0) {
           targetIndices.push(idx);
+        } else {
+          try {
+            const exists = await api.checkFileExists(s.annotationPath);
+            if (!exists) {
+              targetIndices.push(idx);
+            }
+          } catch {
+            targetIndices.push(idx);
+          }
         }
       } else {
         targetIndices.push(idx);
       }
-    });
+    }
 
     if (targetIndices.length === 0) {
       setStatusMsg({
         text:
           batchAnnoMode === "missing"
-            ? "Tất cả các cảnh có ảnh đã có annotation hợp lệ. Không có cảnh nào cần tạo mẫu."
+            ? "Tất cả các cảnh có ảnh đã có annotation hợp lệ trên đĩa. Không có cảnh nào cần tạo mẫu."
             : "Không có cảnh nào có ảnh minh họa để tạo mẫu.",
         ok: true,
       });
@@ -479,9 +511,9 @@ export function WhiteboardEditor() {
       });
 
       try {
-        const targetPath =
-          scene.annotationPath ||
+        const desiredPath = scene.annotationPath ||
           scene.imagePath.replace(/\.[^/.]+$/, "") + `.${scene.id}.annotation.json`;
+        const targetPath = await nextAnnotationPath(desiredPath, api.checkFileExists);
 
         const relativeCues = scene.cues.map((c) => ({
           ...c,
@@ -498,7 +530,7 @@ export function WhiteboardEditor() {
           scene.durationMs,
           relativeCues,
           targetPath,
-          true
+          false
         );
 
         setScenes((prevScenes) => {
@@ -508,6 +540,7 @@ export function WhiteboardEditor() {
               ...next[idx],
               annotationPath: res.savedTo || targetPath,
               elements: (res.elements as any) || undefined,
+              revision: (next[idx].revision || 1) + 1,
               outputPath: "",
             };
           }
@@ -1373,7 +1406,8 @@ export function WhiteboardEditor() {
       const path = await api.pickFile([{ name: "Whiteboard Project", extensions: ["whiteboard.json", "json"] }]);
       if (!path) return;
       const proj = await api.loadWhiteboardProject(path);
-      setProjectPath(path);
+      // A migrated legacy project must use Save As so its original JSON stays intact.
+      setProjectPath(proj.importedLegacyV1 ? "" : path);
       if (proj.id) setProjectId(proj.id);
       if (proj.revision) setProjectRevision(proj.revision);
       setFps(proj.fps || 30);
@@ -1405,7 +1439,12 @@ export function WhiteboardEditor() {
       }
 
       setSelectedSceneIndex(0);
-      setStatusMsg({ text: `Đã mở dự án: ${path} (${proj.scenes?.length || 0} cảnh)`, ok: true });
+      setStatusMsg({
+        text: proj.importedLegacyV1
+          ? `Đã chuyển dự án V1 sang editor (${proj.scenes.length} cảnh). File gốc được giữ nguyên; hãy lưu thành file mới và tạo thumbnail trước khi xuất.`
+          : `Đã mở dự án: ${path} (${proj.scenes?.length || 0} cảnh)`,
+        ok: true,
+      });
     } catch (e: any) {
       setStatusMsg({ text: `Lỗi mở dự án: ${errText(e)}`, ok: false });
     }
@@ -1455,7 +1494,7 @@ export function WhiteboardEditor() {
         setProgress({ percent: 90, message: "Đang đóng dấu phụ đề (Hardsub) vào video hoàn chỉnh..." });
         try {
           const subbedOut = res.output_path.replace(/\.mp4$/i, "_subbed.mp4");
-          const burnRes = await api.burnVideoSubtitles(res.output_path, srtPath, subbedOut, "notion_whiteboard", null, false);
+          const burnRes = await api.burnVideoSubtitles(res.output_path, srtPath, subbedOut, "notion_whiteboard", null, false, kineticSubtitles, 2000);
           finalOutMsg += ` | Hardsub: ${burnRes.output_path}`;
         } catch (subErr: any) {
           finalOutMsg += ` | (Cảnh báo lỗi phụ đề: ${errText(subErr)})`;
@@ -1608,6 +1647,10 @@ export function WhiteboardEditor() {
             />
             <span style={{ color: !srtPath ? "#94a3b8" : "inherit" }}>Gắn Hardsub (SRT)</span>
           </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }} title="Cụm tối đa 4 từ, tô vàng lần lượt. Nhịp từng từ được ước lượng từ mốc câu SRT.">
+            <input type="checkbox" checked={kineticSubtitles} onChange={(e) => setKineticSubtitles(e.target.checked)} disabled={loading || !autoBurnSubtitles} />
+            Tô vàng từng từ (TikTok)
+          </label>
           <button
             className="primary-btn"
             onClick={() => handleRenderFullProject(false)}
@@ -1681,7 +1724,7 @@ export function WhiteboardEditor() {
               <button
                 type="button"
                 className="secondary-btn"
-                onClick={() => setBatchAnnoModalOpen(true)}
+                onClick={handleOpenBatchAnnoModal}
                 disabled={loading || scenes.length === 0}
                 title="Tạo mẫu nét vẽ hoạt hình cho tất cả hoặc các cảnh còn thiếu"
                 style={{ padding: "4px 8px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}
@@ -3396,7 +3439,8 @@ export function WhiteboardEditor() {
                         checked={
                           batchScanResult.mappings.length > 0 &&
                           batchScanResult.mappings.every((m) => {
-                            const hasValid = Boolean(m.matchedImage || (m.candidateImages && m.candidateImages.length > 0));
+                            const hasValid = Boolean(selectedBatchImage(m, batchChosenDuplicates[m.sceneIndex])) &&
+                              (!scenes[m.sceneIndex]?.imagePath || batchOverwriteExisting);
                             return !hasValid || batchSelectedRows[m.sceneIndex];
                           })
                         }
@@ -3405,7 +3449,8 @@ export function WhiteboardEditor() {
                           setBatchSelectedRows((prev) => {
                             const next = { ...prev };
                             batchScanResult.mappings.forEach((m) => {
-                              const hasValid = Boolean(m.matchedImage || (m.candidateImages && m.candidateImages.length > 0));
+                              const hasValid = Boolean(selectedBatchImage(m, batchChosenDuplicates[m.sceneIndex])) &&
+                              (!scenes[m.sceneIndex]?.imagePath || batchOverwriteExisting);
                               if (hasValid) next[m.sceneIndex] = checkAll;
                             });
                             return next;
@@ -3424,7 +3469,8 @@ export function WhiteboardEditor() {
                     const scene = scenes[mapping.sceneIndex];
                     const isSelected = Boolean(batchSelectedRows[mapping.sceneIndex]);
                     const hasCandidates = mapping.candidateImages && mapping.candidateImages.length > 0;
-                    const canSelect = Boolean(mapping.matchedImage || hasCandidates);
+                    const canSelect = Boolean(selectedBatchImage(mapping, batchChosenDuplicates[mapping.sceneIndex])) &&
+                      (!scene?.imagePath || batchOverwriteExisting);
 
                     return (
                       <tr
@@ -3461,12 +3507,16 @@ export function WhiteboardEditor() {
                           {mapping.status === "duplicate" && hasCandidates ? (
                             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                               <select
-                                value={batchChosenDuplicates[mapping.sceneIndex] || mapping.candidateImages[0].path}
+                                value={batchChosenDuplicates[mapping.sceneIndex] || ""}
                                 onChange={(e) => {
                                   const val = e.target.value;
                                   setBatchChosenDuplicates((prev) => ({
                                     ...prev,
                                     [mapping.sceneIndex]: val,
+                                  }));
+                                  setBatchSelectedRows(prev => ({ ...prev,
+                                    [mapping.sceneIndex]: Boolean(selectedBatchImage(mapping, val)) &&
+                                      (!scene?.imagePath || batchOverwriteExisting),
                                   }));
                                 }}
                                 style={{
@@ -3477,8 +3527,9 @@ export function WhiteboardEditor() {
                                   maxWidth: "260px",
                                 }}
                               >
+                                <option value="">Chọn ảnh để giải quyết trùng...</option>
                                 {mapping.candidateImages.map((c) => (
-                                  <option key={c.path} value={c.path}>
+                                  <option key={c.path} value={c.path} disabled={!validBatchImage(c)}>
                                     {c.filename} {c.width && c.height ? `(${c.width}x${c.height})` : ""}
                                   </option>
                                 ))}
@@ -3558,9 +3609,10 @@ export function WhiteboardEditor() {
                       onChange={(e) => setBatchChosenThumbnail(e.target.value || null)}
                       style={{ padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                     >
+                      <option value="">Chọn ảnh bìa...</option>
                       {batchScanResult.thumbnailCandidates.map((c) => (
-                        <option key={c.path} value={c.path}>
-                          {c.filename} {c.width && c.height ? `(${c.width}×${c.height} · ${c.aspectRatio || ""})` : ""}
+                        <option key={c.path} value={c.path} disabled={!validBatchImage(c)}>
+                          {c.filename} {c.width && c.height ? `(${c.width}×${c.height} · ${c.aspectRatio || ""})` : ""}{c.error ? " — Ảnh lỗi" : ""}
                         </option>
                       ))}
                     </select>
@@ -3575,7 +3627,7 @@ export function WhiteboardEditor() {
                         checked={batchThumbnailMode === "imported"}
                         onChange={() => setBatchThumbnailMode("imported")}
                       />
-                      <span>Bìa hoàn chỉnh (không phủ chữ)</span>
+                      <span>Bìa hoàn chỉnh (không phủ chữ; giữ đủ ảnh, đệm nền nếu khác tỷ lệ)</span>
                     </label>
 
                     <label style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
@@ -3739,8 +3791,12 @@ export function WhiteboardEditor() {
                     • Tổng số cảnh có ảnh: <strong>{scenes.filter((s) => Boolean(s.imagePath)).length}/{scenes.length}</strong>
                   </div>
                   <div>
-                    • Cảnh chưa có annotation:{" "}
-                    <strong>{scenes.filter((s) => Boolean(s.imagePath) && (!s.annotationPath || !s.elements || s.elements.length === 0)).length}</strong>
+                    • Cảnh chưa có annotation hợp lệ:{" "}
+                    <strong>
+                      {batchAnnoMissingCount !== null
+                        ? batchAnnoMissingCount
+                        : scenes.filter((s) => Boolean(s.imagePath) && (!s.annotationPath || !s.elements || s.elements.length === 0)).length}
+                    </strong>
                   </div>
                 </div>
 

@@ -53,12 +53,31 @@ Người xem trên các nền tảng video ngắn (TikTok, Facebook Reels, YouTu
 
 ---
 
-### Giai đoạn 3: Nâng cấp Kinetic Typography (Học hỏi từ Cinecode) (Đã Hoàn Thành)
+### Giai đoạn 3: Nâng cấp Kinetic Typography (Học hỏi từ Cinecode)
 - [x] **3.1. Gom nhóm từ tối ưu tốc độ đọc**: Ngắt cụm 3–5 từ tối ưu cho mắt người lướt trên màn hình dọc (Reels/TikTok/Shorts).
 - [x] **3.2. Hiệu ứng Kinetic Highlight & Punch Accent**:
   - Tự động nhận diện số liệu (100, 2024...), ký hiệu tài chính ($, %, đ), từ viết hoa (AI, CEO, TOP...) và các tính từ kích thích cảm xúc (đột phá, bùng nổ, bí mật...).
   - Render thẻ ASS với kích thước phóng to (+8%) và đổi màu rực rỡ theo nhịp.
   - Tích hợp công tắc bật/tắt Kinetic Subtitles trên giao diện SubtitleTool.
+
+#### Cập nhật sau kiểm tra thực tế ngày 09/11/2026
+
+Bản ban đầu chỉ tô màu từ khóa trong cả cụm, chưa đổi màu lần lượt theo từng từ. Whiteboard cũng chưa truyền cờ bật Kinetic nên vẫn in nguyên câu SRT. Các mục hoàn thành ở trên không đồng nghĩa đã căn theo lời nói từng từ.
+
+- [x] Chia tất cả câu thành cụm tối đa 4 từ, kể cả câu chỉ có 5–6 từ.
+- [x] Mỗi thời điểm chỉ một từ trong cụm chuyển vàng; các từ còn lại giữ màu nền của preset (TikTok dùng trắng để phân biệt với vàng).
+- [x] Punch Accent chỉ áp dụng cho từ đang đến lượt: tăng 8% rồi trở về kích thước gốc trong 100 ms.
+- [x] Bật tùy chọn “Tô vàng từng từ (TikTok)” trong Whiteboard khi gắn hardsub; giữ lựa chọn phụ đề thường.
+- [x] Bù 2 giây ảnh bìa trong Whiteboard; dùng kích thước video thật để tạo ASS và tỉ lệ cỡ chữ.
+- [x] Không tự chuyển về nguyên câu nếu tạo ASS thất bại; ghi file `.kinetic.ass` riêng, giữ ASS có sẵn.
+- [x] Kiểm tra FFmpeg có `subtitles` và `ass` (libass) trước khi in. Cài sidecar bằng `python3 scripts/setup_ffmpeg.py /duong/dan/ffmpeg`.
+- [ ] **Căn từng từ theo audio (forced alignment)**: SRT hiện tại chỉ chứa mốc đầu/cuối câu. Chuyển vàng từng từ hiện chia đều thời lượng câu, nên có thể lệch khi nói nhanh/chậm hoặc ngắt nghỉ. Cần dữ liệu word timestamps để đạt độ khớp theo từng từ thực tế; không đánh dấu mục này đã hoàn thành chỉ vì có hiệu ứng đổi màu.
+
+Kiểm thử: unit test kiểm tra cụm ngắn, một từ vàng mỗi thời điểm, màu được trả về, thời gian liên tục và bù ảnh bìa. Có thể tạo ASS bằng cùng engine để kiểm tra với FFmpeg:
+
+```sh
+cargo run --manifest-path src-tauri/Cargo.toml --example kinetic_ass -- input.srt 1080 600 2000
+```
 
 ---
 

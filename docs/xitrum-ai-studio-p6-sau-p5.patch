@@ -1,0 +1,828 @@
+Subject: P6 revised - remove orphan Whiteboard UI, preserve legacy compatibility
+
+Base: current working source, including the scene output-path, libass and Kinetic fixes.
+This patch is an artifact only; it has not been applied to the working repository.
+
+Scope:
+- Remove only the unreferenced WhiteboardProject.tsx component.
+- Preserve V1 commands/API/exporter and their tests until all old configurations can migrate.
+- Import compatible legacy name/hand/masterAudio projects into the current editor in memory.
+- Request Save As after migration; never rewrite a source file just by opening it.
+- Reject unsupported legacy features explicitly rather than silently changing export behavior.
+- Preserve the existing speechConfig and WB schema 2/3 import documentation.
+- Keep all recent output-path, libass, Kinetic and thumbnail-offset fixes unchanged.
+
+Migration limits: outputSize, custom hands, disabled scenes, mixed master/per-scene audio,
+and discontinuous master timelines still use the retained V1 backend. Conversion to the
+editor requires a new thumbnail and does not promise frame-identical legacy output.
+
+Validated in an isolated copy:
+- cargo test --lib --offline -- --skip secret_store::tests: 43 passed (keychain test excluded).
+- npm run build: passed (existing dynamic-import warning remains).
+- git apply --check against the current working repository: checked separately after generation.
+
+diff --git a/docs/whiteboard-project-format.md b/docs/whiteboard-project-format.md
+index 3aca4e5..427edbd 100644
+--- a/docs/whiteboard-project-format.md
++++ b/docs/whiteboard-project-format.md
+@@ -1,6 +1,50 @@
+-# Định dạng dự án Whiteboard nhiều cảnh (schemaVersion 1)
++# Định dạng dự án Whiteboard và tương thích V1
+ 
+-Tệp JSON do màn "Dự án nhiều cảnh" lưu/mở; runner Python (`scripts/project_export.py`) đọc đúng định dạng này.
++Editor hiện tại dùng `WhiteboardProject` trong `src-tauri/src/commands.rs` và
++`src/types/whiteboard.ts`, lưu/mở qua `save_whiteboard_project` / `load_whiteboard_project`.
++
++## Dự án editor hiện tại (schemaVersion 1)
++
++```json
++{
++  "id": "project-01", "schemaVersion": 1, "revision": 1, "title": "Bài giảng 01",
++  "fps": 30, "paperColor": "#F5EBD7", "handPath": "drawing-hand.png",
++  "sourceSrtPath": "D:/p/bai-01.srt", "masterAudioPath": "D:/p/bai-01.wav",
++  "scenes": [{
++    "id": "scene-01", "order": 1, "revision": 1,
++    "imagePath": "D:/p/scene-01.png", "annotationPath": "D:/p/scene-01.annotation.json",
++    "timelineStartMs": 0, "timelineEndMs": 30000, "durationMs": 30000,
++    "cues": [], "status": "idle"
++  }]
++}
++```
++
++- Có master audio thì timeline phải liền nhau từ 0 và `timelineEndMs - timelineStartMs == durationMs`.
++- `thumbnail`/`thumbnailDraft`, `speechConfig`, `pageTurnMs`, `outputVideoPath` là các trường tùy chọn khi mở.
++  Khi xuất bằng editor, phải tạo thumbnail; video có thêm ảnh bìa 2 giây.
++- Resume dùng fingerprint và manifest từng cảnh. Các sửa lỗi đường dẫn video, libass và Kinetic hiện có được giữ nguyên trong P6.
++- Metadata nhập từ `/wb` (`schema_version` 2/3) khác dự án đã lưu (`schemaVersion` 1); tiếp tục nhập metadata qua SRT.
++
++## Mở dự án V1 cũ bằng editor
++
++Hai định dạng cùng dùng `schemaVersion: 1`; nhận diện V1 cũ bằng trường `name` khi chưa có `title`.
++Bộ đọc từ chối schema chưa hỗ trợ thay vì đoán cấu trúc.
++
++Chuyển đổi chỉ diễn ra trong bộ nhớ: `name → title`, `hand → handPath`,
++`masterAudio.path → masterAudioPath`, thêm revision, order, status và mốc cuối cảnh.
++Giữ ảnh, annotation, thứ tự cảnh và cấu hình kiểu vẽ. Không tái dùng output video từ cache của engine cũ.
++
++- Hỗ trợ các preset tay mặc định/bút lông, timeline nguyên dương, audio toàn bài ở chế độ auto/master,
++  hoặc audio riêng/file/none khi không có master audio.
++- Chưa tự chuyển `outputSize`, tay tùy chỉnh, cảnh `enabled=false`, audio trộn master với file/none,
++  timeline master có khoảng trống. Báo `LEGACY_PROJECT_UNSUPPORTED` để tránh âm thầm đổi kết quả.
++- Backend V1 (`project_export.py`, các command/API V1 và test liên quan) vẫn được giữ cho cấu hình chưa chuyển được.
++  P6 chỉ gỡ component `WhiteboardProject.tsx` không còn được giao diện tham chiếu.
++- Sau khi chuyển đổi, editor yêu cầu **Lưu thành file mới** và tạo thumbnail trước khi xuất.
++  Việc mở không ghi lại file nguồn. Chỉ đánh dấu đã nhập V1 trong phản hồi mở file; dự án được lưu lại dùng cấu trúc editor.
++- Đây là chuyển cấu trúc để tiếp tục biên tập, không cam kết video giống từng khung hình với engine V1.
++
++## Định dạng V1 cũ (backend tương thích)
+ 
+ ```json
+ {
+diff --git a/src-tauri/src/commands.rs b/src-tauri/src/commands.rs
+index 41ce57f..7df26bb 100644
+--- a/src-tauri/src/commands.rs
++++ b/src-tauri/src/commands.rs
+@@ -2240,6 +2240,9 @@ pub struct WhiteboardSpeechConfig {
+ 
+ #[derive(Debug, Serialize, Deserialize)]
+ pub struct WhiteboardProject {
++    /// Transient import marker; editor saves migrated projects to a new file.
++    #[serde(rename = "importedLegacyV1", default, skip_serializing_if = "Option::is_none")]
++    pub imported_legacy_v1: Option<bool>,
+     pub id: String,
+     #[serde(rename = "schemaVersion")]
+     pub schema_version: i32,
+@@ -2415,8 +2418,8 @@ pub async fn load_whiteboard_project(
+ ) -> Result<WhiteboardProject, AppError> {
+     let content = std::fs::read_to_string(&file_path)
+         .map_err(|e| AppError::Other(format!("Lỗi đọc tệp dự án {}: {}", file_path, e)))?;
+-    let project: WhiteboardProject = serde_json::from_str(&content)
+-        .map_err(|e| AppError::Other(format!("Lỗi phân tích cú pháp dự án {}: {}", file_path, e)))?;
++    let project = crate::whiteboard_project_compat::decode_project(&content)
++        .map_err(|e| AppError::Other(format!("Lỗi mở dự án {}: {}", file_path, e)))?;
+     Ok(project)
+ }
+ 
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 3ff9d1d..94ed8c1 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -1,4 +1,5 @@
+ pub mod commands;
++mod whiteboard_project_compat;
+ pub mod db;
+ pub mod dedup;
+ pub mod diagnostics;
+diff --git a/src-tauri/src/whiteboard_project_compat.rs b/src-tauri/src/whiteboard_project_compat.rs
+new file mode 100644
+index 0000000..a080fb2
+--- /dev/null
++++ b/src-tauri/src/whiteboard_project_compat.rs
+@@ -0,0 +1,270 @@
++//! Read-only import of the old name/hand/masterAudio project format.
++//! Keep its exporter until every legacy feature has an editor equivalent.
++use crate::commands::WhiteboardProject;
++use anyhow::{anyhow, bail, ensure, Context, Result};
++use serde_json::{json, Value};
++
++pub fn decode_project(content: &str) -> Result<WhiteboardProject> {
++    let mut value: Value = serde_json::from_str(content).context("JSON dự án không hợp lệ")?;
++    ensure!(value.is_object(), "Dự án phải là một đối tượng JSON");
++    let version = value
++        .get("schemaVersion")
++        .and_then(Value::as_u64)
++        .ok_or_else(|| anyhow!("Thiếu schemaVersion hợp lệ; bộ .wb.json phải nhập cùng SRT"))?;
++    ensure!(
++        version == 1,
++        "schemaVersion {} chưa được hỗ trợ (editor hỗ trợ 1)",
++        version
++    );
++    let legacy = value.get("name").is_some() && value.get("title").is_none();
++    if legacy {
++        migrate_legacy(&mut value)?;
++    }
++    let mut project: WhiteboardProject =
++        serde_json::from_value(value).context("Cấu trúc dự án Whiteboard không hợp lệ")?;
++    // Ignore markers persisted or supplied by an unrelated JSON file.
++    project.imported_legacy_v1 = legacy.then_some(true);
++    Ok(project)
++}
++
++fn unsupported(field: &str) -> anyhow::Error {
++    anyhow!("LEGACY_PROJECT_UNSUPPORTED: {} chưa chuyển được sang editor; giữ file gốc và dùng backend V1 để xuất", field)
++}
++
++fn migrate_legacy(value: &mut Value) -> Result<()> {
++    let root = value.as_object_mut().unwrap();
++    if root.get("outputSize").is_some_and(|v| !v.is_null()) {
++        return Err(unsupported("outputSize"));
++    }
++    let master = match root.get("masterAudio").filter(|v| !v.is_null()) {
++        None => None,
++        Some(v) => Some(
++            v.get("path")
++                .and_then(Value::as_str)
++                .filter(|p| !p.trim().is_empty())
++                .ok_or_else(|| anyhow!("masterAudio.path không hợp lệ"))?
++                .to_owned(),
++        ),
++    };
++    let hand = match root.get("hand") {
++        None | Some(Value::Null) => "default",
++        Some(v) => v.as_str().ok_or_else(|| anyhow!("hand phải là chuỗi"))?,
++    };
++    let hand = match hand {
++        "" | "pen" | "default" | "drawing-hand.png" => "drawing-hand.png",
++        "brush" | "calligraphy" | "calligraphy-brush" | "calligraphy-brush.png" => {
++            "calligraphy-brush.png"
++        }
++        _ => return Err(unsupported("hand tùy chỉnh")),
++    };
++    let hand = hand.to_owned();
++    let fps = match root.get("fps") {
++        None => 30,
++        Some(v) => v
++            .as_u64()
++            .ok_or_else(|| anyhow!("FPS phải là số nguyên dương"))?,
++    };
++    ensure!((1..=120).contains(&fps), "FPS phải nằm trong khoảng 1–120");
++    let paper = match root.get("paperColor") {
++        None | Some(Value::Null) => "#F5EBD7",
++        Some(v) => v
++            .as_str()
++            .ok_or_else(|| anyhow!("paperColor phải là chuỗi"))?,
++    };
++    let paper = paper.strip_prefix('#').unwrap_or(paper);
++    ensure!(
++        paper.len() == 6 && paper.bytes().all(|c| c.is_ascii_hexdigit()),
++        "Màu giấy không hợp lệ"
++    );
++    let paper = format!("#{}", paper.to_uppercase());
++    let scenes = root
++        .get_mut("scenes")
++        .and_then(Value::as_array_mut)
++        .ok_or_else(|| anyhow!("scenes phải là một mảng"))?;
++    let mut cursor = 0i64;
++    let mut ids = std::collections::HashSet::new();
++    for (idx, scene) in scenes.iter_mut().enumerate() {
++        let sc = scene
++            .as_object_mut()
++            .ok_or_else(|| anyhow!("Cảnh {} không hợp lệ", idx + 1))?;
++        if let Some(enabled) = sc.get("enabled") {
++            ensure!(enabled.is_boolean(), "enabled phải là boolean");
++            if enabled == &Value::Bool(false) {
++                return Err(unsupported("cảnh bị tắt (enabled=false)"));
++            }
++        }
++        let id = sc
++            .get("id")
++            .and_then(Value::as_str)
++            .filter(|s| !s.is_empty())
++            .map(str::to_owned)
++            .unwrap_or_else(|| format!("scene-{:02}", idx + 1));
++        ensure!(ids.insert(id.clone()), "ID cảnh bị trùng: {}", id);
++        let duration = sc
++            .get("durationMs")
++            .and_then(Value::as_i64)
++            .filter(|d| *d > 0)
++            .ok_or_else(|| anyhow!("Cảnh {}: durationMs phải là số nguyên dương", id))?;
++        let start = match sc.get("timelineStartMs") {
++            None | Some(Value::Null) => cursor,
++            Some(v) => v
++                .as_i64()
++                .filter(|s| *s >= 0)
++                .ok_or_else(|| anyhow!("Cảnh {}: timelineStartMs không hợp lệ", id))?,
++        };
++        if master.is_some() && start != cursor {
++            return Err(unsupported("timeline master audio không liền nhau từ 0"));
++        }
++        let end = start
++            .checked_add(duration)
++            .ok_or_else(|| anyhow!("Timeline vượt giới hạn"))?;
++        let audio = sc.get("audio").filter(|v| !v.is_null());
++        if let Some(audio) = audio {
++            ensure!(audio.is_object(), "audio phải là object");
++        }
++        let mode = match audio.and_then(|v| v.get("mode")) {
++            None => "auto",
++            Some(v) => v
++                .as_str()
++                .ok_or_else(|| anyhow!("audio.mode phải là chuỗi"))?,
++        };
++        let audio_path = match mode {
++            "auto" | "master" if master.is_some() => None,
++            "auto" | "none" if master.is_none() => None,
++            "file" if master.is_none() => Some(
++                audio
++                    .and_then(|v| v.get("path"))
++                    .and_then(Value::as_str)
++                    .filter(|p| !p.trim().is_empty())
++                    .ok_or_else(|| anyhow!("Cảnh {}: thiếu audio.path", id))?
++                    .to_owned(),
++            ),
++            _ => return Err(unsupported(&format!("audio.mode={} ở cảnh {}", mode, id))),
++        };
++        sc.insert("id".into(), json!(id));
++        sc.insert("order".into(), json!(idx + 1));
++        sc.insert("revision".into(), json!(1));
++        sc.insert("status".into(), json!("idle"));
++        sc.insert("timelineStartMs".into(), json!(start));
++        sc.insert("timelineEndMs".into(), json!(end));
++        sc.insert("audioPath".into(), json!(audio_path));
++        // Never reuse an old video whose cache belongs to a different export engine.
++        sc.remove("outputPath");
++        sc.remove("audio");
++        sc.remove("enabled");
++        cursor = end;
++    }
++    let title = root.remove("name").ok_or_else(|| anyhow!("Thiếu name"))?;
++    ensure!(title.is_string(), "name phải là chuỗi");
++    root.insert("title".into(), title);
++    root.insert("revision".into(), json!(1));
++    root.insert("fps".into(), json!(fps));
++    root.insert("paperColor".into(), json!(paper));
++    root.insert("handPath".into(), json!(hand));
++    root.insert("masterAudioPath".into(), json!(master));
++    root.remove("hand");
++    root.remove("masterAudio");
++    root.remove("outputSize");
++    if !root.contains_key("id") {
++        bail!("Thiếu ID dự án");
++    }
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    fn legacy() -> Value {
++        json!({"schemaVersion":1,"id":"old","name":"Bài giảng","fps":24,"paperColor":"f5ebd7","hand":"brush",
++            "scenes":[{"id":"a","imagePath":"a.png","annotationPath":"a.json","durationMs":1000},
++                      {"id":"b","imagePath":"b.png","annotationPath":"b.json","durationMs":2000}]})
++    }
++    #[test]
++    fn imports_legacy_in_memory_and_reopens_as_native() {
++        let before = legacy().to_string();
++        let p = decode_project(&before).unwrap();
++        assert_eq!(p.imported_legacy_v1, Some(true));
++        assert_eq!(p.title, "Bài giảng");
++        assert_eq!(p.hand_path.as_deref(), Some("calligraphy-brush.png"));
++        assert_eq!(p.paper_color, "#F5EBD7");
++        assert_eq!(
++            (p.scenes[1].timeline_start_ms, p.scenes[1].timeline_end_ms),
++            (1000, 3000)
++        );
++        let mut native = serde_json::to_value(p).unwrap();
++        native["pageTurnMs"] = json!(800);
++        native["speechConfig"] =
++            json!({"mode":"characters","defaultVoiceId":"A","timingMode":"auto","speakers":[]});
++        let reopened = decode_project(&native.to_string()).unwrap();
++        assert!(reopened.imported_legacy_v1.is_none());
++        assert_eq!(reopened.page_turn_ms, Some(800));
++        assert_eq!(reopened.speech_config.unwrap().mode, "characters");
++        assert_eq!(before, legacy().to_string());
++    }
++    #[test]
++    fn maps_master_and_per_scene_audio_without_mixing() {
++        let mut v = legacy();
++        v["masterAudio"] = json!({"path":"master.wav"});
++        let p = decode_project(&v.to_string()).unwrap();
++        assert_eq!(p.master_audio_path.as_deref(), Some("master.wav"));
++        assert!(p.scenes.iter().all(|s| s.audio_path.is_none()));
++        v.as_object_mut().unwrap().remove("masterAudio");
++        v["scenes"][0]["audio"] = json!({"mode":"file","path":"a.wav"});
++        v["scenes"][1]["audio"] = json!({"mode":"none"});
++        assert_eq!(
++            decode_project(&v.to_string()).unwrap().scenes[0]
++                .audio_path
++                .as_deref(),
++            Some("a.wav")
++        );
++    }
++    #[test]
++    fn unsupported_options_fail_instead_of_silently_changing_the_export() {
++        for (field, val) in [
++            ("outputSize", json!({"width":1920,"height":1080})),
++            ("hand", json!("/custom/hand.png")),
++        ] {
++            let mut v = legacy();
++            v[field] = val;
++            assert!(decode_project(&v.to_string())
++                .unwrap_err()
++                .to_string()
++                .contains("LEGACY_PROJECT_UNSUPPORTED"));
++        }
++        let mut v = legacy();
++        v["scenes"][0]["enabled"] = json!(false);
++        assert!(decode_project(&v.to_string()).is_err());
++        let mut v = legacy();
++        v["masterAudio"] = json!({"path":"master.wav"});
++        v["scenes"][0]["audio"] = json!({"mode":"none"});
++        assert!(decode_project(&v.to_string()).is_err());
++        v["scenes"][0]["audio"] = json!({"mode":"auto"});
++        v["scenes"][1]["timelineStartMs"] = json!(2000);
++        assert!(decode_project(&v.to_string()).is_err());
++    }
++    #[test]
++    fn rejects_future_schema_malformed_timeline_and_metadata_imports() {
++        for content in [
++            "{}",
++            "[]",
++            r#"{"schemaVersion":99}"#,
++            r#"{"schema_version":3}"#,
++        ] {
++            assert!(decode_project(content).is_err());
++        }
++        for (key, bad) in [
++            ("fps", json!("24")),
++            ("hand", json!(123)),
++            ("paperColor", json!(true)),
++        ] {
++            let mut v = legacy();
++            v[key] = bad;
++            assert!(decode_project(&v.to_string()).is_err());
++        }
++        let mut v = legacy();
++        v["scenes"][0]["durationMs"] = json!(-1);
++        assert!(decode_project(&v.to_string()).is_err());
++        v["scenes"][0]["durationMs"] = json!(i64::MAX);
++        assert!(decode_project(&v.to_string()).is_err());
++    }
++}
+diff --git a/src/components/WhiteboardEditor.tsx b/src/components/WhiteboardEditor.tsx
+index 7b255b7..64cec6d 100644
+--- a/src/components/WhiteboardEditor.tsx
++++ b/src/components/WhiteboardEditor.tsx
+@@ -1406,7 +1406,8 @@ export function WhiteboardEditor() {
+       const path = await api.pickFile([{ name: "Whiteboard Project", extensions: ["whiteboard.json", "json"] }]);
+       if (!path) return;
+       const proj = await api.loadWhiteboardProject(path);
+-      setProjectPath(path);
++      // A migrated legacy project must use Save As so its original JSON stays intact.
++      setProjectPath(proj.importedLegacyV1 ? "" : path);
+       if (proj.id) setProjectId(proj.id);
+       if (proj.revision) setProjectRevision(proj.revision);
+       setFps(proj.fps || 30);
+@@ -1438,7 +1439,12 @@ export function WhiteboardEditor() {
+       }
+ 
+       setSelectedSceneIndex(0);
+-      setStatusMsg({ text: `Đã mở dự án: ${path} (${proj.scenes?.length || 0} cảnh)`, ok: true });
++      setStatusMsg({
++        text: proj.importedLegacyV1
++          ? `Đã chuyển dự án V1 sang editor (${proj.scenes.length} cảnh). File gốc được giữ nguyên; hãy lưu thành file mới và tạo thumbnail trước khi xuất.`
++          : `Đã mở dự án: ${path} (${proj.scenes?.length || 0} cảnh)`,
++        ok: true,
++      });
+     } catch (e: any) {
+       setStatusMsg({ text: `Lỗi mở dự án: ${errText(e)}`, ok: false });
+     }
+diff --git a/src/components/WhiteboardProject.tsx b/src/components/WhiteboardProject.tsx
+deleted file mode 100644
+index 3fe41b4..0000000
+--- a/src/components/WhiteboardProject.tsx
++++ /dev/null
+@@ -1,390 +0,0 @@
+-import { useEffect, useMemo, useState } from "react";
+-import { listen } from "@tauri-apps/api/event";
+-import {
+-  api,
+-  WhiteboardManifest,
+-  WhiteboardProblem,
+-  WhiteboardProjectV1 as Project,
+-  WhiteboardScene,
+-} from "../api";
+-import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Film, FolderOpen, Plus, Save, Trash2, XCircle } from "lucide-react";
+-
+-const errText = (e: any): string => String(e?.message ?? e);
+-const isCancelled = (e: any): boolean => errText(e).startsWith("CANCELLED");
+-const baseName = (p?: string | null) => (p ? p.split(/[\\/]/).pop() || p : "(chưa chọn)");
+-const stem = (p: string) => p.replace(/\.[^/.\\]+$/, "");
+-const newProject = (): Project => ({
+-  schemaVersion: 1,
+-  id: `proj-${Date.now().toString(36)}`,
+-  name: "Dự án mới",
+-  fps: 30,
+-  paperColor: "#F5EBD7",
+-  hand: null,
+-  masterAudio: null,
+-  scenes: [],
+-});
+-const sceneId = (n: number) => `scene-${String(n).padStart(2, "0")}`;
+-
+-const input: React.CSSProperties = {
+-  padding: "6px 10px",
+-  borderRadius: "8px",
+-  border: "1px solid #cbd5e1",
+-  background: "#ffffff",
+-  color: "var(--text-main)",
+-};
+-
+-interface Props {
+-  /** Cảnh gợi ý từ bước phân tích SRT (nếu có) để tạo nhanh danh sách cảnh. */
+-  srtScenes?: { sceneIndex: number; sceneDurationMs: number; timelineStartMs: number }[];
+-}
+-
+-export function WhiteboardProject({ srtScenes }: Props) {
+-  const [project, setProject] = useState<Project>(newProject);
+-  const [projectPath, setProjectPath] = useState<string | null>(null);
+-  const [dirty, setDirty] = useState(false);
+-  const [outputPath, setOutputPath] = useState("");
+-  const [busy, setBusy] = useState(false);
+-  const [progress, setProgress] = useState<{ percent: number; message: string } | null>(null);
+-  const [problems, setProblems] = useState<{ errors: WhiteboardProblem[]; warnings: WhiteboardProblem[] } | null>(null);
+-  const [manifest, setManifest] = useState<WhiteboardManifest | null>(null);
+-  const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
+-
+-  useEffect(() => {
+-    let un: (() => void) | null = null;
+-    let disposed = false;
+-    listen<any>("whiteboard-progress", (ev) =>
+-      setProgress({ percent: Number(ev.payload?.percent) || 0, message: ev.payload?.message || "" })
+-    )
+-      .then((u) => (disposed ? u() : (un = u)))
+-      .catch(() => {});
+-    return () => {
+-      disposed = true;
+-      un?.();
+-    };
+-  }, []);
+-
+-  const problemsByScene = useMemo(() => {
+-    const m = new Map<string, { errors: string[]; warnings: string[] }>();
+-    const get = (id: string | null) => {
+-      const k = id ?? "";
+-      if (!m.has(k)) m.set(k, { errors: [], warnings: [] });
+-      return m.get(k)!;
+-    };
+-    problems?.errors.forEach((p) => get(p.sceneId).errors.push(p.message));
+-    problems?.warnings.forEach((p) => get(p.sceneId).warnings.push(p.message));
+-    return m;
+-  }, [problems]);
+-
+-  const update = (patch: Partial<Project>) => {
+-    setProject((p) => ({ ...p, ...patch }));
+-    setDirty(true);
+-    setProblems(null);
+-  };
+-  const updateScene = (i: number, patch: Partial<WhiteboardScene>) =>
+-    update({ scenes: project.scenes.map((s, k) => (k === i ? { ...s, ...patch } : s)) });
+-
+-  const confirmDiscard = () => !dirty || confirm("Dự án có thay đổi chưa lưu. Bỏ các thay đổi này?");
+-
+-  const handleNew = () => {
+-    if (!confirmDiscard()) return;
+-    setProject(newProject());
+-    setProjectPath(null);
+-    setDirty(false);
+-    setProblems(null);
+-    setManifest(null);
+-    setStatus(null);
+-  };
+-
+-  const handleOpen = async () => {
+-    if (!confirmDiscard()) return;
+-    try {
+-      const path = await api.pickFile([{ name: "Dự án Whiteboard", extensions: ["json"] }]);
+-      if (!path) return;
+-      const p = await api.loadWhiteboardProjectV1(path);
+-      setProject(p);
+-      setProjectPath(path);
+-      setDirty(false);
+-      setManifest(null);
+-      const v = await api.validateWhiteboardProjectV1(p).catch(() => null);
+-      setProblems(v);
+-      setStatus({ text: `Đã mở dự án: ${path}`, ok: true });
+-    } catch (e: any) {
+-      setStatus({ text: `Không mở được dự án: ${errText(e)}`, ok: false });
+-    }
+-  };
+-
+-  const handleSave = async (asNew: boolean) => {
+-    try {
+-      let path = projectPath;
+-      if (asNew || !path) {
+-        path = await api.pickSaveFile(`${project.name || "du-an"}.wbproj.json`, [
+-          { name: "Dự án Whiteboard", extensions: ["json"] },
+-        ]);
+-        if (!path) return;
+-      }
+-      await api.saveWhiteboardProjectV1(path, project);
+-      setProjectPath(path);
+-      setDirty(false);
+-      setStatus({ text: `Đã lưu dự án: ${path}`, ok: true });
+-    } catch (e: any) {
+-      setStatus({ text: `Lỗi lưu dự án: ${errText(e)}`, ok: false });
+-    }
+-  };
+-
+-  const addScene = () => {
+-    const n = project.scenes.length + 1;
+-    update({ scenes: [...project.scenes, { id: sceneId(n), imagePath: "", annotationPath: "", durationMs: 10000, audio: { mode: "auto" }, enabled: true }] });
+-  };
+-
+-  const fromSrt = () => {
+-    if (!srtScenes?.length) return;
+-    if (project.scenes.length && !confirm("Thay danh sách cảnh hiện có bằng các cảnh từ SRT? (ảnh/annotation đã chọn cho cảnh trùng ID được giữ lại)")) return;
+-    const old = new Map(project.scenes.map((s) => [s.id, s]));
+-    update({
+-      scenes: srtScenes.map((s) => {
+-        const id = sceneId(s.sceneIndex);
+-        const prev = old.get(id);
+-        return {
+-          id,
+-          imagePath: prev?.imagePath ?? "",
+-          annotationPath: prev?.annotationPath ?? "",
+-          durationMs: s.sceneDurationMs,
+-          timelineStartMs: s.timelineStartMs,
+-          audio: prev?.audio ?? { mode: "auto" },
+-          enabled: true,
+-        };
+-      }),
+-    });
+-  };
+-
+-  const move = (i: number, d: number) => {
+-    const j = i + d;
+-    if (j < 0 || j >= project.scenes.length) return;
+-    const s = [...project.scenes];
+-    [s[i], s[j]] = [s[j], s[i]];
+-    update({ scenes: s });
+-  };
+-
+-  const pickImage = async (i: number) => {
+-    const path = await api.pickFile([{ name: "Ảnh", extensions: ["png", "jpg", "jpeg"] }]);
+-    if (!path) return;
+-    const cur = project.scenes[i];
+-    updateScene(i, { imagePath: path, annotationPath: cur.annotationPath || stem(path) + ".annotation.json" });
+-  };
+-  const pickAnnotation = async (i: number) => {
+-    const path = await api.pickFile([{ name: "Annotation", extensions: ["json"] }]);
+-    if (path) updateScene(i, { annotationPath: path });
+-  };
+-  const pickSceneAudio = async (i: number) => {
+-    const path = await api.pickFile([{ name: "Audio", extensions: ["wav", "mp3", "m4a", "aac", "flac", "ogg"] }]);
+-    if (path) updateScene(i, { audio: { mode: "file", path } });
+-  };
+-  const pickMaster = async () => {
+-    const path = await api.pickFile([{ name: "Audio", extensions: ["wav", "mp3", "m4a", "aac", "flac", "ogg"] }]);
+-    if (path) update({ masterAudio: { path } });
+-  };
+-  const pickOutput = async () => {
+-    const path = await api.pickSaveFile(outputPath || `${project.name || "video"}.mp4`, [{ name: "MP4", extensions: ["mp4"] }]);
+-    if (path) setOutputPath(path);
+-  };
+-
+-  const check = async (ids?: string[]) => {
+-    const v = await api.validateWhiteboardProjectV1(project, ids);
+-    setProblems(v);
+-    return v;
+-  };
+-
+-  const handleCheck = async () => {
+-    setBusy(true);
+-    try {
+-      const v = await check();
+-      setStatus(
+-        v.errors.length
+-          ? { text: `Có ${v.errors.length} lỗi cần sửa trước khi xuất.`, ok: false }
+-          : { text: v.warnings.length ? `Hợp lệ, ${v.warnings.length} cảnh báo.` : "Dự án hợp lệ.", ok: true }
+-      );
+-    } catch (e: any) {
+-      setStatus({ text: `Lỗi kiểm tra: ${errText(e)}`, ok: false });
+-    } finally {
+-      setBusy(false);
+-    }
+-  };
+-
+-  const handleExport = async (ids?: string[]) => {
+-    if (!outputPath) {
+-      setStatus({ text: "Hãy chọn nơi lưu file MP4 đầu ra.", ok: false });
+-      return;
+-    }
+-    setBusy(true);
+-    setManifest(null);
+-    setStatus(null);
+-    setProgress({ percent: 0, message: "Kiểm tra dự án" });
+-    try {
+-      const v = await check(ids);
+-      if (v.errors.length) {
+-        setStatus({ text: `Có ${v.errors.length} lỗi cần sửa trước khi xuất.`, ok: false });
+-        return;
+-      }
+-      const m = await api.exportWhiteboardProjectV1(project, outputPath, ids);
+-      setManifest(m);
+-      setStatus({ text: `Đã xuất ${(m.totalDurationMs / 1000).toFixed(1)}s${m.hasAudio ? " (có audio)" : ""}: ${m.output}`, ok: true });
+-    } catch (e: any) {
+-      setStatus({
+-        text: isCancelled(e)
+-          ? "Đã hủy xuất. Các cảnh đã render xong được giữ lại để lần sau chạy nhanh hơn."
+-          : `Lỗi xuất dự án: ${errText(e)}`,
+-        ok: false,
+-      });
+-    } finally {
+-      setBusy(false);
+-      setProgress(null);
+-    }
+-  };
+-
+-  const totalMs = project.scenes.filter((s) => s.enabled !== false).reduce((a, s) => a + (Number(s.durationMs) || 0), 0);
+-
+-  return (
+-    <div className="panel-card" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+-        <div>
+-          <h3 style={{ margin: 0 }}>Dự án nhiều cảnh{dirty ? " •" : ""}</h3>
+-          <p className="panel-desc" style={{ margin: 0 }}>
+-            Ghép nhiều cảnh thành một video, có audio toàn bài hoặc audio riêng từng cảnh. {projectPath ? baseName(projectPath) : "Chưa lưu"}
+-          </p>
+-        </div>
+-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+-          <button className="secondary-btn" onClick={handleNew} disabled={busy}>Mới</button>
+-          <button className="secondary-btn" onClick={handleOpen} disabled={busy} style={{ display: "flex", alignItems: "center", gap: "4px" }}><FolderOpen size={14} /> Mở</button>
+-          <button className="secondary-btn" onClick={() => handleSave(false)} disabled={busy} style={{ display: "flex", alignItems: "center", gap: "4px" }}><Save size={14} /> Lưu</button>
+-          <button className="secondary-btn" onClick={() => handleSave(true)} disabled={busy}>Lưu thành…</button>
+-        </div>
+-      </div>
+-
+-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "10px" }}>
+-        <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.85rem" }}>
+-          Tên dự án
+-          <input style={input} value={project.name} onChange={(e) => update({ name: e.target.value })} />
+-        </label>
+-        <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.85rem" }}>
+-          FPS
+-          <input style={input} type="number" min={1} max={120} value={project.fps} onChange={(e) => update({ fps: Number(e.target.value) })} />
+-        </label>
+-        <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.85rem" }}>
+-          Màu giấy
+-          <input style={input} value={project.paperColor} onChange={(e) => update({ paperColor: e.target.value })} />
+-        </label>
+-      </div>
+-
+-      <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem" }}>
+-        <span style={{ minWidth: "110px" }}>Audio toàn bài:</span>
+-        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{baseName(project.masterAudio?.path)}</span>
+-        <button className="secondary-btn" onClick={pickMaster} disabled={busy}>Chọn…</button>
+-        {project.masterAudio && <button className="secondary-btn" onClick={() => update({ masterAudio: null })} disabled={busy}>Bỏ</button>}
+-      </div>
+-
+-      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+-        <button className="secondary-btn" onClick={addScene} disabled={busy} style={{ display: "flex", alignItems: "center", gap: "4px" }}><Plus size={14} /> Thêm cảnh</button>
+-        <button className="secondary-btn" onClick={fromSrt} disabled={busy || !srtScenes?.length} title={srtScenes?.length ? "" : "Hãy phân tích SRT ở phần trên trước"}>
+-          Tạo cảnh từ SRT ({srtScenes?.length ?? 0})
+-        </button>
+-        <span style={{ fontSize: "0.85rem", opacity: 0.7 }}>{project.scenes.length} cảnh · tổng {(totalMs / 1000).toFixed(1)}s</span>
+-      </div>
+-
+-      {project.scenes.map((s, i) => {
+-        const pr = problemsByScene.get(s.id);
+-        return (
+-          <div key={i} style={{ border: `1px solid ${pr?.errors.length ? "#ef4444" : "#e2e8f0"}`, borderRadius: "10px", padding: "10px", opacity: s.enabled === false ? 0.55 : 1, display: "flex", flexDirection: "column", gap: "8px" }}>
+-            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+-              <input type="checkbox" checked={s.enabled !== false} onChange={(e) => updateScene(i, { enabled: e.target.checked })} title="Đưa vào bản xuất" />
+-              <input style={{ ...input, width: "110px" }} value={s.id} onChange={(e) => updateScene(i, { id: e.target.value })} />
+-              <label style={{ fontSize: "0.85rem" }}>
+-                Thời lượng (ms){" "}
+-                <input style={{ ...input, width: "100px" }} type="number" min={1} value={s.durationMs} onChange={(e) => updateScene(i, { durationMs: Number(e.target.value) })} />
+-              </label>
+-              <label style={{ fontSize: "0.85rem" }}>
+-                Âm thanh{" "}
+-                <select style={input} value={s.audio?.mode ?? "auto"} onChange={(e) => updateScene(i, { audio: { mode: e.target.value as any, path: s.audio?.path } })}>
+-                  <option value="auto">Tự động (theo audio toàn bài)</option>
+-                  <option value="none">Im lặng</option>
+-                  <option value="file">Audio riêng</option>
+-                </select>
+-              </label>
+-              {s.audio?.mode === "file" && (
+-                <button className="secondary-btn" onClick={() => pickSceneAudio(i)}>{baseName(s.audio?.path)}</button>
+-              )}
+-              <span style={{ flex: 1 }} />
+-              <button className="secondary-btn" onClick={() => move(i, -1)} disabled={i === 0} title="Lên"><ChevronUp size={14} /></button>
+-              <button className="secondary-btn" onClick={() => move(i, 1)} disabled={i === project.scenes.length - 1} title="Xuống"><ChevronDown size={14} /></button>
+-              <button className="secondary-btn" onClick={() => handleExport([s.id])} disabled={busy || !outputPath} title="Xuất riêng cảnh này ra file đầu ra">Xuất riêng</button>
+-              <button className="secondary-btn" onClick={() => { if (confirm(`Xóa cảnh ${s.id}?`)) update({ scenes: project.scenes.filter((_, k) => k !== i) }); }} disabled={busy} title="Xóa cảnh"><Trash2 size={14} /></button>
+-            </div>
+-            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", flexWrap: "wrap" }}>
+-              <button className="secondary-btn" onClick={() => pickImage(i)}>Ảnh: {baseName(s.imagePath)}</button>
+-              <button className="secondary-btn" onClick={() => pickAnnotation(i)}>Annotation: {baseName(s.annotationPath)}</button>
+-            </div>
+-            {pr?.errors.map((m, k) => (
+-              <div key={"e" + k} style={{ color: "#dc2626", fontSize: "0.8rem", display: "flex", gap: "6px", alignItems: "flex-start" }}><AlertCircle size={14} style={{ flexShrink: 0, marginTop: "2px" }} />{m}</div>
+-            ))}
+-            {pr?.warnings.map((m, k) => (
+-              <div key={"w" + k} style={{ color: "#b45309", fontSize: "0.8rem" }}>⚠ {m}</div>
+-            ))}
+-          </div>
+-        );
+-      })}
+-
+-      {problemsByScene.get("") && (
+-        <div style={{ fontSize: "0.85rem" }}>
+-          {problemsByScene.get("")!.errors.map((m, k) => (
+-            <div key={"pe" + k} style={{ color: "#dc2626" }}>✖ {m}</div>
+-          ))}
+-          {problemsByScene.get("")!.warnings.map((m, k) => (
+-            <div key={"pw" + k} style={{ color: "#b45309" }}>⚠ {m}</div>
+-          ))}
+-        </div>
+-      )}
+-
+-      <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem" }}>
+-        <span style={{ minWidth: "110px" }}>File xuất MP4:</span>
+-        <input style={{ ...input, flex: 1 }} value={outputPath} onChange={(e) => setOutputPath(e.target.value)} placeholder="Đường dẫn video đầu ra..." />
+-        <button className="secondary-btn" onClick={pickOutput} disabled={busy}>Chọn…</button>
+-      </div>
+-
+-      <div style={{ display: "flex", gap: "8px" }}>
+-        <button className="secondary-btn" onClick={handleCheck} disabled={busy || !project.scenes.length}>Kiểm tra dự án</button>
+-        <button
+-          className="primary-btn"
+-          onClick={() => handleExport()}
+-          disabled={busy || !project.scenes.length || !outputPath}
+-          style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+-        >
+-          <Film size={14} /> Xuất toàn bộ dự án
+-        </button>
+-      </div>
+-
+-      {busy && progress && (
+-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+-          <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: "#e2e8f0", overflow: "hidden" }}>
+-            <div style={{ width: `${progress.percent}%`, height: "100%", background: "#3b82f6", transition: "width 0.2s" }} />
+-          </div>
+-          <span style={{ fontSize: "0.8rem", minWidth: "260px" }}>{progress.percent.toFixed(0)}% · {progress.message}</span>
+-          <button className="secondary-btn" onClick={() => api.cancelWhiteboard().catch(() => {})} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+-            <XCircle size={14} /> Hủy
+-          </button>
+-        </div>
+-      )}
+-
+-      {status && (
+-        <div style={{ display: "flex", gap: "6px", alignItems: "flex-start", color: status.ok ? "#16a34a" : "#dc2626", fontSize: "0.9rem" }}>
+-          {status.ok ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+-          <span style={{ wordBreak: "break-word" }}>{status.text}</span>
+-        </div>
+-      )}
+-
+-      {manifest && manifest.warnings.length > 0 && (
+-        <div style={{ fontSize: "0.8rem", color: "#b45309" }}>
+-          {manifest.warnings.map((w, k) => <div key={k}>⚠ {w}</div>)}
+-        </div>
+-      )}
+-    </div>
+-  );
+-}
+diff --git a/src/types/whiteboard.ts b/src/types/whiteboard.ts
+index 9a61e13..3f2c1c5 100644
+--- a/src/types/whiteboard.ts
++++ b/src/types/whiteboard.ts
+@@ -274,6 +274,8 @@ export interface WhiteboardFolderScanResult {
+ }
+ 
+ export interface WhiteboardProject {
++  /** Marker returned only while importing a legacy V1 project. */
++  importedLegacyV1?: boolean;
+   id: string;
+   schemaVersion: number;
+   revision: number;

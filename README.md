@@ -5,7 +5,28 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.8.2 (Whiteboard Batch Image Import & Batch Annotation)
+## 📦 Phiên Bản Hiện Tại: v0.8.3 (Atomic Subtitle Export, Kinetic Subtitles & Whiteboard V2 Compat)
+
+Bản cập nhật tối ưu hóa hệ thống xuất Hardsub, nâng cấp phụ đề động phong cách Cinecode và chuẩn hóa định dạng dự án Whiteboard V2:
+
+### 🎬 1. Quản Lý Xuất Hardsub An Toàn & Atomic Export
+- **Atomic Staging Directory**: Xử lý render phụ đề video qua thư mục tạm staged `work_dir`, bảo vệ an toàn tuyệt đối cho file video đích khi export gặp sự cố hoặc dừng giữa chừng.
+- **Escape Đường Dẫn Chặt Chẽ**: Tương thích hoàn toàn với các đường dẫn chứa ký tự đặc biệt, dấu cách, nháy đơn trên cả Windows và macOS.
+- **Tự Động Nhận Diện Kích Thước Video**: Tích hợp FFmpeg `showinfo` để dò kích thước video thực tế trước khi render phụ đề Kinetic ASS.
+- **Kiểm Tra Bộ Lọc Phụ Đề**: Xác thực chặt chẽ cả 2 bộ lọc `subtitles` và `ass` trước khi thực thi xuất video.
+
+### ✨ 2. Phụ Đề Động Kinetic & Tinh Chỉnh Offset
+- **Subtitle Offset (Căn Chỉnh Độ Trễ)**: Hỗ trợ tham số `subtitle_offset_ms` đồng bộ độ lệch thời gian phụ đề với lời đọc chính xác đến từng mili-giây.
+- **Highlight Từ Khóa Punch Keywords**: Nhấn mạnh các từ khóa quan trọng và đổi màu từ đang phát theo thời gian thực.
+
+### 📐 3. Định Dạng Dự Án Whiteboard V2 & Tương Thích Ngược
+- **Whiteboard V2 Migration**: Tương thích ngược tự động với các file dự án V1 cũ thông qua adapter trong bộ nhớ, chuẩn hóa cấu trúc dự án và cảnh báo rõ ràng các tùy chọn không còn hỗ trợ.
+- **Sửa Lỗi Nạp Ảnh & Tạo Mẫu Phân Cảnh**: Chuẩn hóa chỉ số cảnh 0-based, phục hồi an toàn mẫu annotation khi ghi đè, và kiểm tra tính hợp lệ của file ảnh.
+- **Chèn Thumbnail Không Cần FFprobe**: Tự động fallback dò thời lượng và chèn ảnh bìa ngay cả khi môi trường chỉ có standalone `ffmpeg`.
+
+---
+
+## 📦 Phiên Bản Trước: v0.8.2 (Whiteboard Batch Image Import & Batch Annotation)
 
 Bản cập nhật lớn nâng cấp quy trình làm việc Whiteboard, giảm thao tác lặp từ nạp từng ảnh và tạo mẫu từng cảnh thành các thao tác hàng loạt thông minh:
 

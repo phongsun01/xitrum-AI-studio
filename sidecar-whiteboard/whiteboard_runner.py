@@ -346,6 +346,28 @@ def _build_elements(boxes, width, height, cue_chunks, duration_ms):
     return elements
 
 
+def save_annotation_output(annotation, output_path, overwrite):
+    """Publish a complete file; no-overwrite remains safe if another writer wins the race."""
+    import tempfile
+    parent = os.path.dirname(os.path.abspath(output_path))
+    os.makedirs(parent, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=parent, suffix=".tmp", delete=False) as f:
+            temp_path = f.name
+            json.dump(annotation, f, ensure_ascii=False, indent=2)
+        if overwrite:
+            os.replace(temp_path, output_path)
+        else:
+            try:
+                os.link(temp_path, output_path)
+            except FileExistsError:
+                raise ValueError(f"ANNOTATION_EXISTS: {output_path}") from None
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
 def handle_generate_annotation(req):
     import stream_render as sr
 
@@ -390,11 +412,7 @@ def handle_generate_annotation(req):
 
     result = dict(annotation)
     if output_path:
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        tmp_path = output_path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(annotation, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, output_path)
+        save_annotation_output(annotation, output_path, overwrite)
         result["savedTo"] = output_path
     return result
 

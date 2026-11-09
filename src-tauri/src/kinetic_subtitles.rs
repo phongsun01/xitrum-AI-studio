@@ -124,14 +124,29 @@ impl KineticGenerator {
         video_width: u32,
         video_height: u32,
     ) -> String {
-        let cues = Self::parse_srt(srt_content);
+        Self::generate_ass_with_offset(srt_content, style, highlight_color, video_width, video_height, 0)
+    }
+
+    pub fn generate_ass_with_offset(
+        srt_content: &str,
+        style: &crate::models::SubtitleStyleConfig,
+        highlight_color: &str,
+        video_width: u32,
+        video_height: u32,
+        offset_ms: u64,
+    ) -> String {
+        let mut cues = Self::parse_srt(srt_content);
+        for cue in &mut cues {
+            cue.start_ms = cue.start_ms.saturating_add(offset_ms);
+            cue.end_ms = cue.end_ms.saturating_add(offset_ms);
+        }
         let mut ass = String::new();
 
         // 1. Script Info Header
         ass.push_str("[Script Info]\n");
         ass.push_str("Title: Xitrum Kinetic Subtitles\n");
         ass.push_str("ScriptType: v4.00+\n");
-        ass.push_str("WrapStyle: 0\n");
+        ass.push_str("WrapStyle: 2\n");
         ass.push_str("ScaledBorderAndShadow: yes\n");
         ass.push_str(&format!("PlayResX: {}\n", video_width));
         ass.push_str(&format!("PlayResY: {}\n", video_height));
@@ -144,14 +159,14 @@ impl KineticGenerator {
         ass.push_str(&format!(
             "Style: Default,{},{},{},&H000000FF,{},&H80000000,-1,0,0,0,100,100,0,0,{},{},{},{},10,10,{},1\n\n",
             style.font_name,
-            style.font_size,
-            style.primary_color,
+            (f64::from(style.font_size) * f64::from(video_width.min(video_height)) / 384.0).round().max(1.0),
+            if style.primary_color == "&H0000FFFF" { "&H00FFFFFF" } else { &style.primary_color },
             style.outline_color,
             style.border_style,
-            style.outline_width,
-            style.shadow_depth,
+            f64::from(style.outline_width) * f64::from(video_width.min(video_height)) / 384.0,
+            f64::from(style.shadow_depth) * f64::from(video_width.min(video_height)) / 384.0,
             style.alignment,
-            style.margin_v
+            (f64::from(style.margin_v) * f64::from(video_height) / 1080.0).round()
         ));
 
         // 3. Events (Cinecode Dynamic Kinetic Highlighting)
@@ -159,46 +174,38 @@ impl KineticGenerator {
         ass.push_str("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
 
         for cue in cues {
-            let words: Vec<&str> = cue.text.split_whitespace().collect();
-            if words.is_empty() {
-                continue;
-            }
-
-            // Gom từ theo cụm nhỏ 3-5 từ để mắt người đọc nhanh trên Reels/TikTok
-            let chunk_size = if words.len() <= 6 { words.len() } else { 4 };
-            let chunks: Vec<&[&str]> = words.chunks(chunk_size).collect();
-
-            let total_duration = cue.end_ms.saturating_sub(cue.start_ms);
-            let chunk_duration = total_duration / chunks.len().max(1) as u64;
-
-            for (c_idx, chunk) in chunks.iter().enumerate() {
-                let chunk_start = cue.start_ms + (c_idx as u64 * chunk_duration);
-                let chunk_end = if c_idx == chunks.len() - 1 {
-                    cue.end_ms
-                } else {
-                    chunk_start + chunk_duration
-                };
-
-                let start_str = Self::format_ass_timestamp(chunk_start);
-                let end_str = Self::format_ass_timestamp(chunk_end);
-
-                // Tạo chuỗi Text có kinetic highlight:
-                // Từ khóa quan trọng được đổi màu & làm nổi bật (Punch Accent)
-                let mut formatted_words = Vec::new();
-                for word in chunk.iter() {
-                    if Self::is_punch_keyword(word) {
-                        // Thẻ ASS: {\c&H...&\fscx108\fscy108}từ khóa{\r} (phóng to 108% và đổi màu highlight)
-                        formatted_words.push(format!("{{\\c{}\\fscx108\\fscy108}}{}{{\\r}}", highlight_color, word));
-                    } else {
-                        formatted_words.push(word.to_string());
-                    }
+            if cue.end_ms <= cue.start_ms { continue; }
+            // Speaker labels describe a voice; they are not spoken captions.
+            let text = cue.text.trim();
+            let text = if text.starts_with('[') {
+                text.split_once("]:").map(|(_, spoken)| spoken.trim()).unwrap_or(text)
+            } else { text };
+            let words: Vec<String> = text.split_whitespace().map(|word| {
+                word.replace('\\', "／").replace('{', "（").replace('}', "）")
+            }).collect();
+            if words.is_empty() { continue; }
+            let duration = cue.end_ms - cue.start_ms;
+            // SRT has cue times only. These are estimated word boundaries, not audio alignment.
+            for (chunk_idx, chunk) in words.chunks(4).enumerate() {
+                for active in 0..chunk.len() {
+                    let word_idx = chunk_idx * 4 + active;
+                    let start = cue.start_ms + duration * word_idx as u64 / words.len() as u64;
+                    let end = cue.start_ms + duration * (word_idx + 1) as u64 / words.len() as u64;
+                    if end / 10 <= start / 10 { continue; }
+                    let formatted: Vec<String> = chunk.iter().enumerate().map(|(idx, word)| {
+                        if idx == active {
+                            let punch = if Self::is_punch_keyword(word) {
+                                // Brief accent on the active word only, then return to normal size.
+                                "\\fscx108\\fscy108\\t(0,100,\\fscx100\\fscy100)"
+                            } else { "" };
+                            format!("{{\\c{}\\3c&H00222222{}}}{}{{\\r}}", highlight_color, punch, word)
+                        } else { word.clone() }
+                    }).collect();
+                    ass.push_str(&format!(
+                        "Dialogue: 0,{},{},Default,,0,0,0,,{}\n",
+                        Self::format_ass_timestamp(start), Self::format_ass_timestamp(end), formatted.join(" ")
+                    ));
                 }
-
-                let dialogue_text = formatted_words.join(" ");
-                ass.push_str(&format!(
-                    "Dialogue: 0,{},{},Default,,0,0,0,,{}\n",
-                    start_str, end_str, dialogue_text
-                ));
             }
         }
 
@@ -212,12 +219,31 @@ impl KineticGenerator {
         highlight_color: &str,
         video_width: u32,
         video_height: u32,
+        offset_ms: u64,
+    ) -> Result<std::path::PathBuf, crate::errors::AppError> {
+        let ass_path = srt_path.with_extension("kinetic.ass");
+        Self::convert_srt_to_kinetic_ass_to(
+            srt_path, &ass_path, style, highlight_color, video_width, video_height, offset_ms,
+        )
+    }
+
+    /// Write generated ASS to an explicit path, preserving word highlighting and cue offsets.
+    pub fn convert_srt_to_kinetic_ass_to(
+        srt_path: &Path,
+        ass_path: &Path,
+        style: &crate::models::SubtitleStyleConfig,
+        highlight_color: &str,
+        video_width: u32,
+        video_height: u32,
+        offset_ms: u64,
     ) -> Result<std::path::PathBuf, crate::errors::AppError> {
         let srt_content = std::fs::read_to_string(srt_path)?;
-        let ass_content = Self::generate_ass_from_srt(&srt_content, style, highlight_color, video_width, video_height);
-        let ass_path = srt_path.with_extension("ass");
-        std::fs::write(&ass_path, ass_content)?;
-        Ok(ass_path)
+        if Self::parse_srt(&srt_content).iter().all(|cue| cue.end_ms <= cue.start_ms) {
+            return Err(crate::errors::AppError::Other("SRT không có câu phụ đề với thời gian hợp lệ".into()));
+        }
+        let ass_content = Self::generate_ass_with_offset(&srt_content, style, highlight_color, video_width, video_height, offset_ms);
+        std::fs::write(ass_path, ass_content)?;
+        Ok(ass_path.to_path_buf())
     }
 }
 
@@ -260,5 +286,41 @@ Khám phá công nghệ AI đỉnh cao!
         assert!(ass.contains("[Events]"));
         // AI phải có thẻ highlight màu
         assert!(ass.contains("AI"));
+    }
+
+    #[test]
+    fn active_word_moves_within_short_chunks_and_resets() {
+        let style = SubtitleStyleConfig::from_preset(SubtitlePreset::TiktokNeon, false);
+        let ass = KineticGenerator::generate_ass_with_offset(
+            "1\n00:00:00,000 --> 00:00:04,000\n[Nam]: Xin chào bạn AI hôm nay vui quá\n",
+            &style, "&H0000FFFF", 1080, 600, 2000,
+        );
+        let events: Vec<_> = ass.lines().filter(|l| l.starts_with("Dialogue:")).collect();
+        assert_eq!(events.len(), 8);
+        assert!(events[0].contains("0:00:02.00,0:00:02.50"));
+        assert!(events[7].contains("0:00:05.50,0:00:06.00"));
+        assert!(events[0].ends_with("{\\c&H0000FFFF\\3c&H00222222}Xin{\\r} chào bạn AI"));
+        assert!(events[1].ends_with("Xin {\\c&H0000FFFF\\3c&H00222222}chào{\\r} bạn AI"));
+        assert!(events[3].contains("\\fscx108\\fscy108\\t(0,100,\\fscx100\\fscy100)"));
+        assert!(!events[4].contains("Xin"));
+        assert!(!ass.contains("[Nam]"));
+        for event in events {
+            assert_eq!(event.matches("\\c&H0000FFFF").count(), 1);
+            assert_eq!(event.matches("{\\r}").count(), 1);
+        }
+        // Idle words must remain white so the yellow active word is visible.
+        assert!(ass.contains("Style: Default,Arial,34,&H00FFFFFF"));
+    }
+
+    #[test]
+    fn short_cues_are_split_and_invalid_durations_are_skipped() {
+        let style = SubtitleStyleConfig::default();
+        let ass = KineticGenerator::generate_ass_from_srt(
+            "1\n00:00:00,000 --> 00:00:03,000\nmột hai ba bốn năm sáu\n\n2\n00:00:05,000 --> 00:00:04,000\nkhông hiện\n",
+            &style, "&H0000FFFF", 1080, 1920,
+        );
+        assert_eq!(ass.lines().filter(|l| l.starts_with("Dialogue:")).count(), 6);
+        assert!(!ass.contains("bốn năm"));
+        assert!(!ass.contains("không hiện"));
     }
 }

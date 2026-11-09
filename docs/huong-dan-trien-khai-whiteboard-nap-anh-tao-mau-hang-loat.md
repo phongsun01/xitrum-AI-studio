@@ -174,3 +174,13 @@ Thư mục: `wb-projects/04. Dong Trac uong tra/`.
 6. Hoàn tất thumbnail theo chế độ đã chọn, lưu dự án và xuất video.
 
 Mục tiêu hoàn thành là giảm thao tác lặp theo từng cảnh, đồng thời bảo toàn ảnh, mẫu đã chỉnh, phân vai và timeline của dự án.
+
+## 10. Khắc phục P1 còn lại và P2 — 09/11/2026
+
+- Tạo mẫu batch tìm tên còn trống cho cả `custom.json`, đường dẫn Windows và `.vN.annotation.json`; bỏ qua các phiên bản đã tồn tại. Lỗi kiểm tra file không được xem như file còn trống. Gửi `overwrite: false` trong mọi chế độ batch.
+- Sidecar ghi annotation qua file tạm và công bố không ghi đè bằng thao tác tạo liên kết nguyên tử. Nếu một tiến trình khác chiếm tên đầu ra trước, báo `ANNOTATION_EXISTS` và giữ nguyên file cũ; không ghi đè giữa lúc kiểm tra và lưu. Luồng một cảnh có yêu cầu overwrite rõ ràng vẫn giữ hợp đồng cũ.
+- Chỉ hàng ảnh sẵn sàng/hợp lệ được chọn mặc định. Hàng trùng có placeholder và cần chọn rõ ứng viên hợp lệ; ảnh lỗi không được chọn, kể cả qua “chọn tất cả”. Apply kiểm tra lại tính hợp lệ của lựa chọn và cờ cho phép thay ảnh đang có.
+- Backend scan giải mã ảnh thay vì chỉ đọc header kích thước, phát hiện ảnh PNG bị cắt dữ liệu. Tỷ lệ trong preview tính theo kích thước thật.
+- Thumbnail hoàn chỉnh dùng resize giữ tỷ lệ rồi đệm nền, không dùng `resize_to_fill`; preview nêu rõ cách giữ toàn bộ ảnh. Nhiều ứng viên bìa không tự chọn file đầu tiên; ảnh bìa lỗi bị vô hiệu hóa.
+
+Kiểm chứng: build đạt; 36 test Rust đạt, gồm kiểm tra pixel mép thumbnail và ảnh bị hỏng; 13 test JavaScript đạt; 2 test UI Chrome với IPC giả lập đạt. Bộ Python chạy 134 test, một test cần `ps` bị sandbox chặn và đã chạy lại riêng ngoài sandbox đạt. Test UI bao phủ tên mẫu tùy ý, phiên bản đã có, ảnh trùng chưa giải quyết, ảnh lỗi, chọn tất cả và import WB cũ. Các kết quả này không thay thế nghiệm thu chất lượng vẽ hoặc bản cài đặt native; không đồng nghĩa mọi mục B1–B5 đã hoàn thành.

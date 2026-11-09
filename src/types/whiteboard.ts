@@ -274,6 +274,8 @@ export interface WhiteboardFolderScanResult {
 }
 
 export interface WhiteboardProject {
+  /** Marker returned only while importing a legacy V1 project. */
+  importedLegacyV1?: boolean;
   id: string;
   schemaVersion: number;
   revision: number;

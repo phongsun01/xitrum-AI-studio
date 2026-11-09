@@ -13,10 +13,32 @@ from whiteboard_audio import resolve_ffmpeg_and_probe
 COVER_DURATION_MS = 2000
 
 
+def _probe_with_pyav(video_path: str) -> dict:
+    """Trả về cấu trúc giống `ffprobe -show_streams -show_format -of json` cho các trường mà module này dùng."""
+    import av
+    with av.open(str(video_path)) as c:
+        streams = []
+        for s in c.streams.video:
+            rate = Fraction(s.average_rate or s.guessed_rate or 0)
+            dur = None
+            if s.frames and rate:
+                dur = str(float(Fraction(s.frames) / rate))
+            elif s.duration is not None and s.time_base is not None:
+                dur = str(float(s.duration * s.time_base))
+            streams.append({"codec_type": "video", "width": s.codec_context.width,
+                            "height": s.codec_context.height,
+                            "r_frame_rate": f"{rate.numerator}/{rate.denominator}" if rate else "0/1",
+                            **({"duration": dur} if dur else {})})
+        for _ in c.streams.audio:
+            streams.append({"codec_type": "audio"})
+        total = float(c.duration) / 1_000_000 if c.duration else 0.0
+    return {"streams": streams, "format": {"duration": str(total)}}
+
+
 def prepend_thumbnail(video_path: str, encoded_png: str, output_path: str):
     ffmpeg, ffprobe = resolve_ffmpeg_and_probe()
-    if not ffmpeg or not ffprobe:
-        raise RuntimeError("Cần FFmpeg và ffprobe để chèn thumbnail")
+    if not ffmpeg:
+        raise RuntimeError("Cần FFmpeg để chèn thumbnail")
     if len(encoded_png) > 24 * 1024 * 1024:
         raise ValueError("Thumbnail quá lớn")
     png = base64.b64decode(encoded_png, validate=True)
@@ -26,10 +48,15 @@ def prepend_thumbnail(video_path: str, encoded_png: str, output_path: str):
         if image.format != "PNG" or image.size not in ((1280, 720), (720, 1280)):
             raise ValueError("Thumbnail phải là PNG 1280×720 (16:9) hoặc 720×1280 (9:16)")
         image.verify()
-    probe = subprocess.run([ffprobe, "-v", "error", "-show_streams", "-show_format", "-of", "json", video_path],
-                           capture_output=True, text=True, check=True)
-    info = json.loads(probe.stdout)
-    video = next(s for s in info["streams"] if s["codec_type"] == "video")
+    if ffprobe:
+        probe = subprocess.run([ffprobe, "-v", "error", "-show_streams", "-show_format", "-of", "json", video_path],
+                               capture_output=True, text=True, check=True)
+        info = json.loads(probe.stdout)
+    else:
+        info = _probe_with_pyav(video_path)  # ffmpeg đóng gói theo app không kèm ffprobe
+    video = next((s for s in info["streams"] if s["codec_type"] == "video"), None)
+    if video is None:
+        raise ValueError("Video không có luồng hình")
     audio = next((s for s in info["streams"] if s["codec_type"] == "audio"), None)
     fps = Fraction(video["r_frame_rate"])
     cover_frames = fps * 2

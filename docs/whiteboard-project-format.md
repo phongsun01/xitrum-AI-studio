@@ -1,6 +1,50 @@
-# Định dạng dự án Whiteboard nhiều cảnh (schemaVersion 1)
+# Định dạng dự án Whiteboard và tương thích V1
 
-Tệp JSON do màn "Dự án nhiều cảnh" lưu/mở; runner Python (`scripts/project_export.py`) đọc đúng định dạng này.
+Editor hiện tại dùng `WhiteboardProject` trong `src-tauri/src/commands.rs` và
+`src/types/whiteboard.ts`, lưu/mở qua `save_whiteboard_project` / `load_whiteboard_project`.
+
+## Dự án editor hiện tại (schemaVersion 1)
+
+```json
+{
+  "id": "project-01", "schemaVersion": 1, "revision": 1, "title": "Bài giảng 01",
+  "fps": 30, "paperColor": "#F5EBD7", "handPath": "drawing-hand.png",
+  "sourceSrtPath": "D:/p/bai-01.srt", "masterAudioPath": "D:/p/bai-01.wav",
+  "scenes": [{
+    "id": "scene-01", "order": 1, "revision": 1,
+    "imagePath": "D:/p/scene-01.png", "annotationPath": "D:/p/scene-01.annotation.json",
+    "timelineStartMs": 0, "timelineEndMs": 30000, "durationMs": 30000,
+    "cues": [], "status": "idle"
+  }]
+}
+```
+
+- Có master audio thì timeline phải liền nhau từ 0 và `timelineEndMs - timelineStartMs == durationMs`.
+- `thumbnail`/`thumbnailDraft`, `speechConfig`, `pageTurnMs`, `outputVideoPath` là các trường tùy chọn khi mở.
+  Khi xuất bằng editor, phải tạo thumbnail; video có thêm ảnh bìa 2 giây.
+- Resume dùng fingerprint và manifest từng cảnh. Các sửa lỗi đường dẫn video, libass và Kinetic hiện có được giữ nguyên trong P6.
+- Metadata nhập từ `/wb` (`schema_version` 2/3) khác dự án đã lưu (`schemaVersion` 1); tiếp tục nhập metadata qua SRT.
+
+## Mở dự án V1 cũ bằng editor
+
+Hai định dạng cùng dùng `schemaVersion: 1`; nhận diện V1 cũ bằng trường `name` khi chưa có `title`.
+Bộ đọc từ chối schema chưa hỗ trợ thay vì đoán cấu trúc.
+
+Chuyển đổi chỉ diễn ra trong bộ nhớ: `name → title`, `hand → handPath`,
+`masterAudio.path → masterAudioPath`, thêm revision, order, status và mốc cuối cảnh.
+Giữ ảnh, annotation, thứ tự cảnh và cấu hình kiểu vẽ. Không tái dùng output video từ cache của engine cũ.
+
+- Hỗ trợ các preset tay mặc định/bút lông, timeline nguyên dương, audio toàn bài ở chế độ auto/master,
+  hoặc audio riêng/file/none khi không có master audio.
+- Chưa tự chuyển `outputSize`, tay tùy chỉnh, cảnh `enabled=false`, audio trộn master với file/none,
+  timeline master có khoảng trống. Báo `LEGACY_PROJECT_UNSUPPORTED` để tránh âm thầm đổi kết quả.
+- Backend V1 (`project_export.py`, các command/API V1 và test liên quan) vẫn được giữ cho cấu hình chưa chuyển được.
+  P6 chỉ gỡ component `WhiteboardProject.tsx` không còn được giao diện tham chiếu.
+- Sau khi chuyển đổi, editor yêu cầu **Lưu thành file mới** và tạo thumbnail trước khi xuất.
+  Việc mở không ghi lại file nguồn. Chỉ đánh dấu đã nhập V1 trong phản hồi mở file; dự án được lưu lại dùng cấu trúc editor.
+- Đây là chuyển cấu trúc để tiếp tục biên tập, không cam kết video giống từng khung hình với engine V1.
+
+## Định dạng V1 cũ (backend tương thích)
 
 ```json
 {
