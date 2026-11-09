@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { api, TaskItem, AppConfig, TemplateItem } from "./api";
 import { TemplateLibrary } from "./components/TemplateLibrary";
 import { ToastContainer, ToastItem } from "./components/Toast";
@@ -7,6 +7,7 @@ import { IdeaScriptEditor } from "./components/IdeaScriptEditor";
 import { ProxyManager } from "./components/ProxyManager";
 import { AccountManager } from "./components/AccountManager";
 import { WhiteboardEditor } from "./components/WhiteboardEditor";
+import { SubtitleTool } from "./components/SubtitleTool";
 import {
   Video,
   Mic,
@@ -35,12 +36,13 @@ import {
   Sparkles,
   PenTool,
   Users,
+  Captions,
 } from "lucide-react";
 import "./App.css";
 
 function App() {
   const [activeTab, setActiveTab] = useState<
-    "idea_script" | "whiteboard" | "video" | "accounts" | "proxies" | "audio" | "timeline" | "rembg" | "templates" | "settings"
+    "idea_script" | "whiteboard" | "video" | "subtitles" | "accounts" | "proxies" | "audio" | "timeline" | "rembg" | "templates" | "settings"
   >("idea_script");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -377,6 +379,13 @@ function App() {
             <ListVideo size={18} /> {!sidebarCollapsed && <span>Audio Timeline Editor</span>}
           </button>
           <button
+            className={`nav-item ${activeTab === "subtitles" ? "active" : ""}`}
+            onClick={() => setActiveTab("subtitles")}
+            title="Công Cụ In Phụ Đề (Hardsub)"
+          >
+            <Captions size={18} color="#00e5ff" /> {!sidebarCollapsed && <span>Công Cụ Phụ Đề</span>}
+          </button>
+          <button
             className={`nav-item ${activeTab === "rembg" ? "active" : ""}`}
             onClick={() => setActiveTab("rembg")}
             title="Tách Nền Ảnh (Rembg)"
@@ -538,6 +547,11 @@ function App() {
             onAddToast={addToast}
             onRefreshTasks={loadData}
           />
+        )}
+
+        {/* Tab: Subtitle Hardsub Tool (F17) */}
+        {activeTab === "subtitles" && (
+          <SubtitleTool />
         )}
 
         {/* Tab 3: Rembg */}

@@ -20,34 +20,36 @@ Người xem trên các nền tảng video ngắn (TikTok, Facebook Reels, YouTu
 
 ## II. CHECKLIST TIẾN ĐỘ THỰC HIỆN
 
-### Giai đoạn 1: Nền tảng Backend Rust & FFmpeg Engine (Đang thực hiện)
-- [ ] **1.1. Khởi tạo Preset Style ASS/SRT**: Xây dựng cấu trúc dữ liệu `SubtitleStyleConfig` và 4 bộ preset:
+### Giai đoạn 1: Nền tảng Backend Rust & FFmpeg Engine (Đã Hoàn Thành)
+- [x] **1.1. Khởi tạo Preset Style ASS/SRT**: Xây dựng cấu trúc dữ liệu `SubtitleStyleConfig` và 4 bộ preset:
   - *TikTok/Shorts Neon*: Chữ vàng chanh viền đen, hộp nền mờ, font dày.
   - *Classic Cinema/YouTube*: Chữ trắng viền đen đổ bóng thanh lịch.
   - *Notion/Whiteboard*: Chữ đen than viền trắng/hộp kem hợp nền giấy be.
   - *Tùy chỉnh (Custom)*: Font, cỡ chữ, màu sắc, vị trí (Top/Middle/Bottom), margin an toàn.
-- [ ] **1.2. Trình xử lý đường dẫn an toàn trên Windows/macOS**: Thoát ký tự đặc biệt (`\`, `:`, `'`) khi đưa file `.srt` vào filter complex `subtitles=` của FFmpeg.
-- [ ] **1.3. Lệnh IPC Tauri `burn_video_subtitles`**:
-  - Nhận `video_path`, `srt_path`, `output_path`, `style_preset`, `custom_style`.
+- [x] **1.2. Trình xử lý đường dẫn an toàn trên Windows/macOS**: Thoát ký tự đặc biệt (`\`, `:`, `'`) khi đưa file `.srt` vào filter complex `subtitles=` của FFmpeg.
+- [x] **1.3. Lệnh IPC Tauri `burn_video_subtitles`**:
+  - Nhận `video_path`, `srt_path`, `output_path`, `style_preset`, `custom_style`, `is_portrait`.
   - Tự động kiểm tra file tồn tại và gọi FFmpeg sidecar xử lý.
   - Hỗ trợ stream copy track âm thanh (`-c:a copy`) để giữ nguyên chất lượng gốc và tối ưu tốc độ render.
-- [ ] **1.4. Lệnh IPC Tauri `extract_audio_for_subtitles`**: Trích xuất nhanh WAV 16 kHz từ file video bất kỳ để sẵn sàng chuyển qua Whisper STT bóc tách câu chữ.
-- [ ] **1.5. Đăng ký Command trong `lib.rs` & Expose API TypeScript trong `src/api.ts`**.
-- [ ] **1.6. Kiểm thử kỹ thuật (Cargo check & Unit test)**: Đảm bảo biên dịch không lỗi, không warning.
+- [x] **1.4. Lệnh IPC Tauri `extract_audio_for_subtitles`**: Trích xuất nhanh WAV 16 kHz từ file video bất kỳ để sẵn sàng chuyển qua Whisper STT bóc tách câu chữ.
+- [x] **1.5. Đăng ký Command trong `lib.rs` & Expose API TypeScript trong `src/api.ts`**.
+- [x] **1.6. Kiểm thử kỹ thuật (Cargo check & Unit test)**: Đảm bảo biên dịch không lỗi, không warning.
 
 ---
 
-### Giai đoạn 2: Giao diện Người dùng Subtitle Tool & Tích hợp Whiteboard
-- [ ] **2.1. Thiết kế Component `src/components/SubtitleTool.tsx`**:
+### Giai đoạn 2: Giao diện Người dùng Subtitle Tool & Tích hợp Whiteboard (Đã Hoàn Thành)
+- [x] **2.1. Thiết kế Component `src/components/SubtitleTool.tsx`**:
   - Nạp video đầu vào + nạp file phụ đề SRT (kèm nút bóc Whisper nếu chưa có SRT).
   - Trình phát video Preview trước kiểu chữ và vị trí.
-  - Bộ chọn nhanh 4 Presets + tùy biến MarginV theo chuẩn safe-area (16:9 hoặc 9:16).
-  - Nút bấm *"In Phụ Đề Ngay"* với thanh tiến trình và thông báo kết quả.
-- [ ] **2.2. Gắn Tab mới vào Sidebar Navigation `src/App.tsx`**:
+  - Bộ chọn nhanh 3 Presets (TikTok Neon, Điện ảnh, Notion) + Tùy biến Style (Font, Size, Màu chữ, Kiểu viền).
+  - Tùy chọn tỉ lệ Safe-area 16:9 / 9:16 tự động tính toán bù lề tránh che icon Reels/TikTok.
+  - Nút bấm *"Đóng Dấu Phụ Đề Ngay"* với thanh tiến trình, nút mở nhanh video sau khi xuất.
+- [x] **2.2. Gắn Tab mới vào Sidebar Navigation `src/App.tsx`**:
   - Đặt vị trí: Sau tab *Audio Timeline Editor* và trước tab *Tách Nền Ảnh (Rembg)*.
   - Icon: `Captions` từ thư viện `lucide-react`.
-- [ ] **2.3. Tích hợp tùy chọn Hardsub vào Whiteboard Studio**:
-  - Thêm checkbox `[x] Đóng dấu phụ đề tiếng Việt` khi xuất phân cảnh MP4 hoặc ghép cả kịch bản.
+- [x] **2.3. Tích hợp tùy chọn Hardsub vào Whiteboard Studio**:
+  - Thêm checkbox `[x] Gắn Hardsub (SRT)` ngay cạnh nút *Xuất Toàn Bộ Dự Án* trong Whiteboard Editor.
+  - Tự động gọi đóng dấu phụ đề khi kết xuất hoàn tất nếu dự án có gắn file SRT.
 
 ---
 

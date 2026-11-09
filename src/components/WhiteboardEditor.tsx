@@ -64,6 +64,7 @@ export function WhiteboardEditor() {
   const [outputVideoPath, setOutputVideoPath] = useState("");
   const [masterAudioPath, setMasterAudioPath] = useState("");
   const [audioExists, setAudioExists] = useState(false);
+  const [autoBurnSubtitles, setAutoBurnSubtitles] = useState(false);
 
   const [fps, setFps] = useState(30);
   const [paperColor, setPaperColor] = useState("#F5EBD7");
@@ -1443,8 +1444,22 @@ export function WhiteboardEditor() {
     setStatusMsg(null);
     try {
       const res = await api.renderWhiteboardProject(project, targetOut, resumeMode);
+      let finalOutMsg = `Xuất thành công toàn bộ dự án (${res.scenes_count || scenes.length} cảnh): ${res.output_path}`;
+
+      // Tự động đóng dấu Hardsub nếu được bật và có file SRT
+      if (autoBurnSubtitles && srtPath) {
+        setProgress({ percent: 90, message: "Đang đóng dấu phụ đề (Hardsub) vào video hoàn chỉnh..." });
+        try {
+          const subbedOut = res.output_path.replace(/\.mp4$/i, "_subbed.mp4");
+          const burnRes = await api.burnVideoSubtitles(res.output_path, srtPath, subbedOut, "notion_whiteboard", null, false);
+          finalOutMsg += ` | Hardsub: ${burnRes.output_path}`;
+        } catch (subErr: any) {
+          finalOutMsg += ` | (Cảnh báo lỗi phụ đề: ${errText(subErr)})`;
+        }
+      }
+
       setStatusMsg({
-        text: `Xuất thành công toàn bộ dự án (${res.scenes_count || scenes.length} cảnh): ${res.output_path}`,
+        text: finalOutMsg,
         ok: true,
       });
     } catch (e: any) {
@@ -1580,6 +1595,15 @@ export function WhiteboardEditor() {
           <button className="secondary-btn" onClick={handleSaveProject} disabled={loading} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
             <Save size={14} /> Lưu Dự Án
           </button>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", userSelect: "none" }} title="Tự động gắn phụ đề rời (SRT) chết lên video hoàn chỉnh sau khi render xong">
+            <input
+              type="checkbox"
+              checked={autoBurnSubtitles}
+              onChange={(e) => setAutoBurnSubtitles(e.target.checked)}
+              disabled={loading || !srtPath}
+            />
+            <span style={{ color: !srtPath ? "#94a3b8" : "inherit" }}>Gắn Hardsub (SRT)</span>
+          </label>
           <button
             className="primary-btn"
             onClick={() => handleRenderFullProject(false)}
