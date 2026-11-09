@@ -3039,6 +3039,7 @@ pub async fn burn_video_subtitles(
     preset: Option<crate::models::SubtitlePreset>,
     custom_style: Option<crate::models::SubtitleStyleConfig>,
     is_portrait: Option<bool>,
+    kinetic_highlight: Option<bool>,
     app_handle: tauri::AppHandle,
 ) -> Result<SubtitleBurnResult, AppError> {
     let video_p = Path::new(&video_path);
@@ -3065,16 +3066,43 @@ pub async fn burn_video_subtitles(
         crate::models::SubtitleStyleConfig::from_preset(p, portrait)
     };
 
-    let force_style = style.to_force_style_string();
-
-    // 2. Escape đường dẫn file SRT cho bộ lọc FFmpeg subtitles
-    // Trên Windows: D:\path\sub.srt -> D\:/path/sub.srt và escape dấu nháy đơn
-    let srt_escaped = srt_path
-        .replace('\\', "/")
-        .replace(':', "\\:")
-        .replace('\'', "'\\''");
-
-    let filter_arg = format!("subtitles='{}':force_style='{}'", srt_escaped, force_style);
+    // 2. Xử lý Kinetic Typography nếu được bật (Cinecode punch keywords & chunks)
+    let enable_kinetic = kinetic_highlight.unwrap_or(false);
+    let filter_arg = if enable_kinetic {
+        let (width, height) = if portrait { (1080, 1920) } else { (1920, 1080) };
+        let highlight_col = if style.primary_color == "&H0000FFFF" { "&H0000FF00" } else { "&H0000FFFF" };
+        match crate::kinetic_subtitles::KineticGenerator::convert_srt_to_kinetic_ass(
+            srt_p,
+            &style,
+            highlight_col,
+            width,
+            height,
+        ) {
+            Ok(ass_path) => {
+                let ass_escaped = ass_path
+                    .to_string_lossy()
+                    .replace('\\', "/")
+                    .replace(':', "\\:")
+                    .replace('\'', "'\\''");
+                format!("ass='{}'", ass_escaped)
+            }
+            Err(_) => {
+                let force_style = style.to_force_style_string();
+                let srt_escaped = srt_path
+                    .replace('\\', "/")
+                    .replace(':', "\\:")
+                    .replace('\'', "'\\''");
+                format!("subtitles='{}':force_style='{}'", srt_escaped, force_style)
+            }
+        }
+    } else {
+        let force_style = style.to_force_style_string();
+        let srt_escaped = srt_path
+            .replace('\\', "/")
+            .replace(':', "\\:")
+            .replace('\'', "'\\''");
+        format!("subtitles='{}':force_style='{}'", srt_escaped, force_style)
+    };
 
     // 3. Thực thi FFmpeg sidecar
     let sidecar_cmd = app_handle

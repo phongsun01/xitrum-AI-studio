@@ -697,7 +697,8 @@ export const api = {
     outputPath: string,
     preset?: SubtitlePreset | null,
     customStyle?: SubtitleStyleConfig | null,
-    isPortrait?: boolean | null
+    isPortrait?: boolean | null,
+    kineticHighlight?: boolean | null
   ) =>
     invoke<SubtitleBurnResult>("burn_video_subtitles", {
       videoPath,
@@ -706,6 +707,7 @@ export const api = {
       preset: preset ?? null,
       customStyle: customStyle ?? null,
       isPortrait: isPortrait ?? null,
+      kineticHighlight: kineticHighlight ?? null,
     }),
 
   extractAudioForSubtitles: (videoPath: string, outputWavPath: string) =>

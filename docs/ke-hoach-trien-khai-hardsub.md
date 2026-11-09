@@ -53,9 +53,12 @@ Người xem trên các nền tảng video ngắn (TikTok, Facebook Reels, YouTu
 
 ---
 
-### Giai đoạn 3: Nâng cấp Kinetic Typography (Học hỏi từ Cinecode)
-- [ ] **3.1. Gom nhóm từ theo khoảng lặng giọng nói**: Ngắt cụm 3–5 từ dựa trên pause gap > 0.25s từ Whisper.
-- [ ] **3.2. Hiệu ứng Kinetic Highlight**: Làm nổi bật các từ khóa cảm xúc, số liệu, tên riêng theo nhịp đọc.
+### Giai đoạn 3: Nâng cấp Kinetic Typography (Học hỏi từ Cinecode) (Đã Hoàn Thành)
+- [x] **3.1. Gom nhóm từ tối ưu tốc độ đọc**: Ngắt cụm 3–5 từ tối ưu cho mắt người lướt trên màn hình dọc (Reels/TikTok/Shorts).
+- [x] **3.2. Hiệu ứng Kinetic Highlight & Punch Accent**:
+  - Tự động nhận diện số liệu (100, 2024...), ký hiệu tài chính ($, %, đ), từ viết hoa (AI, CEO, TOP...) và các tính từ kích thích cảm xúc (đột phá, bùng nổ, bí mật...).
+  - Render thẻ ASS với kích thước phóng to (+8%) và đổi màu rực rỡ theo nhịp.
+  - Tích hợp công tắc bật/tắt Kinetic Subtitles trên giao diện SubtitleTool.
 
 ---
 

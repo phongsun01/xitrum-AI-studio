@@ -9,6 +9,7 @@ pub mod models;
 pub mod paths;
 pub mod queue;
 pub mod render_planner;
+pub mod kinetic_subtitles;
 pub mod secret_store;
 pub mod state;
 

@@ -26,6 +26,7 @@ export function SubtitleTool() {
   const [primaryColor, setPrimaryColor] = useState("&H0000FFFF"); // Vàng chanh ASS
   const [borderStyle, setBorderStyle] = useState<number>(3); // 3: box, 1: outline
   const [marginV, setMarginV] = useState<number>(120);
+  const [kineticHighlight, setKineticHighlight] = useState<boolean>(true); // Cinecode punch accents
 
   // Status & Progress
   const [loading, setLoading] = useState(false);
@@ -161,7 +162,8 @@ export function SubtitleTool() {
         outputPath,
         selectedPreset,
         customConfig,
-        isPortrait
+        isPortrait,
+        kineticHighlight
       );
 
       setResultVideo({ path: res.output_path, size: res.file_size });
@@ -391,6 +393,24 @@ export function SubtitleTool() {
                 style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid #444", background: "#222", color: "#fff", fontSize: "0.85rem" }}
               />
             </div>
+          </div>
+
+          {/* Cinecode Kinetic Accent Toggle */}
+          <div style={{ padding: "10px 12px", background: "rgba(0, 229, 255, 0.08)", border: "1px solid rgba(0, 229, 255, 0.25)", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#00e5ff", display: "flex", alignItems: "center", gap: "6px" }}>
+                <Sparkles size={14} /> Chữ Động Kinetic (Học từ Cinecode)
+              </span>
+              <span style={{ fontSize: "0.75rem", opacity: 0.75 }}>
+                Tự động ngắt cụm 3-4 từ, phóng to và đổi màu làm nổi bật các từ khóa cảm xúc/số liệu.
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={kineticHighlight}
+              onChange={(e) => setKineticHighlight(e.target.checked)}
+              style={{ width: "18px", height: "18px", cursor: "pointer", accentColor: "#00e5ff" }}
+            />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
