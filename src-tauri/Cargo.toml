@@ -1,6 +1,6 @@
 [package]
 name = "xitrum-ai-studio"
-version = "0.8.3"
+version = "0.8.4"
 description = "Xitrum AI Studio desktop app on Tauri v2"
 authors = ["you"]
 edition = "2021"

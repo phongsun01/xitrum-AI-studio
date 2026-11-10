@@ -1,0 +1,52 @@
+diff --git a/sidecar-whiteboard/tests/test_annotation_publication.py b/sidecar-whiteboard/tests/test_annotation_publication.py
+index 9b0e286..0dad01d 100644
+--- a/sidecar-whiteboard/tests/test_annotation_publication.py
++++ b/sidecar-whiteboard/tests/test_annotation_publication.py
+@@ -1,9 +1,11 @@
+ """Atomic no-overwrite publication protects existing custom and versioned files."""
+ import json
+ from pathlib import Path
++import errno
+ import sys
+ import tempfile
+ import unittest
++from unittest import mock
+ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ from whiteboard_runner import save_annotation_output
+ 
+@@ -33,5 +35,18 @@ class AnnotationPublicationTests(unittest.TestCase):
+             save_annotation_output({'new':True}, str(target), True)
+             self.assertEqual(json.loads(target.read_text()), {'new':True})
+ 
++    def test_filesystem_without_hard_links_still_publishes_without_overwriting(self):
++        # exFAT/FAT32 trên ổ ngoài không hỗ trợ os.link: không được làm hỏng việc tạo annotation mới.
++        with tempfile.TemporaryDirectory() as d:
++            fresh, existing = Path(d) / 'new.json', Path(d) / 'keep.json'
++            existing.write_bytes(b'manual edits')
++            with mock.patch('os.link', side_effect=OSError(errno.EPERM, 'no hard links')):
++                save_annotation_output({'sceneId': 'n'}, str(fresh), False)
++                with self.assertRaisesRegex(ValueError, 'ANNOTATION_EXISTS'):
++                    save_annotation_output({'sceneId': 'x'}, str(existing), False)
++            self.assertEqual(json.loads(fresh.read_text()), {'sceneId': 'n'})
++            self.assertEqual(existing.read_bytes(), b'manual edits')
++            self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ['keep.json', 'new.json'])
++
+ 
+ if __name__ == '__main__': unittest.main()
+diff --git a/sidecar-whiteboard/whiteboard_runner.py b/sidecar-whiteboard/whiteboard_runner.py
+index 4f86e6b..48e1015 100644
+--- a/sidecar-whiteboard/whiteboard_runner.py
++++ b/sidecar-whiteboard/whiteboard_runner.py
+@@ -363,6 +363,12 @@ def save_annotation_output(annotation, output_path, overwrite):
+                 os.link(temp_path, output_path)
+             except FileExistsError:
+                 raise ValueError(f"ANNOTATION_EXISTS: {output_path}") from None
++            except OSError:
++                # Hệ tệp không hỗ trợ hard link (exFAT/FAT32 trên ổ ngoài, một số thư mục mạng...):
++                # vẫn không được ghi đè; kiểm tra rồi đổi tên (còn một khoảng hở rất nhỏ giữa hai bước).
++                if os.path.exists(output_path):
++                    raise ValueError(f"ANNOTATION_EXISTS: {output_path}") from None
++                os.rename(temp_path, output_path)
+     finally:
+         if temp_path and os.path.exists(temp_path):
+             os.unlink(temp_path)

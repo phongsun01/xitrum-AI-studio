@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { api, TaskItem, AppConfig, TemplateItem } from "./api";
 import { TemplateLibrary } from "./components/TemplateLibrary";
 import { ToastContainer, ToastItem } from "./components/Toast";
@@ -428,7 +428,7 @@ function App() {
         <header className="top-bar">
           <div className="title-section">
             <h1>Xitrum AI Studio</h1>
-            <span className="version-badge">v0.8.3 • Rust Multi-Lane • Offline Engine</span>
+            <span className="version-badge">v0.8.4 • Rust Multi-Lane • Offline Engine</span>
           </div>
 
           {/* F14: Multi-Lane Status Indicators */}

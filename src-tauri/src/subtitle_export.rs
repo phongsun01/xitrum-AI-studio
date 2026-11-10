@@ -2,6 +2,43 @@
 use crate::errors::AppError;
 use std::path::PathBuf;
 
+/// Recover only an exact filename beside the project/video; never choose another SRT.
+pub(crate) fn resolve_subtitle_path(
+    path: &std::path::Path,
+    directory: &std::path::Path,
+) -> Result<PathBuf, AppError> {
+    match std::fs::canonicalize(path) {
+        Ok(found) if found.is_file() => return Ok(found),
+        Ok(_) => {
+            return Err(AppError::Validation(format!(
+                "Phụ đề không phải là tệp: {}",
+                path.display()
+            )))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(AppError::Other(format!(
+                "Không thể đọc phụ đề '{}': {}",
+                path.display(),
+                e
+            )))
+        }
+    }
+    if let Some(name) = path.file_name() {
+        let candidate = directory.join(name);
+        if candidate.is_file() {
+            let found = std::fs::canonicalize(&candidate)?;
+            tracing::warn!(original = %path.display(), resolved = %found.display(), "Đã khôi phục đường dẫn phụ đề cùng tên");
+            return Ok(found);
+        }
+    }
+    Err(AppError::Other(format!(
+        "Không tìm thấy tệp phụ đề '{}'; cũng không có tệp cùng tên trong '{}'. Hãy chọn lại SRT.",
+        path.display(),
+        directory.display()
+    )))
+}
+
 pub(crate) struct SubtitleExport {
     pub video_path: PathBuf,
     pub srt_path: PathBuf,
@@ -17,8 +54,10 @@ impl SubtitleExport {
                 "Chưa chọn đường dẫn video xuất".into(),
             ));
         }
-        let video_path = std::fs::canonicalize(video)?;
-        let srt_path = std::fs::canonicalize(srt)?;
+        let video_path = std::fs::canonicalize(video)
+            .map_err(|e| AppError::Other(format!("Không thể đọc video '{}': {}", video, e)))?;
+        let srt_path =
+            resolve_subtitle_path(std::path::Path::new(srt), video_path.parent().unwrap())?;
         if !video_path.is_file() || !srt_path.is_file() {
             return Err(AppError::Validation("Video và phụ đề phải là tệp".into()));
         }
@@ -116,6 +155,34 @@ mod tests {
             dir.join(name).to_str().unwrap(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn stale_subtitle_directory_recovers_exact_filename_only() {
+        let dir = fixture();
+        let stale = dir.join("v003").join("tiếng Việt.srt");
+        let job = SubtitleExport::new(
+            dir.join("input.mp4").to_str().unwrap(),
+            stale.to_str().unwrap(),
+            dir.join("output.mp4").to_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            job.srt_path,
+            std::fs::canonicalize(dir.join("tiếng Việt.srt")).unwrap()
+        );
+        job.srt_filter("FontName=Arial", 2000).unwrap();
+        assert_eq!(
+            std::fs::read(job.work_dir.join("sub.srt")).unwrap(),
+            b"original-subtitles"
+        );
+        drop(job);
+        std::fs::remove_file(dir.join("tiếng Việt.srt")).unwrap();
+        std::fs::write(dir.join("another.srt"), b"do-not-select-this").unwrap();
+        let error = resolve_subtitle_path(&stale, &dir).unwrap_err().to_string();
+        assert!(error.contains("tiếng Việt.srt"));
+        assert!(error.contains("Hãy chọn lại SRT"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

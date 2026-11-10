@@ -1,9 +1,11 @@
 """Atomic no-overwrite publication protects existing custom and versioned files."""
 import json
 from pathlib import Path
+import errno
 import sys
 import tempfile
 import unittest
+from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from whiteboard_runner import save_annotation_output
 
@@ -32,6 +34,19 @@ class AnnotationPublicationTests(unittest.TestCase):
             target.write_text('old')
             save_annotation_output({'new':True}, str(target), True)
             self.assertEqual(json.loads(target.read_text()), {'new':True})
+
+    def test_filesystem_without_hard_links_still_publishes_without_overwriting(self):
+        # exFAT/FAT32 trên ổ ngoài không hỗ trợ os.link: không được làm hỏng việc tạo annotation mới.
+        with tempfile.TemporaryDirectory() as d:
+            fresh, existing = Path(d) / 'new.json', Path(d) / 'keep.json'
+            existing.write_bytes(b'manual edits')
+            with mock.patch('os.link', side_effect=OSError(errno.EPERM, 'no hard links')):
+                save_annotation_output({'sceneId': 'n'}, str(fresh), False)
+                with self.assertRaisesRegex(ValueError, 'ANNOTATION_EXISTS'):
+                    save_annotation_output({'sceneId': 'x'}, str(existing), False)
+            self.assertEqual(json.loads(fresh.read_text()), {'sceneId': 'n'})
+            self.assertEqual(existing.read_bytes(), b'manual edits')
+            self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ['keep.json', 'new.json'])
 
 
 if __name__ == '__main__': unittest.main()

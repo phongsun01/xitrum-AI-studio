@@ -363,6 +363,12 @@ def save_annotation_output(annotation, output_path, overwrite):
                 os.link(temp_path, output_path)
             except FileExistsError:
                 raise ValueError(f"ANNOTATION_EXISTS: {output_path}") from None
+            except OSError:
+                # Hệ tệp không hỗ trợ hard link (exFAT/FAT32 trên ổ ngoài, một số thư mục mạng...):
+                # vẫn không được ghi đè; kiểm tra rồi đổi tên (còn một khoảng hở rất nhỏ giữa hai bước).
+                if os.path.exists(output_path):
+                    raise ValueError(f"ANNOTATION_EXISTS: {output_path}") from None
+                os.rename(temp_path, output_path)
     finally:
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)

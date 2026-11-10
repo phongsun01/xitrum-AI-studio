@@ -5,7 +5,19 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.8.3 (Atomic Subtitle Export, Kinetic Subtitles & Whiteboard V2 Compat)
+## 📦 Phiên Bản Hiện Tại: v0.8.4 (Khôi phục SRT thông minh & Xuất Annotation trên exFAT/FAT32)
+
+Bản cập nhật tập trung nâng cao độ ổn định khi làm việc với dự án di chuyển thư mục và lưu trữ trên ổ ngoài:
+
+### 🔄 1. Tự Động Khôi Phục Đường Dẫn Phụ Đề SRT
+- **Khôi Phục Chính Xác Theo Tên Tệp**: Khi mở dự án Whiteboard hoặc xuất Hardsub mà đường dẫn SRT cũ không còn tồn tại (do đổi/di chuyển thư mục), hệ thống tự động tìm tệp SRT trùng tên nằm cạnh file dự án hoặc file video nguồn, không chọn nhầm file khác và không làm thay đổi cấu trúc file dự án gốc.
+
+### 💾 2. Xuất Annotation An Toàn Trên Ổ Ngoài (exFAT / FAT32)
+- **Fallback Không Dùng Hard Link**: Xử lý mượt mà việc lưu annotation mới khi hệ thống tệp không hỗ trợ `os.link`, vẫn bảo đảm cơ chế kiểm tra chống ghi đè an toàn đối với các annotation đã tùy chỉnh thủ công.
+
+---
+
+## 📦 Phiên Bản Trước: v0.8.3 (Atomic Subtitle Export, Kinetic Subtitles & Whiteboard V2 Compat)
 
 Bản cập nhật tối ưu hóa hệ thống xuất Hardsub, nâng cấp phụ đề động phong cách Cinecode và chuẩn hóa định dạng dự án Whiteboard V2:
 

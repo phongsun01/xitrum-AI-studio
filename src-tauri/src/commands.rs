@@ -2418,8 +2418,17 @@ pub async fn load_whiteboard_project(
 ) -> Result<WhiteboardProject, AppError> {
     let content = std::fs::read_to_string(&file_path)
         .map_err(|e| AppError::Other(format!("Lỗi đọc tệp dự án {}: {}", file_path, e)))?;
-    let project = crate::whiteboard_project_compat::decode_project(&content)
+    let mut project = crate::whiteboard_project_compat::decode_project(&content)
         .map_err(|e| AppError::Other(format!("Lỗi mở dự án {}: {}", file_path, e)))?;
+    if let Some(srt) = project.source_srt_path.as_deref().filter(|s| !s.is_empty()) {
+        let project_file = std::path::absolute(&file_path)?;
+        // Missing subtitles must not prevent opening a project for repair.
+        if let Ok(resolved) = crate::subtitle_export::resolve_subtitle_path(
+            Path::new(srt), project_file.parent().unwrap(),
+        ) {
+            project.source_srt_path = Some(resolved.to_string_lossy().into_owned());
+        }
+    }
     Ok(project)
 }
 
@@ -2770,6 +2779,23 @@ mod whiteboard_review_regression_tests {
         cover.png_data_url = "data:image/png;base64,broken".into();
         assert!(thumbnail_png(cover).is_err());
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn whiteboard_load_recovers_srt_without_rewriting_project() {
+        let dir = std::env::temp_dir().join(format!("wb-relocate-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let actual = dir.join("voice.aligned.srt");
+        std::fs::write(&actual, "1\n00:00:00,000 --> 00:00:01,000\nXin chào\n").unwrap();
+        let mut p = project();
+        p.source_srt_path = Some(dir.join("v003/voice.aligned.srt").to_string_lossy().into_owned());
+        let source = serde_json::to_string(&p).unwrap();
+        let path = dir.join("project.whiteboard.json");
+        std::fs::write(&path, &source).unwrap();
+        let loaded = tauri::async_runtime::block_on(load_whiteboard_project(path.to_string_lossy().into_owned())).unwrap();
+        assert_eq!(loaded.source_srt_path.unwrap(), std::fs::canonicalize(actual).unwrap().to_string_lossy());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), source);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -3175,7 +3201,11 @@ pub async fn burn_video_subtitles(
     subtitle_offset_ms: Option<u64>,
     app_handle: tauri::AppHandle,
 ) -> Result<SubtitleBurnResult, AppError> {
-    let export = crate::subtitle_export::SubtitleExport::new(&video_path, &srt_path, &output_path)?;
+    let export = crate::subtitle_export::SubtitleExport::new(&video_path, &srt_path, &output_path)
+        .map_err(|e| {
+            tracing::error!(video = %video_path, subtitles = %srt_path, output = %output_path, error = %e, "Không thể chuẩn bị xuất phụ đề");
+            e
+        })?;
     let video_path = export.video_path.to_string_lossy().into_owned();
     let srt_path = export.srt_path.to_string_lossy().into_owned();
     let srt_p = Path::new(&srt_path);
