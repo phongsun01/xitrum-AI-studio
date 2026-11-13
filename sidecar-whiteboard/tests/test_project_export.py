@@ -129,9 +129,9 @@ class ProjectExportTest(unittest.TestCase):
         prog = []
         m = self.pe.export_project(self.project(), str(out), progress=lambda p, s: prog.append(p))
         info = self.pe.mu.probe_media(out)
-        self.assertEqual(info["video"]["frames"], 45)
+        self.assertEqual(info["video"]["frames"], 75)
         self.assertIsNotNone(info["audio"])
-        self.assertAlmostEqual(info["duration_s"], 4.5, delta=0.1)
+        self.assertAlmostEqual(info["duration_s"], 7.5, delta=0.1)
         self.assertEqual(len({(s["id"]) for s in m["scenes"]}), 3)
         self.assertEqual(prog, sorted(prog))
         self.assertEqual(prog[-1], 100.0)
@@ -182,14 +182,14 @@ class ProjectExportTest(unittest.TestCase):
         self.pe.export_project(p, str(out))
         info = self.pe.mu.probe_media(out)
         self.assertIsNone(info["audio"])
-        self.assertEqual(info["video"]["frames"], 45)
+        self.assertEqual(info["video"]["frames"], 75)
 
     # ── xuất một cảnh giữa bài ──
     def test_05_export_single_middle_scene(self):
         out = self.tmp / "middle.mp4"
         self.pe.export_project(self.project(), str(out), scene_ids=["s2"])
         info = self.pe.mu.probe_media(out)
-        self.assertEqual(info["video"]["frames"], 20)
+        self.assertEqual(info["video"]["frames"], 50)
         self.assertAlmostEqual(_dominant(self.window(_decode_mono(out), 0, 2000)), 880.0, delta=40)
 
     # ── audio dài hơn timeline ──
@@ -199,8 +199,8 @@ class ProjectExportTest(unittest.TestCase):
         out = self.tmp / "long.mp4"
         m = self.pe.export_project(self.project(masterAudio={"path": str(long_master)}), str(out))
         info = self.pe.mu.probe_media(out)
-        self.assertEqual(info["video"]["frames"], 65)
-        self.assertAlmostEqual(info["duration_s"], 6.5, delta=0.1)
+        self.assertEqual(info["video"]["frames"], 95)
+        self.assertAlmostEqual(info["duration_s"], 9.5, delta=0.1)
         self.assertEqual(m["scenes"][2]["durationMs"], 3000)
         self.assertTrue(any("kéo dài" in w for w in m["warnings"]))
         sig = _decode_mono(out)
@@ -248,7 +248,7 @@ class ProjectExportTest(unittest.TestCase):
         p["scenes"][1]["enabled"] = False
         out = self.tmp / "skip.mp4"
         self.pe.export_project(p, str(out))
-        self.assertEqual(self.pe.mu.probe_media(out)["video"]["frames"], 25)
+        self.assertEqual(self.pe.mu.probe_media(out)["video"]["frames"], 55)
 
 
 if __name__ == "__main__":

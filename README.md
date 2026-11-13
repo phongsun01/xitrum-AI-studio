@@ -5,7 +5,24 @@
 
 ---
 
-## 📦 Phiên Bản Hiện Tại: v0.8.4 (Khôi phục SRT thông minh & Xuất Annotation trên exFAT/FAT32)
+## 📦 Phiên Bản Hiện Tại: v0.8.5 (Bút Lông Thư Pháp Mặc Định, Tái Dùng Cache Nhanh & Layout Ảnh Bìa/Ảnh Cuối)
+
+Bản cập nhật tập trung nâng cao trải nghiệm Whiteboard, tối ưu hóa tái dùng cảnh đã vẽ và chuẩn hóa giao diện:
+
+### 🖌️ 1. Bút Lông Thư Pháp Mặc Định Toàn Dự Án
+- Đặt **Bút lông thư pháp (`calligraphy-brush.png`)** làm bút mặc định khi khởi tạo và làm mới dự án.
+
+### ⚡ 2. Khắc Phục Tái Dùng Cảnh Đã Vẽ & Ghép Nhanh
+- **Sửa Lỗi Lệch Fingerprint Engine**: Đồng bộ chuẩn xác định danh phiên bản cache sang `review-fixes-v2`, giúp tái dùng 100% các phân cảnh đã render trước đó khi chỉ thay đổi thumbnail hoặc ảnh kết thúc.
+- **Khắc Phục Đường Dẫn Xuất Trong Modal Resume**: Đảm bảo đường dẫn đích luôn được truyền chuẩn xác vào executor khi tiếp tục xuất dự án.
+
+### 🖼️ 3. Bố Cục Thẻ Ảnh Bìa & Ảnh Cuối Gọn Gàng
+- Bố trí thẻ **Ảnh bìa** và **Ảnh cuối video** nằm song song trên 1 dòng chia đôi (grid 50/50), tích hợp khung preview thumbnail 16:9 / 9:16 nhỏ gọn bên phải, loại bỏ hoàn toàn hiện tượng khung preview bè ngang choán màn hình.
+- Mặc định tích sẵn tùy chọn **Gắn Hardsub (SRT)** khi xuất dự án.
+
+---
+
+## 📦 Phiên Bản Trước: v0.8.4 (Khôi phục SRT thông minh & Xuất Annotation trên exFAT/FAT32)
 
 Bản cập nhật tập trung nâng cao độ ổn định khi làm việc với dự án di chuyển thư mục và lưu trữ trên ổ ngoài:
 

@@ -42,11 +42,11 @@ class ThumbnailExportTests(unittest.TestCase):
         self.run_ffmpeg(*args, "-c:v", "libx264", "-pix_fmt", "yuv420p", scene)
         return scene
 
-    def assert_boundary(self, output, fps, width=320, height=180):
+    def assert_boundary(self, output, fps, width=320, height=180, ending_seconds=0):
         info = json.loads(subprocess.check_output([FFPROBE, "-v", "error", "-show_streams", "-of", "json", str(output)]))
         video = next(s for s in info["streams"] if s["codec_type"] == "video")
-        self.assertEqual(int(video["nb_frames"]), fps * 3)
-        self.assertAlmostEqual(float(video["duration"]), 3, places=3)
+        self.assertEqual(int(video["nb_frames"]), fps * (3 + ending_seconds))
+        self.assertAlmostEqual(float(video["duration"]), 3 + ending_seconds, places=3)
         frames = self.run_ffmpeg("-i", output, "-vf", f"select='eq(n,{2*fps-1})+eq(n,{2*fps})'",
                                  "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "-")
         frames = np.frombuffer(frames, dtype=np.uint8).reshape(2, height, width, 3)
@@ -72,7 +72,7 @@ class ThumbnailExportTests(unittest.TestCase):
         request = {"video_paths": [str(scene)], "output_path": str(output), "thumbnail_png": self.cover}
         runner.handle_merge_scenes(request)
         runner.handle_merge_scenes(request)  # Reused scene, fresh final assembly.
-        self.assert_boundary(output, 30)
+        self.assert_boundary(output, 30, ending_seconds=3)
         self.assert_delayed_audio(output)
         self.assertFalse(list(self.root.glob("wb-*")))
 
@@ -83,7 +83,7 @@ class ThumbnailExportTests(unittest.TestCase):
         output = self.root / "output.mp4"
         runner.handle_merge_scenes({"video_paths": [str(scene)], "output_path": str(output),
                                     "master_audio_path": str(master), "thumbnail_png": self.cover})
-        self.assert_boundary(output, 30)
+        self.assert_boundary(output, 30, ending_seconds=3)
         self.assert_delayed_audio(output)
 
     def test_corrupt_cover_fails_without_output(self):

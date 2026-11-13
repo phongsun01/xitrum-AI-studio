@@ -116,7 +116,7 @@ def handle_parse_srt(req):
                 "endMs": cue["endMs"],
                 "timelineStartMs": start_ms,
                 "timelineEndMs": end_ms,
-                "sceneDurationMs": max(1000, end_ms - start_ms),
+                "sceneDurationMs": max(1, end_ms - start_ms),
                 "belowMin": False,
                 "aboveMax": False,
                 "cueRange": [cue["index"], cue["index"]],
@@ -476,6 +476,11 @@ def handle_render_scene(req):
     if effective["subject_first"]:
         cmd_args.append("--subject-first")
     duration_ms = req.get("duration_ms")
+    ann = json.loads(Path(annotation_path).read_text())
+    if ann.get("silentFinal") and not audio_path:
+        from whiteboard_playback import scene_duration_ms, drawing_end_ms
+        duration_ms = scene_duration_ms(duration_ms or ann.get("sceneDurationMs", 0),
+            drawing_end_ms(ann), 0, ann.get("holdDurationMs", 2000))
     if duration_ms is not None and int(duration_ms) > 0:
         cmd_args += ["--total-ms", str(int(duration_ms))]
     if ink_path:
@@ -572,6 +577,11 @@ def handle_merge_scenes(req):
             body_out = os.path.join(tmp, "body.mp4")
             if not whiteboard_audio.mux_video_and_audio(concat_out, master_audio_path, body_out):
                 raise RuntimeError(f"Gắn master audio thất bại: {output_path}")
+        from whiteboard_ending import append_ending
+        ending_out = os.path.join(tmp, "with-ending.mp4")
+        send_progress(req.get("task_id", ""), 96, "Đang chèn ảnh cuối 3 giây...")
+        append_ending(body_out, ending_out, req.get("ending_image_path"))
+        body_out = ending_out
         if cover_png:
             from whiteboard_thumbnail import prepend_thumbnail
             send_progress(req.get("task_id", ""), 97, "Đang chèn thumbnail 2 giây đầu...")
@@ -676,6 +686,7 @@ HANDLERS = {
     "parse_srt": handle_parse_srt,
     "inspect_wb_import": handle_inspect_wb_import,
     "generate_annotation": handle_generate_annotation,
+    "prepare_playback": lambda req: __import__("whiteboard_playback").prepare_playback(req["project"], req["output_path"]),
     "render_scene": handle_render_scene,
     "merge_scenes": handle_merge_scenes,
     "verify_cache": handle_verify_cache,

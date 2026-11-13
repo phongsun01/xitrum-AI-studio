@@ -432,6 +432,11 @@ def export_project(project, output_path, scene_ids=None, progress=None, keep_wor
         if problems:
             partial.unlink(missing_ok=True)
             raise RuntimeError("Video xuất ra không đạt kiểm tra: " + "; ".join(problems))
+        from whiteboard_ending import append_ending, ENDING_SECONDS
+        ending_output = work / "with-ending.mp4"
+        append_ending(str(partial), str(ending_output), project.get("endingImagePath"))
+        os.replace(ending_output, partial)
+        expected_frames += round(fps * ENDING_SECONDS)
         os.replace(partial, output)
 
         manifest = {

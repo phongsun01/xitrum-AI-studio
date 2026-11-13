@@ -143,10 +143,14 @@ pub enum WhiteboardRequest {
         master_audio_path: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thumbnail_png: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ending_image_path: Option<String>,
         /// Lật trang phải → trái giữa các cảnh (ms); None/0 = tắt. Không đổi tổng thời lượng.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         page_turn_ms: Option<u32>,
     },
+    #[serde(rename = "prepare_playback")]
+    PreparePlayback { project: serde_json::Value, output_path: String },
     #[serde(rename = "validate_project")]
     ValidateProject {
         #[serde(default)]
@@ -890,6 +894,7 @@ impl WhiteboardPipeline {
         output_path: String,
         master_audio_path: Option<String>,
         thumbnail_png: Option<String>,
+        ending_image_path: Option<String>,
         page_turn_ms: Option<u32>,
         on_progress: &dyn Fn(&serde_json::Value),
     ) -> Result<serde_json::Value> {
@@ -899,9 +904,14 @@ impl WhiteboardPipeline {
             output_path,
             master_audio_path,
             thumbnail_png,
+            ending_image_path,
             page_turn_ms: page_turn_ms.filter(|ms| *ms > 0).map(|ms| ms.min(3000)),
         };
         self.call(req, self.timeouts.merge, "ghép cảnh", on_progress)
+    }
+
+    pub fn prepare_playback(&self, project: serde_json::Value, output_path: String) -> Result<serde_json::Value> {
+        self.call(WhiteboardRequest::PreparePlayback { project, output_path }, self.timeouts.project, "căn thời lượng phát", &|_| {})
     }
 
     /// Kiểm tra dự án (thiếu tệp, annotation vượt thời lượng, audio...). Trả `{errors, warnings}`.
@@ -1257,6 +1267,7 @@ for line in sys.stdin:
             output_path: "o.mp4".into(),
             master_audio_path: None,
             thumbnail_png: None,
+            ending_image_path: None,
             page_turn_ms: ms,
         })
         .unwrap();

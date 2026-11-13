@@ -1828,7 +1828,7 @@ pub async fn merge_whiteboard_scenes(
 ) -> Result<serde_json::Value, AppError> {
     let wb = Arc::clone(&state.whiteboard);
     whiteboard_blocking(move || {
-        wb.merge_scenes(video_paths, output_path, master_audio_path, None, page_turn_ms, &|p| {
+        wb.merge_scenes(video_paths, output_path, master_audio_path, None, None, page_turn_ms, &|p| {
             let _ = app.emit("whiteboard-progress", p.clone());
         })
     })
@@ -1859,6 +1859,10 @@ pub struct WhiteboardSceneItem {
     pub duration_ms: i64,
     #[serde(rename = "speechEndMs", default, skip_serializing_if = "Option::is_none")]
     pub speech_end_ms: Option<i64>,
+    #[serde(rename = "audioStartMs", default, skip_serializing_if = "Option::is_none")]
+    pub audio_start_ms: Option<i64>,
+    #[serde(rename = "holdDurationMs", default, skip_serializing_if = "Option::is_none")]
+    pub hold_duration_ms: Option<i64>,
     #[serde(default)]
     pub cues: Vec<serde_json::Value>,
     pub status: String,
@@ -2259,6 +2263,8 @@ pub struct WhiteboardProject {
     pub thumbnail: Option<WhiteboardThumbnail>,
     #[serde(rename = "thumbnailDraft", default, skip_serializing_if = "Option::is_none")]
     pub thumbnail_draft: Option<WhiteboardThumbnailDraft>,
+    #[serde(rename = "endingImagePath", default, skip_serializing_if = "Option::is_none")]
+    pub ending_image_path: Option<String>,
     pub scenes: Vec<WhiteboardSceneItem>,
     #[serde(rename = "sourceSrtPath", default, skip_serializing_if = "Option::is_none")]
     pub source_srt_path: Option<String>,
@@ -2461,6 +2467,9 @@ pub async fn render_whiteboard_project(
         std::fs::create_dir_all(out_dir)
             .map_err(|e| anyhow::anyhow!("Không thể tạo thư mục xuất '{}': {}", out_dir.display(), e))?;
 
+        let prepared = wb.prepare_playback(serde_json::to_value(&project)?, output_video_path.clone())?;
+        let subtitle_path = prepared["subtitle_path"].as_str().unwrap_or("").to_string();
+        let project: WhiteboardProject = serde_json::from_value(prepared["project"].clone())?;
         let mut rendered_videos: Vec<String> = Vec::new();
         let total_scenes = project.scenes.len();
 
@@ -2581,6 +2590,7 @@ pub async fn render_whiteboard_project(
             final_tmp_out.clone(),
             project.master_audio_path.clone(),
             Some(cover_png),
+            project.ending_image_path.clone(),
             project.page_turn_ms,
             &|p| {
                 let _ = app.emit("whiteboard-progress", p.clone());
@@ -2607,6 +2617,7 @@ pub async fn render_whiteboard_project(
             "file_size": file_size,
             "scenes_count": total_scenes,
             "merge_result": res,
+            "subtitle_path": subtitle_path,
         }))
     })
     .await
@@ -2743,6 +2754,8 @@ mod whiteboard_review_regression_tests {
         use base64::{engine::general_purpose, Engine as _};
         let mut p = project(); // Old projects without a cover still open.
         assert!(p.thumbnail.is_none());
+        assert!(p.ending_image_path.is_none());
+        p.ending_image_path = Some("custom-ending.jpg".into());
         let mut png = std::io::Cursor::new(Vec::new());
         image::DynamicImage::new_rgb8(1280, 720).write_to(&mut png, image::ImageFormat::Png).unwrap();
         let encoded = general_purpose::STANDARD.encode(png.into_inner());
@@ -2759,6 +2772,7 @@ mod whiteboard_review_regression_tests {
         let name = path.to_string_lossy().to_string();
         tauri::async_runtime::block_on(save_whiteboard_project(name.clone(), p)).unwrap();
         let mut reopened = tauri::async_runtime::block_on(load_whiteboard_project(name)).unwrap();
+        assert_eq!(reopened.ending_image_path.as_deref(), Some("custom-ending.jpg"));
         let cover = reopened.thumbnail.as_mut().unwrap();
         assert_eq!(cover.title, "Tam Anh Chiến Lữ Bố");
         assert_eq!(cover.pen_type, "quill");

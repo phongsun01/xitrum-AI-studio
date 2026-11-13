@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+<defs>
+ <radialGradient id="bg" cx="50%" cy="43%" r="70%"><stop stop-color="#18334b"/><stop offset="1" stop-color="#070f1d"/></radialGradient>
+ <linearGradient id="accent" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#60dfc9"/><stop offset="1" stop-color="#a7eff7"/></linearGradient>
+ <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse"><path d="M64 0H0V64" fill="none" stroke="#b0daef" stroke-opacity=".035"/></pattern>
+</defs>
+<rect width="1080" height="1920" fill="url(#bg)"/><rect width="1080" height="1920" fill="url(#grid)"/>
+<g fill="none" stroke="#75d5cc" stroke-opacity=".12"><circle cx="540" cy="750" r="280"/><circle cx="540" cy="750" r="315" stroke-dasharray="2 14"/>
+<path d="M100 180h110M100 180v90M980 180H870M980 180v90M100 1740h110M100 1740v-90M980 1740H870M980 1740v-90"/></g>
+<g transform="translate(540 690)"><rect x="-108" y="-108" width="216" height="216" rx="56" fill="#122c3e" stroke="#7ae0d0" stroke-opacity=".35"/>
+<path d="M-48 -48L48 48M48 -48L-48 48" stroke="url(#accent)" stroke-width="23" stroke-linecap="round"/>
+<path d="M87 -104v-34M70 -121h34" stroke="#bbf4ee" stroke-width="5" stroke-linecap="round"/>
+</g>
+<text x="540" y="1010" text-anchor="middle" fill="#f5f8fb" font-family="Arial, Helvetica, sans-serif" font-size="152" font-weight="700" letter-spacing="-6">xitrum</text>
+<text x="540" y="1120" text-anchor="middle" fill="#f5f8fb" font-family="Arial, Helvetica, sans-serif" font-size="84" font-weight="700" letter-spacing="-2"><tspan fill="#79e0d1">AI</tspan> studio</text>
+<rect x="495" y="1183" width="90" height="3" rx="1.5" fill="url(#accent)"/>
+<text x="540" y="1260" text-anchor="middle" fill="#a4bdcf" font-family="Arial, Helvetica, sans-serif" font-size="20" letter-spacing="5">IMAGINE. CREATE. INSPIRE.</text>
+<text x="540" y="1618" text-anchor="middle" fill="#728a9f" font-family="Arial, Helvetica, sans-serif" font-size="18" letter-spacing="4">THANK YOU FOR WATCHING</text>
+</svg>

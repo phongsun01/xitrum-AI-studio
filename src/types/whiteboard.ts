@@ -123,6 +123,7 @@ export interface WhiteboardRenderResponse {
   output_path: string;
   file_size: number;
   scenes_count?: number;
+  subtitle_path?: string;
 }
 
 export interface WhiteboardMergeResponse {
@@ -170,6 +171,7 @@ export interface WhiteboardSceneItem {
   timelineEndMs: number;
   durationMs: number;
   speechEndMs?: number;
+  holdDurationMs?: number;
   cues: WhiteboardSrtCue[];
   status: WhiteboardSceneStatus;
   audioPath?: string;
@@ -209,8 +211,8 @@ export interface WhiteboardPenOption {
 }
 
 export const WHITEBOARD_PEN_OPTIONS: WhiteboardPenOption[] = [
-  { id: "pen", name: "Bàn tay vẽ (Mặc định)", filename: "drawing-hand.png", desc: "Tay cầm bút dạ đen vẽ phác họa" },
-  { id: "calligraphy", name: "Bút lông thư pháp", filename: "calligraphy-brush.png", desc: "Bút lông cán tre truyền thống" },
+  { id: "calligraphy", name: "Bút lông thư pháp (Mặc định)", filename: "calligraphy-brush.png", desc: "Bút lông cán tre truyền thống" },
+  { id: "pen", name: "Bàn tay vẽ", filename: "drawing-hand.png", desc: "Tay cầm bút dạ đen vẽ phác họa" },
   { id: "bamboo", name: "Bút cán tre", filename: "bamboo-pen.png", desc: "Bút mực cán tre mộc mạc" },
   { id: "vintage", name: "Bút máy cổ điển", filename: "vintage-pen.png", desc: "Bút máy ngòi vàng sang trọng" },
   { id: "technical", name: "Bút vẽ kỹ thuật", filename: "technical-drawing-pen.png", desc: "Bút kim / Rapidograph vẽ kiến trúc" },
@@ -286,6 +288,8 @@ export interface WhiteboardProject {
   speechConfig?: WhiteboardSpeechConfig;
   thumbnail?: WhiteboardThumbnail;
   thumbnailDraft?: WhiteboardThumbnailDraft;
+  /** Empty uses the bundled xitrum AI studio end card (3 seconds). */
+  endingImagePath?: string;
   scenes: WhiteboardSceneItem[];
   sourceSrtPath?: string;
   masterAudioPath?: string;

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+<defs>
+ <radialGradient id="bg" cx="50%" cy="40%" r="70%"><stop stop-color="#18334b"/><stop offset="1" stop-color="#070f1d"/></radialGradient>
+ <linearGradient id="accent" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#60dfc9"/><stop offset="1" stop-color="#a7eff7"/></linearGradient>
+ <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse"><path d="M64 0H0V64" fill="none" stroke="#b0daef" stroke-opacity=".035"/></pattern>
+</defs>
+<rect width="1920" height="1080" fill="url(#bg)"/><rect width="1920" height="1080" fill="url(#grid)"/>
+<g fill="none" stroke="#75d5cc" stroke-opacity=".12"><circle cx="960" cy="400" r="250"/><circle cx="960" cy="400" r="285" stroke-dasharray="2 14"/>
+<path d="M140 180h130M140 180v80M1780 180h-130M1780 180v80M140 900h130M140 900v-80M1780 900h-130M1780 900v-80"/></g>
+<g transform="translate(960 365)"><rect x="-83" y="-83" width="166" height="166" rx="45" fill="#122c3e" stroke="#7ae0d0" stroke-opacity=".35"/>
+<path d="M-38 -38L38 38M38 -38L-38 38" stroke="url(#accent)" stroke-width="18" stroke-linecap="round"/>
+<path d="M67 -78v-28M53 -92h28" stroke="#bbf4ee" stroke-width="4" stroke-linecap="round"/>
+</g>
+<text x="960" y="600" text-anchor="middle" fill="#f5f8fb" font-family="Arial, Helvetica, sans-serif" font-size="116" font-weight="700" letter-spacing="-5">xitrum <tspan fill="#79e0d1">AI</tspan> studio</text>
+<rect x="915" y="653" width="90" height="3" rx="1.5" fill="url(#accent)"/>
+<text x="960" y="718" text-anchor="middle" fill="#a4bdcf" font-family="Arial, Helvetica, sans-serif" font-size="23" letter-spacing="8">IMAGINE. CREATE. INSPIRE.</text>
+<text x="960" y="916" text-anchor="middle" fill="#728a9f" font-family="Arial, Helvetica, sans-serif" font-size="18" letter-spacing="4">THANK YOU FOR WATCHING</text>
+</svg>
